@@ -1,26 +1,21 @@
 name: MVS Scan
-
 on:
   schedule:
     # Every 30 minutes
     - cron: '*/30 * * * *'
   workflow_dispatch: {}   # lets you manually trigger a run from the Actions tab
-
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@v5
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
-
+          node-version: '22'
       - name: Install dependencies
         run: npm install
-
       - name: Run MVS scan
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
