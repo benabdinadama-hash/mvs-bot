@@ -1,0 +1,49 @@
+name: MVS Commands
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+jobs:
+  commands:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Run command handler
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node commands.js
+      - name: Commit and push state files (with retry/rebase)
+        run: |
+          git config user.name "mvs-bot"
+          git config user.email "mvs-bot@users.noreply.github.com"
+          git add state.json signals.log.json tg-offset.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+          git commit -m "MVS: update state/offset [skip ci]"
+          success=0
+          for i in 1 2 3 4 5; do
+            git fetch origin "$GITHUB_REF_NAME"
+            if git rebase "origin/$GITHUB_REF_NAME" && git push origin "$GITHUB_REF_NAME"; then
+              success=1
+              break
+            fi
+            echo "Push attempt $i failed, retrying..."
+            git rebase --abort 2>/dev/null || true
+            sleep $((RANDOM % 5 + 2))
+          done
+          if [ "$success" -ne 1 ]; then
+            echo "::error::Failed to push tg-offset/state after 5 attempts."
+            exit 1
+          fi
