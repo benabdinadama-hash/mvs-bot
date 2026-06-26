@@ -1,0 +1,23 @@
+name: MVS Weekly Summary
+on:
+  schedule:
+    # Every Monday 07:00 UTC
+    - cron: '0 7 * * 1'
+  workflow_dispatch: {}
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Send weekly summary
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node weekly-summary.js
