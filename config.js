@@ -1,10 +1,11 @@
 /**
- * MVS — Monthly Value Sniper v8.1
+ * MVS — Monthly Value Sniper v8.2
  * KuCoin API Configuration for Ghana
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
- * TIMEFRAMES:  4H bias gate → 15min entry.
- * SYMBOLS:     8 liquid pairs (more opportunities, same gates — not looser gates).
+ * TIMEFRAMES:  4H bias gate → 15min entry candles, scanned every 45min.
+ * SYMBOLS:     4 liquid pairs — reduced from 8 in v8.1 to fit GitHub Actions
+ *              free-tier minutes on a PRIVATE repo (2000 min/month cap).
  *
  * NO lagging indicators. Every parameter here is structural price/volume data.
  */
@@ -16,11 +17,17 @@ module.exports = {
   TELEGRAM_CHAT_ID:   process.env.TELEGRAM_CHAT_ID   || 'YOUR_CHAT_ID_HERE',
 
   // ── Assets ──────────────────────────────────────────────────────────────
-  // 8 liquid pairs = 8x the chances for the SAME strict gates to find a real
-  // touch. This is how signal frequency goes up without lowering accuracy.
+  // v8.2: reduced from 8 symbols to 4. This repo is PRIVATE, and GitHub
+  // Actions free minutes for private repos are capped at 2000/month. At
+  // 8 symbols x 2 timeframes x a 15-45min cadence, even the 45min-cadence
+  // fix alone wasn't enough margin to be safe — cutting to 4 symbols halves
+  // the KuCoin calls per run (16 -> 8) and gives real headroom instead of
+  // running right up against the quota every month. Kept the 4 most liquid,
+  // tightest-spread pairs for signal quality. To go back to 8, you must
+  // either make the repo public (then GitHub Actions minutes are free and
+  // unlimited) or accept GitHub billing you for the overage.
   SYMBOLS: [
-    'BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT',
-    'BNB-USDT', 'AVAX-USDT', 'LINK-USDT', 'ADA-USDT'
+    'BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT'
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────
@@ -33,7 +40,13 @@ module.exports = {
   ENTRY_BAR_SECONDS: 900,
 
   // ── Scan Frequency ──────────────────────────────────────────────────────
-  SCAN_CRON: '*/15 * * * *',   // matches the 15min entry timeframe
+  // NOTE: this constant is documentation only — the actual cron schedule
+  // lives in .github/workflows/mvs-scan.yml and must be kept in sync with
+  // this value by hand. v8.2: changed from every 15min to every 45min to
+  // fit GitHub Actions' 2000 min/month free quota on a PRIVATE repo (see
+  // the cron comment in mvs-scan.yml for the full math). Entry candles are
+  // still 15min (TIMEFRAME above) — only how OFTEN we check them changed.
+  SCAN_CRON: '*/45 * * * *',
 
   // ── Data lookbacks ──────────────────────────────────────────────────────
   // Scaled to preserve the SAME real-world calendar windows as the old
