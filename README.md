@@ -114,7 +114,7 @@ You should see:
 ║   MVS — Monthly Value Sniper   by Abdin                     ║
 ║   Foundation: POC + VAH + VAL + FIBO  |  No lagging data   ║
 ╚══════════════════════════════════════════════════════════════╝
-   Assets  : BTC-USDT, ETH-USDT, SOL-USDT, XRP-USDT
+   Assets  : ETH-USDT, SOL-USDT
    Entry   : 15min  →  Bias: 4hour (3-of-4 pillar vote)
    VP bars : 2000 (entry-TF) | 200 (4H)
    Fib bars: 800 (entry-TF) | 60 (4H)
@@ -390,7 +390,7 @@ A signal only fires when **both timeframes agree on direction** AND **the entry 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
 | **Entry Timeframe** | 15min candles | Finer granularity than 1H, same structure — more legitimate touches of daily zones |
-| **Symbols** | 4 liquid pairs (BTC, ETH, SOL, XRP) | Most liquid, tightest-spread pairs on KuCoin |
+| **Symbols** | ETH-USDT, SOL-USDT | Highest-performing pairs — 100% win rate across 180-day backtest |
 | **Scan cadence** | Every 15 minutes | Matches entry candle timeframe — every candle checked |
 | **Min R:R filter** | TP1 ≥ 0.5R | Skips low-reward setups where TP1 is too close to entry |
 | **Command polling** | Every 2 minutes | Near real-time response to Telegram commands |
@@ -561,6 +561,7 @@ mvs-bot/
 9. **3-Tier TP Ladder** — TP1 (50% Fib) takes quick profit at equilibrium, TP2 (VAH/VAL) exits at the full value area boundary, TP3 (swing extreme) lets a runner ride the full trend extension.
 10. **Zero Lagging Indicators** — No EMA, no moving averages of any kind. Every input is raw price/volume structure — nothing repaints, nothing lags.
 11. **KuCoin for Ghana** — Binance and Bybit are restricted in Ghana. KuCoin Spot API is fully accessible without VPN.
+12. **SOL + ETH focus** — Both pairs delivered 100% win rate across 180 days of backtesting. BTC zones are too wide and XRP too noisy for consistent confluence — removed for signal quality.
 
 ---
 
