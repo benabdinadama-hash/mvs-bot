@@ -1,0 +1,29 @@
+name: MVS Backtest
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: 'Symbol (leave blank for all 4)'
+        required: false
+      days:
+        description: 'Days to backtest (default 90)'
+        required: false
+        default: '90'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: node backtest.js ${{ inputs.symbol }} ${{ inputs.days }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backtest-report
+          path: |
+            backtest-report.txt
+            backtest-report.json
