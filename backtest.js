@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — 90-DAY BACKTESTER  (backtest.js)
+ *  MVS — 90-DAY BACKTESTER  (backtest.js)  v2 — fixed TP ladder + min R:R filter
  *
  *  Fetches real historical KuCoin data (15min + 4H) for the last 90 days,
  *  replays every 15-minute bar through the exact same MVS strategy logic
@@ -277,16 +277,17 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
 
       let outcome = null;
 
+      // FIX: SL always checked first — if both SL and TP hit same bar, SL wins (conservative)
       if (direction === 'BUY') {
-        if (bar.low  <= slPrice)  outcome = { result: 'SL',  exitPrice: slPrice,  rr: -1 };
-        else if (bar.high >= tp3Price) outcome = { result: 'TP3', exitPrice: tp3Price, rr: openTrade.rr3 };
-        else if (bar.high >= tp2Price) outcome = { result: 'TP2', exitPrice: tp2Price, rr: openTrade.rr2 };
-        else if (bar.high >= tp1Price) outcome = { result: 'TP1', exitPrice: tp1Price, rr: openTrade.rr1 };
+        if      (bar.low  <= slPrice)   outcome = { result: 'SL',  exitPrice: slPrice,  rr: -1 };
+        else if (bar.high >= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price, rr: openTrade.rr3 };
+        else if (bar.high >= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price, rr: openTrade.rr2 };
+        else if (bar.high >= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price, rr: openTrade.rr1 };
       } else {
-        if (bar.high >= slPrice)  outcome = { result: 'SL',  exitPrice: slPrice,  rr: -1 };
-        else if (bar.low  <= tp3Price) outcome = { result: 'TP3', exitPrice: tp3Price, rr: openTrade.rr3 };
-        else if (bar.low  <= tp2Price) outcome = { result: 'TP2', exitPrice: tp2Price, rr: openTrade.rr2 };
-        else if (bar.low  <= tp1Price) outcome = { result: 'TP1', exitPrice: tp1Price, rr: openTrade.rr1 };
+        if      (bar.high >= slPrice)   outcome = { result: 'SL',  exitPrice: slPrice,  rr: -1 };
+        else if (bar.low  <= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price, rr: openTrade.rr3 };
+        else if (bar.low  <= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price, rr: openTrade.rr2 };
+        else if (bar.low  <= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price, rr: openTrade.rr1 };
       }
 
       if (outcome) {
@@ -400,14 +401,19 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
       ? swingWick - atr * CONFIG.SL_ATR_MULT
       : swingWick + atr * CONFIG.SL_ATR_MULT;
     const tp1Price   = fib.level500;
-    const tp2Price   = vp.pocPrice;
-    const tp3Price   = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+    // FIX: TP2 = VAH(BUY)/VAL(SELL) — full value area exit (not POC which is AT entry)
+    // TP3 = swing extreme — trend extension target
+    const tp2Price   = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+    const tp3Price   = direction === 'BUY' ? swingH      : swingL;
     const entryPrice = bestFibLevel;
     const risk       = Math.abs(entryPrice - slPrice);
     if (risk === 0) continue;
     const rr1 = parseFloat((Math.abs(tp1Price - entryPrice) / risk).toFixed(2));
     const rr2 = parseFloat((Math.abs(tp2Price - entryPrice) / risk).toFixed(2));
     const rr3 = parseFloat((Math.abs(tp3Price - entryPrice) / risk).toFixed(2));
+
+    // FIX: Minimum R:R filter — skip trades where TP1 < 0.5R (not worth the risk)
+    if (rr1 < 0.5) continue;
 
     // ── OPEN TRADE ──────────────────────────────────────────────────────────
     cooldownMap[coolKey] = bar.time;
