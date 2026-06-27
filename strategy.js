@@ -809,8 +809,8 @@ const runStrategy = async (symbol) => {
 
     // Minimum R:R filter — skip signals where TP1 < 0.5R (not worth the risk)
     if (risk > 0 && (reward1 / risk) < 0.5) {
-      logDiag(sym, bar, 'MIN_RR_SKIP', direction, { rr1, entryPrice, tp1Price, risk });
-      continue;
+      console.log(`  ⏭️  MIN R:R SKIP — TP1 only ${(reward1/risk).toFixed(2)}R from entry. Signal suppressed.`);
+      return;
     }
 
     // ── STEP 14: TELEGRAM ALERT ──────────────────────────────────────────
