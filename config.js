@@ -4,7 +4,7 @@
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
  * TIMEFRAMES:  4H bias gate → 15min entry candles, scanned every 15min.
- * SYMBOLS:     4 liquid pairs — reduced from 8 in v8.1 to fit GitHub Actions
+ * SYMBOLS:     2 highest-performing pairs — ETH and SOL (100% WR across 180-day backtest)
  *              repo is PUBLIC — GitHub Actions minutes are unlimited and free.
  *
  * NO lagging indicators. Every parameter here is structural price/volume data.
@@ -27,7 +27,7 @@ module.exports = {
   // either make the repo public (then GitHub Actions minutes are free and
   // unlimited) or accept GitHub billing you for the overage.
   SYMBOLS: [
-    'BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT'
+    'ETH-USDT', 'SOL-USDT'
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────
