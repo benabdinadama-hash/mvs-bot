@@ -788,11 +788,15 @@ const runStrategy = async (symbol) => {
     // TP1: 50% Fib — equilibrium, close 50% of position
     const tp1Price = fib.level500;
 
-    // TP2: POC — institutional magnet, runner target
-    const tp2Price = vp.pocPrice;
+    // TP2: VAH (BUY) / VAL (SELL) — full value area exit
+    // FIX v8.4: was vp.pocPrice which is AT the entry confluence level
+    // (0.01–0.1R away), making TP2 hit in 1-2 bars with near-zero reward.
+    // VAH/VAL is the correct structural exit — opposite wall of the value area.
+    const tp2Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
 
-    // TP3: VAH (BUY) or VAL (SELL) — full structural exit
-    const tp3Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+    // TP3: Swing extreme — trend extension target beyond the value area
+    // FIX v8.4: was VAH/VAL, now the actual swing high/low for runners
+    const tp3Price = direction === 'BUY' ? fib.swingHigh : fib.swingLow;
 
     const entryPrice = bestFibLevel;
     const risk    = Math.abs(entryPrice - slPrice);
@@ -802,6 +806,12 @@ const runStrategy = async (symbol) => {
     const rr1 = risk > 0 ? (reward1 / risk).toFixed(2) : 'N/A';
     const rr2 = risk > 0 ? (reward2 / risk).toFixed(2) : 'N/A';
     const rr3 = risk > 0 ? (reward3 / risk).toFixed(2) : 'N/A';
+
+    // Minimum R:R filter — skip signals where TP1 < 0.5R (not worth the risk)
+    if (risk > 0 && (reward1 / risk) < 0.5) {
+      logDiag(sym, bar, 'MIN_RR_SKIP', direction, { rr1, entryPrice, tp1Price, risk });
+      continue;
+    }
 
     // ── STEP 14: TELEGRAM ALERT ──────────────────────────────────────────
     const emoji     = direction === 'BUY' ? '🟢' : '🔴';
