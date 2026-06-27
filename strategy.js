@@ -117,7 +117,9 @@ const logDiag = (entry) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const getKlines = async (symbol, interval, limit) => {
-  const url = `${config.BASE_URL}/market/candles?symbol=${symbol}&type=${interval}`;
+  // KuCoin default is 100 bars — must pass limit explicitly (max 1500)
+  const safeLimit = Math.min(limit + 10, 1500); // +10 buffer for ATR warmup
+  const url = `${config.BASE_URL}/market/candles?symbol=${symbol}&type=${interval}&limit=${safeLimit}`;
   try {
     const res = await axios.get(url, {
       timeout: 15000,
@@ -900,6 +902,12 @@ console.log('');
       await new Promise(r => setTimeout(r, 2000));
     }
   }
+  // Always write state.json so git can commit it and /health shows last run time
+  try {
+    const finalState = loadJSON(STATE_FILE, {});
+    finalState._lastRunAt = new Date().toISOString();
+    fs.writeFileSync(STATE_FILE, JSON.stringify(finalState, null, 2));
+  } catch(e) { /* non-fatal */ }
   console.log('\n✅ Scan complete. Exiting.');
   process.exit(0);
 })();
