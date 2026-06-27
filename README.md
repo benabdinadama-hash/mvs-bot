@@ -392,6 +392,7 @@ A signal only fires when **both timeframes agree on direction** AND **the entry 
 | **Entry Timeframe** | 15min candles | Finer granularity than 1H, same structure — more legitimate touches of daily zones |
 | **Symbols** | 4 liquid pairs (BTC, ETH, SOL, XRP) | Most liquid, tightest-spread pairs on KuCoin |
 | **Scan cadence** | Every 15 minutes | Matches entry candle timeframe — every candle checked |
+| **Min R:R filter** | TP1 ≥ 0.5R | Skips low-reward setups where TP1 is too close to entry |
 | **Command polling** | Every 2 minutes | Near real-time response to Telegram commands |
 | **VP Anchor** | Daily UTC | POC/VAH/VAL frozen per day — no drift between scans. Resets at 00:00 UTC |
 | **VP Lookback** | 2000 bars (15min) | ~21 days of volume data |
@@ -434,8 +435,8 @@ A signal only fires when **both timeframes agree on direction** AND **the entry 
 | Signal | Condition | Action |
 |--------|-----------|--------|
 | **C1** TP1 Hit | Price reaches 50% Fib | Close 50% of position. Move runner SL to entry. |
-| **C2** TP2 Hit | Price reaches POC | Close another portion. Runner continues to TP3. |
-| **C3** TP3 Hit | Price reaches VAH (BUY) / VAL (SELL) | Full structural exit. Close remaining position. |
+| **C2** TP2 Hit | Price reaches VAH (BUY) / VAL (SELL) | Close another portion. Runner continues to TP3. |
+| **C3** TP3 Hit | Price reaches swing high (BUY) / swing low (SELL) | Full structural exit. Close remaining position. |
 | **C4** SL Hit | Price breaches swing wick + 0.25×ATR | Accept loss. Wait for A2 remap. |
 | **C5** Breakeven | Price +0.5% in your favor after entry | Move SL to entry manually. |
 | **C6** Partial Sweep | Wick into SL buffer, immediate reversal | HOLD. This is a liquidity hunt. |
@@ -512,8 +513,8 @@ STEP 13: Calculate SL / TP
          Entry: Best Fib/POC/VAH/VAL confluence level
          SL:    Swing wick ± 0.25 × ATR
          TP1:   50.0% Fib level (close 50%)
-         TP2:   POC level (close runner portion)
-         TP3:   VAH (BUY) / VAL (SELL) — full structural exit
+         TP2:   VAH (BUY) / VAL (SELL) — full value area exit
+         TP3:   Swing high (BUY) / swing low (SELL) — trend extension
 STEP 14: Fire B1 (Bullish) or B2 (Bearish) alert to Telegram
          Save state.json + signals.log.json
 ```
@@ -530,6 +531,7 @@ mvs-bot/
 ├── commands.js             # Telegram command handler (/scan /status /health etc.)
 ├── weekly-summary.js       # Weekly digest — reads signals.log.json, sends to Telegram
 ├── README.md               # This file
+├── backtest.js             # 90-day historical backtester (run via GitHub Actions or locally)
 │
 ├── .github/
 │   └── workflows/
@@ -556,7 +558,7 @@ mvs-bot/
 6. **60–80% Fib Pocket** — Treats the entry zone as a price range, not two lines. Correctly models the institutional absorption zone between 61.8% and 78.6%.
 7. **2-of-4 Rejection Rule (with POC_RECLAIM)** — Requires confirmation, not perfection. POC_RECLAIM — a wick through POC that closes back on the right side — is the strongest of the four patterns and the clearest institutional defense signal.
 8. **Directional Absorption Veto** — A high-volume bullish candle suppresses SELL signals only (and vice versa), correctly distinguishing trend-following absorption from genuine reversal.
-9. **3-Tier TP Ladder** — TP1 (50% Fib) takes quick profit, TP2 (POC) captures the institutional magnet, TP3 (VAH/VAL) lets a runner ride to the full structural exit.
+9. **3-Tier TP Ladder** — TP1 (50% Fib) takes quick profit at equilibrium, TP2 (VAH/VAL) exits at the full value area boundary, TP3 (swing extreme) lets a runner ride the full trend extension.
 10. **Zero Lagging Indicators** — No EMA, no moving averages of any kind. Every input is raw price/volume structure — nothing repaints, nothing lags.
 11. **KuCoin for Ghana** — Binance and Bybit are restricted in Ghana. KuCoin Spot API is fully accessible without VPN.
 
