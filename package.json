@@ -1,0 +1,16 @@
+{
+  "name": "mvs-monthly-value-sniper",
+  "version": "8.4.0",
+  "description": "MVS — Monthly Value Sniper v8.4. KuCoin API for Ghana. Two-timeframe (4H bias + 15min entry, scanned every 15min), 4 symbols, POC+VAH+VAL+FIBO, zero lagging indicators. Public repo, unlimited GitHub Actions minutes. Phone + Laptop + GitHub Actions deployment ready.",
+  "main": "strategy.js",
+  "scripts": {
+    "start": "node strategy.js",
+    "backtest": "node backtest.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "keywords": ["mvs", "poc", "vah", "val", "fibonacci", "volume-profile", "institutional", "btc", "eth", "sol", "xrp", "15min", "4h", "kucoin", "ghana", "phone", "laptop", "github-actions"],
+  "author": "Abdin",
+  "license": "MIT"
+}
