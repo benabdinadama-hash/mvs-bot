@@ -16,8 +16,8 @@
  *
  *  USAGE:
  *    node backtest.js                        ← all 4 symbols, 90 days
- *    node backtest.js BTC-USDT               ← single symbol
- *    node backtest.js BTC-USDT 30            ← single symbol, 30 days
+ *    node backtest.js ETH-USDT              ← single symbol
+ *    node backtest.js ETH-USDT 30           ← single symbol, 30 days
  *
  *  OUTPUT:
  *    backtest-report.json   ← full trade log (machine-readable)
@@ -33,7 +33,7 @@ const path  = require('path');
 
 // ── Config (mirrors strategy.js exactly) ─────────────────────────────────────
 const CONFIG = {
-  SYMBOLS:                ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'XRP-USDT'],
+  SYMBOLS:                ['ETH-USDT', 'SOL-USDT'],
   TIMEFRAME:              '15min',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      900,
