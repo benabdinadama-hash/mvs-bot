@@ -403,7 +403,16 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     const tp1Price   = fib.level500;
     // FIX: TP2 = VAH(BUY)/VAL(SELL) — full value area exit (not POC which is AT entry)
     // TP3 = swing extreme — trend extension target
-    const tp2Price   = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+    // TP2: dynamic — avoid 0R when entry pivot = TP2 target
+    const tp2Price = (() => {
+      if (direction === 'BUY') {
+        if (bestPivot && bestPivot.name === 'VAH') return swingH;
+        return vp.vahPrice;
+      } else {
+        if (bestPivot && bestPivot.name === 'VAL') return swingL;
+        return vp.valPrice;
+      }
+    })();
     const tp3Price   = direction === 'BUY' ? swingH      : swingL;
     const entryPrice = bestFibLevel;
     const risk       = Math.abs(entryPrice - slPrice);
@@ -412,11 +421,11 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     const rr2 = parseFloat((Math.abs(tp2Price - entryPrice) / risk).toFixed(2));
     const rr3 = parseFloat((Math.abs(tp3Price - entryPrice) / risk).toFixed(2));
 
-    // SURGICAL FILTER — 100% win rate across 360-day backtest
-    // Filter 1: Minimum R:R >= 0.6
-    if (rr1 < 0.6) continue;
-    // Filter 2: POC entries require POC_RECLAIM pattern
-    if (bestPivot && bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) continue;
+    // SURGICAL FILTER
+    if (rr1 < 0.65) continue;                                                          // Filter 1: TP1 >= 0.65R
+    if ((Math.abs(tp2Price - entryPrice) / risk) < 1.0) continue;                     // Filter 2: TP2 >= 1.0R
+    if (bestPivot && bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) continue; // Filter 3a
+    if (bestPivot && bestPivot.name === 'POC' && bestScore < 2) continue;              // Filter 3b
 
     // ── OPEN TRADE ──────────────────────────────────────────────────────────
     cooldownMap[coolKey] = bar.time;

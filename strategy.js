@@ -810,16 +810,24 @@ const runStrategy = async (symbol) => {
     const rr2 = risk > 0 ? (reward2 / risk).toFixed(2) : 'N/A';
     const rr3 = risk > 0 ? (reward3 / risk).toFixed(2) : 'N/A';
 
-    // ── SURGICAL FILTER (100% win rate across 360-day backtest) ────────────
-    // Filter 1: Minimum R:R — skip if TP1 < 0.6R from entry
-    if (risk > 0 && (reward1 / risk) < 0.6) {
+    // ── SURGICAL FILTER ──────────────────────────────────────────────────
+    // Filter 1: TP1 >= 0.65R
+    if (risk > 0 && (reward1 / risk) < 0.65) {
       console.log(`  ⏭️  MIN R:R SKIP — TP1 only ${(reward1/risk).toFixed(2)}R. Signal suppressed.`);
       return;
     }
-    // Filter 2: POC entries require POC_RECLAIM pattern
-    // A POC entry without price wicking through and closing back = weak signal
+    // Filter 2: TP2 >= 1.0R — ensures meaningful second target (not 0R VAH entries)
+    if (risk > 0 && (reward2 / risk) < 1.0) {
+      console.log(`  ⏭️  TP2 TOO CLOSE — TP2 only ${(reward2/risk).toFixed(2)}R. Signal suppressed.`);
+      return;
+    }
+    // Filter 3: POC entries require POC_RECLAIM + tight confluence (score=2)
     if (bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) {
       console.log(`  ⏭️  POC ENTRY WITHOUT POC_RECLAIM — patterns: ${rejection.patterns.join('+')}. Signal suppressed.`);
+      return;
+    }
+    if (bestPivot.name === 'POC' && bestScore < 2) {
+      console.log(`  ⏭️  POC SCORE TOO LOW — score=${bestScore}. Need score=2. Signal suppressed.`);
       return;
     }
 
