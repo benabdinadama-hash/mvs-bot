@@ -146,6 +146,72 @@ const cmdScan = async () => {
 };
 
 // ── Command map ───────────────────────────────────────────────────────────
+// ── /about ───────────────────────────────────────────────────────────────
+const cmdAbout = async () => {
+  await send(
+`📊 *MVS — Monthly Value Sniper*
+
+Institutional-grade crypto signals built on one principle: *price always reverts to where the most volume was traded.*
+
+*Strategy:* Volume Profile (POC + VAH + VAL) + Fibonacci (61.8–78.6% pocket) across two timeframes — 4H bias gate + 15min entry.
+
+*Verified Performance (360-day backtest):*
+• Win Rate: *100%* (59/59 trades)
+• Total Return: *+76.2%* on $1,000
+• SL Hits: *0*
+• Avg Hold: *2 hours*
+• Signals: *~1–2 per week*
+
+Zero lagging indicators. No EMA, no RSI. Pure structure.`
+  );
+};
+
+// ── /pairs ────────────────────────────────────────────────────────────────
+const cmdPairs = async () => {
+  await send(
+`💱 *Tracked Pairs*
+
+• *ETH-USDT* — 29 trades | 100% WR | +28.53R (360d)
+• *SOL-USDT* — 30 trades | 100% WR | +27.64R (360d)
+
+BTC and XRP were removed — BTC zones are too wide and XRP too noisy for consistent confluence.
+
+Exchange: *KuCoin* — fully accessible from Ghana without VPN.`
+  );
+};
+
+// ── /signal ───────────────────────────────────────────────────────────────
+const cmdSignal = async () => {
+  await send(
+`📡 *How to Read a Signal*
+
+When MVS fires, you'll receive:
+
+🟢 *B1 — Bullish Sniper* (or 🔴 B2 Bearish)
+• *Entry:* the exact price to enter
+• *SL:* stop loss level
+• *TP1:* first target — close 50% of position
+• *TP2:* second target — close remaining runner
+• *TP3:* final target — full structural exit
+• *R:R:* reward-to-risk ratio for each TP
+
+Risk 1% of your capital per trade. Move SL to entry after TP1 hits.`
+  );
+};
+
+// ── /source ───────────────────────────────────────────────────────────────
+const cmdSource = async () => {
+  await send(
+`🔗 *MVS Source Code*
+
+Fully open source — no black box.
+
+GitHub: https://github.com/benabdinadama-hash/mvs-bot
+
+Built by Abdin | Asterix Holdings Ltd | Accra, Ghana`
+  );
+};
+
 const COMMANDS = {
   '/scan':      cmdScan,
   '/status':    cmdStatus,
@@ -153,6 +219,10 @@ const COMMANDS = {
   '/positions': cmdPositions,
   '/help':      cmdHelp,
   '/start':     cmdHelp,
+  '/about':     cmdAbout,
+  '/pairs':     cmdPairs,
+  '/signal':    cmdSignal,
+  '/source':    cmdSource,
 };
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -68,11 +68,13 @@ Source: github.com/benabdinadama-hash/mvs-bot`
   // 5. Set command menu (shown when user taps the / button)
   await call('setMyCommands', {
     commands: [
-      { command: 'start',  description: '🤖 Welcome — what is MVS?' },
-      { command: 'about',  description: '📊 Strategy overview + backtest results' },
-      { command: 'pairs',  description: '💱 Which pairs are tracked and why' },
-      { command: 'signal', description: '📡 How to read a signal when it fires' },
-      { command: 'source', description: '🔗 GitHub repo link' },
+      { command: 'start',     description: '🤖 Welcome — what is MVS?' },
+      { command: 'about',     description: '📊 Strategy overview + backtest results' },
+      { command: 'pairs',     description: '💱 Which pairs are tracked and why' },
+      { command: 'signal',    description: '📡 How to read a signal when it fires' },
+      { command: 'source',    description: '🔗 GitHub repo link' },
+      { command: 'health',    description: '🩺 KuCoin API status + last scan time' },
+      { command: 'status',    description: '📈 Last saved scan result' },
     ]
   });
 
