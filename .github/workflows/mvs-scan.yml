@@ -42,37 +42,33 @@ jobs:
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
 
-          # Always update last-ping so repo stays active and GitHub keeps firing the cron
+          # Always write ping — no [skip ci] so GitHub counts it as real activity
           echo "{\"lastPing\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" > .ping.json
 
-          # Force-create state.json if missing
           if [ ! -f state.json ]; then
             echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'"}' > state.json
           fi
 
-          git add .ping.json || true
-          git add state.json || true
-          git add signals.log.json || true
-          git add diag.log.json || true
-          git update-index --add state.json 2>/dev/null || true
-          git update-index --add .ping.json 2>/dev/null || true
+          git add .ping.json state.json signals.log.json diag.log.json 2>/dev/null || true
+          git update-index --add state.json .ping.json 2>/dev/null || true
 
           if git diff --cached --quiet && git diff --staged --quiet; then
-            echo "Nothing to commit."
+            echo "Nothing staged."
             exit 0
           fi
 
-          git commit -m "MVS: scan $(date -u +"%H:%M") [skip ci]"
+          # No [skip ci] — GitHub needs to see real commits to keep cron alive
+          git commit -m "MVS scan $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
           for i in 1 2 3 4 5; do
             git fetch origin "$GITHUB_REF_NAME"
             if git rebase "origin/$GITHUB_REF_NAME" && git push origin "$GITHUB_REF_NAME"; then
-              echo "✅ Pushed successfully"
+              echo "✅ Pushed"
               exit 0
             fi
             git rebase --abort 2>/dev/null || true
             sleep $((RANDOM % 5 + 2))
           done
 
-          echo "::error::Failed to push after 5 attempts."
+          echo "::error::Push failed after 5 attempts."
           exit 1
