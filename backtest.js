@@ -602,7 +602,21 @@ const generateReport = (allTrades, days) => {
   }
 
   if (!allTrades.length) {
-    console.log('\n⚠️ No trades found. The strategy may be very selective — try widening CONFLUENCE_ATR_MULT in config.');
+    console.log('\n⚠️ No trades found with current filters.');
+    // Still write report files so artifact always uploads
+    const emptyReport = [
+      '═══════════════════════════════════════════════════════════════════',
+      ` MVS — BACKTEST REPORT`,
+      ` Period: Last ${days} days  |  Symbols: ${symbols.join(', ')}`,
+      '═══════════════════════════════════════════════════════════════════',
+      '',
+      '  No signals fired in this period with current filters.',
+      '  The market did not present 3-of-4 pattern confluence setups.',
+      '  This is normal — try a longer period (180 or 360 days).',
+      '═══════════════════════════════════════════════════════════════════',
+    ].join('\n');
+    fs.writeFileSync(path.join(__dirname, 'backtest-report.txt'), emptyReport);
+    fs.writeFileSync(path.join(__dirname, 'backtest-report.json'), JSON.stringify({ days, symbols, trades: [] }, null, 2));
     process.exit(0);
   }
 
