@@ -22,8 +22,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0   # full history needed for rebase
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -40,11 +38,13 @@ jobs:
         run: node strategy.js
 
       - name: Commit and push state files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
 
-          # Always write ping (no [skip ci] so GitHub counts as activity)
+          # Always write ping — no [skip ci] so GitHub counts as real activity
           echo "{\"lastPing\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" > .ping.json
 
           if [ ! -f state.json ]; then
@@ -61,9 +61,6 @@ jobs:
 
           git commit -m "MVS scan $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-          # Pull latest then push — handles concurrent commits cleanly
-          git pull --rebase origin "$GITHUB_REF_NAME" || git rebase --abort
-          git push origin "$GITHUB_REF_NAME" && echo "✅ Pushed" && exit 0
-
-          echo "::error::Push failed."
-          exit 1
+          # Use GITHUB_TOKEN with the repo URL for authenticated push — no rebase needed
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          echo "✅ Pushed successfully"
