@@ -1,9 +1,7 @@
 name: MVS Scan
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # Triggered by cron-job.org every 15 min
   push:
     branches: [main]
 
@@ -44,7 +42,6 @@ jobs:
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
 
-          # Always write ping — no [skip ci] so GitHub counts as real activity
           echo "{\"lastPing\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" > .ping.json
 
           if [ ! -f state.json ]; then
@@ -60,7 +57,5 @@ jobs:
           fi
 
           git commit -m "MVS scan $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-          # Use GITHUB_TOKEN with the repo URL for authenticated push — no rebase needed
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
           echo "✅ Pushed successfully"
