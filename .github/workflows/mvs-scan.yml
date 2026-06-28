@@ -42,27 +42,27 @@ jobs:
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
 
+          # Always update last-ping so repo stays active and GitHub keeps firing the cron
+          echo "{\"lastPing\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" > .ping.json
+
           # Force-create state.json if missing
           if [ ! -f state.json ]; then
             echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'"}' > state.json
           fi
 
-          # Use full path git add to bypass any index issues
+          git add .ping.json || true
           git add state.json || true
           git add signals.log.json || true
           git add diag.log.json || true
-
-          # Force stage even if git thinks nothing changed
           git update-index --add state.json 2>/dev/null || true
-
-          git status
+          git update-index --add .ping.json 2>/dev/null || true
 
           if git diff --cached --quiet && git diff --staged --quiet; then
             echo "Nothing to commit."
             exit 0
           fi
 
-          git commit -m "MVS: scan state update [skip ci]"
+          git commit -m "MVS: scan $(date -u +"%H:%M") [skip ci]"
 
           for i in 1 2 3 4 5; do
             git fetch origin "$GITHUB_REF_NAME"
