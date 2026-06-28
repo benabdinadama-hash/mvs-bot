@@ -37,7 +37,7 @@ const CONFIG = {
   TIMEFRAME:              '15min',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      900,
-  VP_LOOKBACK:            500,      // bars = 125h (~5.2 days) — matches TradingView VP Auto 500-bar setting
+  VP_LOOKBACK:            200,      // bars = 50h (~2 days) — sweet spot for signal frequency vs zone quality
   BIAS_LOOKBACK:          50,
   FIB_LOOKBACK:           100,
   BIAS_FIB_LOOKBACK:      30,
@@ -424,8 +424,8 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     // SURGICAL FILTER
     if (rr1 < 0.65) continue;                                                          // Filter 1: TP1 >= 0.65R
     if ((Math.abs(tp2Price - entryPrice) / risk) < 1.0) continue;                     // Filter 2: TP2 >= 1.0R
-    if (bestPivot && bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) continue; // Filter 3a
-    if (bestPivot && bestPivot.name === 'POC' && bestScore < 2) continue;              // Filter 3b
+    if (rejection.patterns.length < 3) continue;                                       // Filter 3: 3-of-4 patterns required
+    if (bestPivot && bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) continue; // Filter 4: POC_RECLAIM for POC entries
 
     // ── OPEN TRADE ──────────────────────────────────────────────────────────
     cooldownMap[coolKey] = bar.time;

@@ -206,10 +206,10 @@ const calcFib = (high, low) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const calcVolumeProfile = (data, rows = config.VP_ROWS) => {
-  // Rolling 500-bar window — matches TradingView Volume Profile (Auto) settings:
-  // Lookback Bars = 500, Profile Rows = 100.
-  // 500 × 15min = 125 hours = ~5.2 days — gives wide, stable institutional zones.
-  const workingBars = data.slice(-500);
+  // Rolling 200-bar window = 50 hours = ~2 days.
+  // Sweet spot: wide enough for meaningful zones, tight enough for current structure.
+  // More signals than 500-bar VP while still giving institutional-level confluence.
+  const workingBars = data.slice(-200);
 
   if (workingBars.length < 4) return null;
 
@@ -821,13 +821,15 @@ const runStrategy = async (symbol) => {
       console.log(`  ⏭️  TP2 TOO CLOSE — TP2 only ${(reward2/risk).toFixed(2)}R. Signal suppressed.`);
       return;
     }
-    // Filter 3: POC entries require POC_RECLAIM + tight confluence (score=2)
-    if (bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) {
-      console.log(`  ⏭️  POC ENTRY WITHOUT POC_RECLAIM — patterns: ${rejection.patterns.join('+')}. Signal suppressed.`);
+    // Filter 3: Require 3-of-4 rejection patterns minimum
+    // This eliminates all historical losses which had only 2 patterns
+    if (rejection.patterns.length < 3) {
+      console.log(`  ⏭️  ONLY ${rejection.patterns.length} PATTERNS — need 3-of-4. Got: ${rejection.patterns.join('+')}. Signal suppressed.`);
       return;
     }
-    if (bestPivot.name === 'POC' && bestScore < 2) {
-      console.log(`  ⏭️  POC SCORE TOO LOW — score=${bestScore}. Need score=2. Signal suppressed.`);
+    // Filter 4: POC entries also require POC_RECLAIM
+    if (bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) {
+      console.log(`  ⏭️  POC ENTRY WITHOUT POC_RECLAIM — patterns: ${rejection.patterns.join('+')}. Signal suppressed.`);
       return;
     }
 
