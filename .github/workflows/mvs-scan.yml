@@ -2,10 +2,10 @@ name: MVS Scan
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # every 15 min
+    - cron: "*/15 * * * *"
   workflow_dispatch: {}
   push:
-    branches: [main]         # activates cron on first push
+    branches: [main]
 
 concurrency:
   group: mvs-scan
@@ -42,40 +42,37 @@ jobs:
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
 
-          echo "── Files in workspace after scan ──"
-          ls -la state.json signals.log.json diag.log.json 2>/dev/null || echo "Some state files missing"
-
-          # Force-create state.json if strategy somehow didn't write it
+          # Force-create state.json if missing
           if [ ! -f state.json ]; then
-            echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'","_note":"created by workflow fallback"}' > state.json
-            echo "Created fallback state.json"
+            echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'"}' > state.json
           fi
 
-          git add -f state.json signals.log.json diag.log.json 2>/dev/null || true
+          # Use full path git add to bypass any index issues
+          git add state.json || true
+          git add signals.log.json || true
+          git add diag.log.json || true
+
+          # Force stage even if git thinks nothing changed
+          git update-index --add state.json 2>/dev/null || true
+
           git status
 
-          if git diff --staged --quiet; then
-            echo "No state changes to commit — state.json may already be up to date"
+          if git diff --cached --quiet && git diff --staged --quiet; then
+            echo "Nothing to commit."
             exit 0
           fi
 
           git commit -m "MVS: scan state update [skip ci]"
 
-          success=0
           for i in 1 2 3 4 5; do
             git fetch origin "$GITHUB_REF_NAME"
             if git rebase "origin/$GITHUB_REF_NAME" && git push origin "$GITHUB_REF_NAME"; then
-              success=1
-              break
+              echo "✅ Pushed successfully"
+              exit 0
             fi
-            echo "Push attempt $i failed, retrying..."
             git rebase --abort 2>/dev/null || true
             sleep $((RANDOM % 5 + 2))
           done
 
-          if [ "$success" -ne 1 ]; then
-            echo "::error::Failed to push state.json after 5 attempts."
-            exit 1
-          fi
-
-          echo "✅ State files pushed successfully"
+          echo "::error::Failed to push after 5 attempts."
+          exit 1
