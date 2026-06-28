@@ -2,21 +2,18 @@ name: MVS Commands
 
 on:
   schedule:
-    - cron: "*/2 * * * *"   # poll every 2 min — commands land within 2 min of being sent
+    - cron: "*/2 * * * *"   # poll every 2 min
   workflow_dispatch: {}
+  push:
+    branches: [main]         # activates cron on first push
 
-# ── Concurrency ─────────────────────────────────────────────────────────────
-# IMPORTANT: commands uses its OWN concurrency group, separate from mvs-scan.
-# The old shared group (mvs-git-state) caused command runs to queue behind
-# scan runs for up to 45 min, making /health /scan etc feel completely broken.
-# The only file both workflows write is tg-offset.json; the rebase-push loop
-# below handles the rare case where a scan commits state.json at the same time.
 concurrency:
   group: mvs-commands
-  cancel-in-progress: false   # never drop a command run mid-flight
+  cancel-in-progress: false
 
 jobs:
   commands:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 7
     permissions:
@@ -45,7 +42,6 @@ jobs:
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
 
-          # -f bypasses .gitignore so tg-offset.json is always tracked
           git add -f tg-offset.json 2>/dev/null || true
 
           if git diff --staged --quiet; then
@@ -68,6 +64,6 @@ jobs:
           done
 
           if [ "$success" -ne 1 ]; then
-            echo "::warning::Failed to push tg-offset.json after 5 attempts. Next run will re-use the same offset — commands won't replay because offset was already advanced in memory by commands.js before the git step."
-            exit 0   # non-fatal: exit 0 so the workflow shows green, not red
+            echo "::warning::Failed to push tg-offset.json after 5 attempts."
+            exit 0
           fi
