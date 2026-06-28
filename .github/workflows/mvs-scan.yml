@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history needed for rebase
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -42,7 +44,7 @@ jobs:
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
 
-          # Always write ping — no [skip ci] so GitHub counts it as real activity
+          # Always write ping (no [skip ci] so GitHub counts as activity)
           echo "{\"lastPing\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" > .ping.json
 
           if [ ! -f state.json ]; then
@@ -53,22 +55,15 @@ jobs:
           git update-index --add state.json .ping.json 2>/dev/null || true
 
           if git diff --cached --quiet && git diff --staged --quiet; then
-            echo "Nothing staged."
+            echo "Nothing to commit."
             exit 0
           fi
 
-          # No [skip ci] — GitHub needs to see real commits to keep cron alive
           git commit -m "MVS scan $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-          for i in 1 2 3 4 5; do
-            git fetch origin "$GITHUB_REF_NAME"
-            if git rebase "origin/$GITHUB_REF_NAME" && git push origin "$GITHUB_REF_NAME"; then
-              echo "✅ Pushed"
-              exit 0
-            fi
-            git rebase --abort 2>/dev/null || true
-            sleep $((RANDOM % 5 + 2))
-          done
+          # Pull latest then push — handles concurrent commits cleanly
+          git pull --rebase origin "$GITHUB_REF_NAME" || git rebase --abort
+          git push origin "$GITHUB_REF_NAME" && echo "✅ Pushed" && exit 0
 
-          echo "::error::Push failed after 5 attempts."
+          echo "::error::Push failed."
           exit 1
