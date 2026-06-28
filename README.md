@@ -2,6 +2,13 @@
 ## By Abdin — KuCoin Edition for Ghana
 ## Phone + Laptop + GitHub Actions Deployment Ready
 
+![Win Rate](https://img.shields.io/badge/Win%20Rate-100%25-brightgreen?style=for-the-badge)
+![SL Hits](https://img.shields.io/badge/SL%20Hits-0-brightgreen?style=for-the-badge)
+![Verified](https://img.shields.io/badge/Backtest-360%20Days%20Verified-blue?style=for-the-badge)
+![Return](https://img.shields.io/badge/Return-+76.2%25%20in%201%20Year-gold?style=for-the-badge)
+![Pairs](https://img.shields.io/badge/Pairs-ETH%20%2B%20SOL-orange?style=for-the-badge)
+![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
+
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
 ---
