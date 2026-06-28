@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       symbol:
-        description: 'Symbol (leave blank for all 4)'
+        description: 'Symbol (leave blank for both ETH-USDT and SOL-USDT)'
         required: false
       days:
         description: 'Days to backtest (default 90)'
