@@ -50,7 +50,7 @@ module.exports = {
   // ── Data lookbacks ──────────────────────────────────────────────────────
   // Scaled to preserve the SAME real-world calendar windows as the old
   // 1H setup — only the resolution changed, not how much history is used.
-  VP_LOOKBACK:        2000,  // 15min bars for volume profile (~21 days, same as before)
+  VP_LOOKBACK:        500,   // 500 bars = 125h (~5.2 days) — matches TradingView VP Auto 500-bar setting
   BIAS_LOOKBACK:      200,   // 4H bars for bias module        (≈ 33 days) — unchanged
   FIB_LOOKBACK:       800,   // 15min bars for swing detection (~8 days, same as before)
   BIAS_FIB_LOOKBACK:   60,   // 4H bars for bias swing         (≈ 10 days) — unchanged

@@ -206,9 +206,10 @@ const calcFib = (high, low) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const calcVolumeProfile = (data, rows = config.VP_ROWS) => {
-  const startOfDayMs = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime();
-  const sessionBars  = data.filter(d => d.time * 1000 >= startOfDayMs);
-  const workingBars  = sessionBars.length >= 8 ? sessionBars : data.slice(-48);
+  // Rolling 500-bar window — matches TradingView Volume Profile (Auto) settings:
+  // Lookback Bars = 500, Profile Rows = 100.
+  // 500 × 15min = 125 hours = ~5.2 days — gives wide, stable institutional zones.
+  const workingBars = data.slice(-500);
 
   if (workingBars.length < 4) return null;
 

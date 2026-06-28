@@ -37,7 +37,7 @@ const CONFIG = {
   TIMEFRAME:              '15min',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      900,
-  VP_LOOKBACK:            200,      // bars of history used per scan window
+  VP_LOOKBACK:            500,      // bars = 125h (~5.2 days) — matches TradingView VP Auto 500-bar setting
   BIAS_LOOKBACK:          50,
   FIB_LOOKBACK:           100,
   BIAS_FIB_LOOKBACK:      30,
