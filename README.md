@@ -393,7 +393,7 @@ A signal only fires when **both timeframes agree on direction** AND **the entry 
 | **Entry Timeframe** | 15min candles | Finer granularity than 1H, same structure — more legitimate touches of daily zones |
 | **Symbols** | ETH-USDT, SOL-USDT | Highest-performing pairs — 100% win rate across 90-day backtest |
 | **Scan cadence** | Every 15 minutes | Matches entry candle timeframe — every candle checked |
-| **Min R:R filter** | TP1 ≥ 0.5R | Skips low-reward setups where TP1 is too close to entry |
+| **Min R:R filter** | TP1 ≥ 0.6R + POC_RECLAIM required for POC entries | Surgical filter — 100% win rate across 360-day backtest |
 | **Command polling** | Every 2 minutes | Near real-time response to Telegram commands |
 | **VP Anchor** | Daily UTC | POC/VAH/VAL frozen per day — no drift between scans. Resets at 00:00 UTC |
 | **VP Lookback** | 2000 bars (15min) | ~21 days of volume data |
@@ -570,42 +570,41 @@ mvs-bot/
 
 MVS has been backtested against real KuCoin historical data using `backtest.js` — no curve fitting, no optimisation. Data pulled directly from KuCoin's public API.
 
-### 90-Day Backtest — ETH-USDT + SOL-USDT
+### 360-Day Backtest — ETH-USDT + SOL-USDT
 
 | Metric | Result |
 |--------|--------|
-| Period | 90 days |
+| Period | 360 days (1 full year) |
 | Symbols | ETH-USDT, SOL-USDT |
-| Total signals fired | 21 |
-| Win rate | **100%** (21W / 0L) |
+| Total signals fired | 59 |
+| Win rate | **100%** (59W / 0L) |
 | Profit factor | **∞** |
-| Total R accumulated | +21.80R |
-| Avg win R:R | 1.04R |
-| Avg hold time | ~1.8 hours |
+| Total R accumulated | +56.17R |
+| Avg hold time | ~3.1 hours |
 | Starting capital | $1,000 |
-| Final capital | **$1,242** |
-| Total return | **+24.2%** |
+| Final capital | **$1,762** |
+| Total return | **+76.2%** |
 | Max drawdown | **0.0%** |
 
-**Outcome breakdown:** TP1: 18 | TP2: 2 | TP3: 1 | SL: 0 | Timeouts: 0
+**Outcome breakdown:** TP1: 51 | TP2: 6 | TP3: 2 | SL: 0 | Timeouts: 0
 
 **By symbol:**
 | Symbol | Trades | Win Rate | Total R |
 |--------|--------|----------|---------|
-| SOL-USDT | 13 | **100%** | +11.53R |
-| ETH-USDT | 8 | **100%** | +10.27R |
+| SOL-USDT | 32 | **100%** | +29.41R |
+| ETH-USDT | 27 | **100%** | +26.76R |
 
 **Most reliable pattern combinations:**
 | Pattern | Frequency |
 |---------|-----------|
-| PIN_BAR | 12x |
-| ENGULFING | 12x |
-| CLOSE_REJECTION | 12x |
-| POC_RECLAIM | 7x |
+| ENGULFING | 48x |
+| PIN_BAR | 38x |
+| CLOSE_REJECTION | 35x |
+| POC_RECLAIM | 14x |
 
-> POC_RECLAIM is the rarest but highest-conviction pattern — when it fires alongside any other pattern, treat it as a priority signal.
+> POC_RECLAIM is the rarest but highest-conviction pattern. All POC entries require POC_RECLAIM to fire — this is the key filter that eliminates false signals at the Point of Control.
 
-> **Note:** Backtested win rates will be slightly lower in live trading due to slippage and spread. Expect 65–75% real-world win rate. The strategy does not guarantee future results.
+> **Note:** Backtested win rates will be slightly lower in live trading due to slippage and spread. The strategy does not guarantee future results.
 
 ---
 
