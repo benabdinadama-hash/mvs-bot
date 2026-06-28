@@ -5,7 +5,7 @@ on:
     - cron: "*/15 * * * *"   # every 15 min
   workflow_dispatch: {}
   push:
-    branches: [main]         # activates cron on first push; ignored for scan logic
+    branches: [main]         # activates cron on first push
 
 concurrency:
   group: mvs-scan
@@ -13,7 +13,6 @@ concurrency:
 
 jobs:
   scan:
-    # Skip actual scan on push events — push trigger is only to activate the cron
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 6
@@ -38,15 +37,25 @@ jobs:
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node strategy.js
 
-      - name: Commit and push state files (with retry/rebase)
+      - name: Commit and push state files
         run: |
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
 
+          echo "── Files in workspace after scan ──"
+          ls -la state.json signals.log.json diag.log.json 2>/dev/null || echo "Some state files missing"
+
+          # Force-create state.json if strategy somehow didn't write it
+          if [ ! -f state.json ]; then
+            echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'","_note":"created by workflow fallback"}' > state.json
+            echo "Created fallback state.json"
+          fi
+
           git add -f state.json signals.log.json diag.log.json 2>/dev/null || true
+          git status
 
           if git diff --staged --quiet; then
-            echo "No state changes to commit."
+            echo "No state changes to commit — state.json may already be up to date"
             exit 0
           fi
 
@@ -68,3 +77,5 @@ jobs:
             echo "::error::Failed to push state.json after 5 attempts."
             exit 1
           fi
+
+          echo "✅ State files pushed successfully"
