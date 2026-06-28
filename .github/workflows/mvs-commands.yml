@@ -1,11 +1,7 @@
 name: MVS Commands
 
 on:
-  schedule:
-    - cron: "*/2 * * * *"   # poll every 2 min
-  workflow_dispatch: {}
-  push:
-    branches: [main]         # activates cron on first push
+  workflow_dispatch: {}   # Manual only — run when you need to check commands
 
 concurrency:
   group: mvs-commands
@@ -13,57 +9,37 @@ concurrency:
 
 jobs:
   commands:
-    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 7
     permissions:
       contents: write
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v5
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
-
-      - name: Install dependencies
-        run: npm install
-
+      - run: npm install
       - name: Run command handler
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: node commands.js
-
-      - name: Commit and push offset file (with retry/rebase)
+      - name: Commit and push offset file
         run: |
           git config user.name  "mvs-bot"
           git config user.email "mvs-bot@users.noreply.github.com"
-
           git add -f tg-offset.json 2>/dev/null || true
-
           if git diff --staged --quiet; then
             echo "No offset change to commit."
             exit 0
           fi
-
           git commit -m "MVS: update tg-offset [skip ci]"
-
-          success=0
           for i in 1 2 3 4 5; do
             git fetch origin "$GITHUB_REF_NAME"
             if git rebase "origin/$GITHUB_REF_NAME" && git push origin "$GITHUB_REF_NAME"; then
-              success=1
-              break
+              exit 0
             fi
-            echo "Push attempt $i failed, retrying..."
             git rebase --abort 2>/dev/null || true
             sleep $((RANDOM % 5 + 2))
           done
-
-          if [ "$success" -ne 1 ]; then
-            echo "::warning::Failed to push tg-offset.json after 5 attempts."
-            exit 0
-          fi
