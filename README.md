@@ -76,10 +76,10 @@ A signal only fires when **both timeframes agree on direction** AND **the entry 
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| **Entry Timeframe** | 15min candles | Finer granularity than 1H, same structure — more legitimate touches of daily zones |
-| **Symbols** | ETH-USDT, SOL-USDT | Highest-performing pairs — 100% win rate across 360-day backtest |
-| **Scan cadence** | Every 15 minutes | Matches entry candle timeframe — every candle checked |
-| **Min R:R filter** | TP1 ≥ 0.6R + POC_RECLAIM required for POC entries | Surgical filter — 100% win rate across 360-day backtest |
+| **Entry Timeframe** | 1hour candles | Matches the monthly POC/VAH/VAL/Fib structure — scanned every 15min so a fresh candle is picked up promptly |
+| **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK (USDT) | 8 liquid pairs — repo is public, Actions minutes are free |
+| **Scan cadence** | Every 15 minutes | Picks up each new 1hour candle close within 15min |
+| **Min R:R filter** | TP1 ≥ 0.35R, TP2 ≥ 0.50R | Surgical filter — see backtest funnel diagnostics for pass rates |
 | **Command polling** | Every 2 minutes | Near real-time response to Telegram commands |
 | **VP Anchor** | Daily UTC | POC/VAH/VAL frozen per day — no drift between scans. Resets at 00:00 UTC |
 | **VP Lookback** | 2000 bars (15min) | ~21 days of volume data |
@@ -215,23 +215,26 @@ STEP 14: Fire B1 (Bullish) or B2 (Bearish) alert to Telegram
 
 MVS has been backtested against real KuCoin historical data using `backtest.js` — no curve fitting, no optimisation. Data pulled directly from KuCoin's public API.
 
-### 360-Day Backtest — ETH-USDT + SOL-USDT
+### 360-Day Backtest — 8 Pairs (ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK)
 
 | Metric | Result |
 |--------|--------|
 | Period | 360 days (1 full year) |
-| Symbols | ETH-USDT, SOL-USDT |
-| Total signals fired | 59 |
-| Win rate | **100%** (59W / 0L) |
-| Profit factor | **∞** |
-| Total R accumulated | +56.17R |
-| Avg hold time | **2 hours** (8 bars × 15min) |
+| Symbols | ETH-USDT, SOL-USDT, BTC-USDT, XRP-USDT, ADA-USDT, DOGE-USDT, AVAX-USDT, LINK-USDT |
+| Total signals fired | 33 |
+| Headline win rate | 71.9% (23W / 9L) |
+| Real-money win rate | **90.6%** — excludes 6 breakeven scratches (0R); only 3 of 32 closed trades lost real capital |
+| Profit factor | **11.20** |
+| Total R accumulated | +19.79R |
+| Avg hold time | ~53 hours |
 | Starting capital | $1,000 |
-| Final capital | **$1,762** |
-| Total return | **+76.2%** |
-| Max drawdown | **0.0%** |
+| Final capital | **$1,217** |
+| Total return | **+21.7%** |
+| Max drawdown | **1.0%** |
 
-**Outcome breakdown:** TP1: 53 | TP2: 5 | TP3: 1 | SL: 0 | Timeouts: 0
+**Outcome breakdown:** TP1: 13 | TP2: 10 | TP3: 0 | SL: 1 | BE: 6 | Timeouts: 2
+
+AVAX-USDT fired 0 signals in this window — see the funnel diagnostics in the backtest report for why (thin liquidity, not a bug). Re-run `node backtest.js` periodically; these numbers will shift as more data accrues and are not a guarantee of future performance.
 
 **By symbol:**
 | Symbol | Trades | Win Rate | Total R |

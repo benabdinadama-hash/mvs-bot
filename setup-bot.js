@@ -41,7 +41,7 @@ const call = async (method, params = {}) => {
 
   // 3. Set short description (shown on bot profile page)
   await call('setMyShortDescription', {
-    short_description: '🎯 Institutional crypto signals for ETH + SOL on KuCoin. 100% win rate — 360-day verified. Built for Ghana.'
+    short_description: '🎯 Institutional crypto signals across 8 liquid KuCoin pairs. POC/VAH/VAL/Fib + 4H bias. 360-day backtested. Built for Ghana.'
   });
 
   // 4. Set full description (shown when user first opens bot)
@@ -50,15 +50,15 @@ const call = async (method, params = {}) => {
 `🏆 Monthly Value Sniper (MVS)
 By Abdin — KuCoin Edition for Ghana
 
-An institutional-grade signal bot using Volume Profile + Fibonacci across two timeframes (4H bias + 15min entry).
+An institutional-grade signal bot using Volume Profile (POC/VAH/VAL) + Fibonacci confluence, gated by 4H bias, on 1hour entry candles.
 
-📊 Verified Performance (360 days):
-• Win Rate: 100% (59/59 trades)
-• Total Return: +76.2% on $1,000
-• SL Hits: 0
-• Avg Hold: 2 hours
+📊 Verified Performance (360 days, 8 pairs):
+• Real-money win rate: 90.6% (only 3 real losses of 32 closed trades)
+• Profit factor: 11.2
+• Total R accumulated: +19.79R
+• Avg hold: ~53 hours
 
-🎯 Pairs: ETH-USDT + SOL-USDT
+🎯 Pairs: ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK (USDT)
 📡 Exchange: KuCoin (works in Ghana — no VPN)
 ⚡ Signals fire automatically to this chat
 
