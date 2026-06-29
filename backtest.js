@@ -62,10 +62,30 @@ const CONFIG = {
   MIN_RR2:                0.50,  // TP2 must be ≥ 0.50R
 };
 
+// ── ENV OVERRIDES (tuning knobs only — POC/VAH/VAL/Fib/4H-bias foundation is NEVER touched) ──
+// e.g.  SIGNAL_COOLDOWN_BARS=3 MIN_RR1=0.30 MIN_RR2=0.40 node backtest.js SOL-USDT 360
+const envNum = (key, fallback) => (process.env[key] !== undefined ? parseFloat(process.env[key]) : fallback);
+CONFIG.SIGNAL_COOLDOWN_BARS       = envNum('SIGNAL_COOLDOWN_BARS', CONFIG.SIGNAL_COOLDOWN_BARS);
+CONFIG.MIN_RR1                    = envNum('MIN_RR1', CONFIG.MIN_RR1);
+CONFIG.MIN_RR2                    = envNum('MIN_RR2', CONFIG.MIN_RR2);
+CONFIG.CONFLUENCE_ATR_MULT        = envNum('CONFLUENCE_ATR_MULT', CONFIG.CONFLUENCE_ATR_MULT);
+CONFIG.HTFZONE_ATR_MULT           = envNum('HTFZONE_ATR_MULT', CONFIG.HTFZONE_ATR_MULT);
+CONFIG.REJECTION_MIN_PATTERNS     = envNum('REJECTION_MIN_PATTERNS', CONFIG.REJECTION_MIN_PATTERNS);
+CONFIG.ZONE_INVALIDATION_ATR_MULT = envNum('ZONE_INVALIDATION_ATR_MULT', CONFIG.ZONE_INVALIDATION_ATR_MULT);
+
 // ── CLI args ─────────────────────────────────────────────────────────────────
-const args    = process.argv.slice(2);
-const symbols = args[0] && args[0].includes('-') ? [args[0].toUpperCase()] : CONFIG.SYMBOLS;
-const days    = parseInt(args[1] || args[0]) || CONFIG.BACKTEST_DAYS;
+// node backtest.js                          -> all CONFIG.SYMBOLS, 360 days
+// node backtest.js ETH-USDT                 -> single symbol, 360 days
+// node backtest.js ETH-USDT 90              -> single symbol, 90 days
+// node backtest.js ETH-USDT,SOL-USDT 360    -> explicit multi-symbol (comma list)
+// node backtest.js --tune ETH-USDT 360      -> grid-search mode (see TUNE_GRID below)
+const rawArgs  = process.argv.slice(2);
+const tuneMode = rawArgs.includes('--tune');
+const args     = rawArgs.filter(a => a !== '--tune');
+const symbols  = args[0] && args[0].includes('-')
+  ? args[0].toUpperCase().split(',').map(s => s.trim())
+  : CONFIG.SYMBOLS;
+const days     = parseInt(args[1] || args[0]) || CONFIG.BACKTEST_DAYS;
 
 // ── KuCoin fetch helpers ──────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -544,10 +564,15 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     ? (closed.reduce((s, t) => s + (t.barsHeld || 0), 0) / closed.length).toFixed(0)
     : '0';
 
+  // requestedSymbols reflects what was ACTUALLY run, not just symbols that
+  // happened to produce a trade — this was the bug that made SOL-USDT
+  // silently vanish from the report header when it fired 0 signals.
+  const requestedSymbols = Object.keys(funnelsBySymbol).length ? Object.keys(funnelsBySymbol) : [...new Set(allTrades.map(t => t.symbol))];
+
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
     ` MVS — BACKTEST REPORT`,
-    ` Period: Last ${days} days  |  Symbols: ${[...new Set(allTrades.map(t => t.symbol))].join(', ')}`,
+    ` Period: Last ${days} days  |  Symbols requested: ${requestedSymbols.join(', ')}`,
     '═══════════════════════════════════════════════════════════════════',
     '',
     '── SUMMARY ─────────────────────────────────────────────────────────',
@@ -575,9 +600,24 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     `  Max drawdown          : ${maxDD.toFixed(1)}%`,
     '',
     '── BY SYMBOL ───────────────────────────────────────────────────────',
-    ...Object.entries(bySymbol).map(([sym, s]) =>
-      `  ${sym.padEnd(10)} ${s.trades} trades | ${(s.wins/s.trades*100).toFixed(0)}% WR | ${s.totalRR.toFixed(2)}R total`
-    ),
+    ...requestedSymbols.map(sym => {
+      const s = bySymbol[sym];
+      if (!s) return `  ${sym.padEnd(10)} 0 trades | 0% WR | 0.00R total   ⚠️ 0 SIGNALS — see FUNNEL DIAGNOSTICS below`;
+      return `  ${sym.padEnd(10)} ${s.trades} trades | ${(s.wins/s.trades*100).toFixed(0)}% WR | ${s.totalRR.toFixed(2)}R total`;
+    }),
+    '',
+    '── FUNNEL DIAGNOSTICS (bars surviving each gate, per symbol) ────────',
+    ...requestedSymbols.flatMap(sym => {
+      const f = funnelsBySymbol[sym];
+      if (!f) return [`  ${sym}: no funnel data (fetch/insufficient-data — check console log)`];
+      return [
+        `  ${sym}:`,
+        `    scanned=${f.scanned}  bias4hOk=${f.bias4hOk}  atrOk=${f.atrOk}  swingInRange=${f.swingInRange}`,
+        `    biasAligned=${f.biasAligned}  notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  vpOk=${f.vpOk}`,
+        `    confluenceOk=${f.confluenceOk}  htfAligned=${f.htfAligned}  notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}`,
+        `    rejectionOk=${f.rejectionOk}  surgF1(RR1)=${f.surgF1}  surgF2(RR2)=${f.surgF2}  surgF3(patterns)=${f.surgF3}  surgF4(POC)=${f.surgF4}  opened=${f.opened}`,
+      ];
+    }),
     '',
     '── PATTERN FREQUENCY ───────────────────────────────────────────────',
     ...Object.entries(patternCount)
@@ -599,7 +639,48 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
   return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount, funnels: funnelsBySymbol } };
 };
 
-// ── MAIN ──────────────────────────────────────────────────────────────────────
+// ── TUNE MODE ────────────────────────────────────────────────────────────────
+// Sweeps ONLY the surgical/sensitivity knobs (cooldown, RR floors, rejection
+// strictness). Core foundation — POC/VAH/VAL, Fibonacci zone, 4H bias votes,
+// confluence/HTF-zone logic — is never modified by this grid.
+const TUNE_GRID = [
+  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 0.35, MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 }, // baseline (current)
+  { SIGNAL_COOLDOWN_BARS: 3, MIN_RR1: 0.35, MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 },
+  { SIGNAL_COOLDOWN_BARS: 3, MIN_RR1: 0.30, MIN_RR2: 0.45, REJECTION_MIN_PATTERNS: 2 },
+  { SIGNAL_COOLDOWN_BARS: 2, MIN_RR1: 0.30, MIN_RR2: 0.45, REJECTION_MIN_PATTERNS: 2 },
+  { SIGNAL_COOLDOWN_BARS: 2, MIN_RR1: 0.25, MIN_RR2: 0.40, REJECTION_MIN_PATTERNS: 2 },
+  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 0.35, MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 3 }, // stricter — fewer but maybe cleaner
+];
+
+async function runTune(allData) {
+  const results = [];
+  for (const combo of TUNE_GRID) {
+    Object.assign(CONFIG, combo);
+    let allTrades = [];
+    for (const symbol of symbols) {
+      const { data15m, data4h } = allData[symbol];
+      const { trades } = await backtestSymbol(symbol, data15m, data4h);
+      allTrades.push(...trades);
+    }
+    const closed = allTrades.filter(t => t.result !== 'OPEN');
+    const wins   = closed.filter(t => t.rr > 0);
+    const wr     = closed.length ? (wins.length / closed.length * 100) : 0;
+    const totalRR = closed.reduce((s, t) => s + t.rr, 0);
+    results.push({ combo, trades: closed.length, wins: wins.length, wr, totalRR });
+  }
+  console.log('\n═══════════════════════════════════════════════════════════════════');
+  console.log(' TUNE RESULTS — ranked by trade count among 100% WR combos first');
+  console.log('═══════════════════════════════════════════════════════════════════');
+  results
+    .sort((a, b) => (b.wr === 100 && a.wr !== 100 ? 1 : a.wr !== 100 && b.wr === 100 ? -1 : b.trades - a.trades))
+    .forEach(r => {
+      console.log(`  cooldown=${r.combo.SIGNAL_COOLDOWN_BARS} RR1=${r.combo.MIN_RR1} RR2=${r.combo.MIN_RR2} patterns=${r.combo.REJECTION_MIN_PATTERNS}  →  ${r.trades} trades | ${r.wr.toFixed(1)}% WR | ${r.totalRR.toFixed(2)}R`);
+    });
+  console.log('\nPick the row with the most trades that still shows 100.0% WR, then');
+  console.log('hard-code those 4 values into config.js (NOT just backtest.js) before going live.\n');
+}
+
+
 
 (async () => {
   console.log('\n═══════════════════════════════════════════════════════════════════');
@@ -613,6 +694,20 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
   const funnelsBySymbol = {};
   const minBarsNeeded = Math.max(CONFIG.VP_LOOKBACK, CONFIG.FIB_LOOKBACK) + CONFIG.ATR_PERIOD + 5;
 
+  if (tuneMode) {
+    const allData = {};
+    for (const symbol of symbols) {
+      console.log(`\n▶ Fetching ${symbol} (once, reused across tune grid)`);
+      const data15m = await fetchHistory(symbol, CONFIG.TIMEFRAME, days + 35);
+      const data4h  = await fetchHistory(symbol, '4hour', days + 35);
+      if (data15m.length < minBarsNeeded) { console.log(`  ⚠️ Insufficient data for ${symbol} — skipping`); continue; }
+      allData[symbol] = { data15m, data4h };
+      await sleep(500);
+    }
+    await runTune(allData);
+    process.exit(0);
+  }
+
   for (const symbol of symbols) {
     console.log(`\n▶ ${symbol}`);
     const data15m = await fetchHistory(symbol, CONFIG.TIMEFRAME, days + 35); // +35 days warmup buffer (covers 30-day VP/FIB lookback + ATR/cooldown margin)
@@ -620,6 +715,7 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
 
     if (data15m.length < minBarsNeeded) {
       console.log(`  ⚠️ Insufficient data for ${symbol} — skipping`);
+      funnelsBySymbol[symbol] = null; // mark as attempted but no data
       continue;
     }
 
