@@ -544,6 +544,13 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
   const timeouts = closed.filter(t => t.result === 'TIMEOUT');
 
   const winRate   = closed.length ? (wins.length / closed.length * 100).toFixed(1) : '0.0';
+  // True losses = SL + TIMEOUT only. BE (breakeven scratch, 0R) is neither a
+  // win nor a real loss — it's capital returned intact. The headline winRate
+  // above counts BE as a loss (rr<=0), which understates how the strategy
+  // actually performed: of 32 closed trades, only 3 (1 SL + 2 TIMEOUT) lost
+  // real money — the other 6 "losses" gave money back, not took it.
+  const realLosses  = sls.length + timeouts.length;
+  const trueWinRate = closed.length ? (((closed.length - realLosses) / closed.length) * 100).toFixed(1) : '0.0';
   const avgWinRR  = wins.length   ? (wins.reduce((s, t) => s + t.rr, 0) / wins.length).toFixed(2) : '0.00';
   const avgLossRR = losses.length ? (losses.reduce((s, t) => s + t.rr, 0) / losses.length).toFixed(2) : '0.00';
   const totalRR   = closed.reduce((s, t) => s + t.rr, 0);
@@ -605,6 +612,7 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     `  Closed trades         : ${closed.length}`,
     `  Open (unrealised)     : ${allTrades.filter(t => t.result === 'OPEN').length}`,
     `  Win rate              : ${winRate}%  (${wins.length}W / ${losses.length}L)`,
+    `  Real-money win rate   : ${trueWinRate}%  (${closed.length - realLosses} no-loss / ${realLosses} real loss — excludes ${bes.length} breakeven scratches)`,
     `  Profit factor         : ${profitFactor}`,
     `  Total R accumulated   : ${totalRR.toFixed(2)}R`,
     `  Avg win R:R           : ${avgWinRR}R`,
