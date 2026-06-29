@@ -58,7 +58,9 @@ const CONFIG = {
   RISK_PER_TRADE_PCT:     1.0,   // % of capital risked per trade (for $ P&L simulation)
   STARTING_CAPITAL:       1000,  // USDT (for $ P&L simulation)
   // Surgical R:R filters — MUST match config.js exactly
-  MIN_RR1:                0.35,  // TP1 must be ≥ 0.35R
+  // v8.8: raised 0.35→1.0 — 720-day backtest showed a clean bimodal rr1 split
+  // (~0.65 cluster = 41% BE rate, ~1.3 cluster = 14% BE rate). See config.js.
+  MIN_RR1:                1.0,   // TP1 must be ≥ 1.0R
   MIN_RR2:                0.50,  // TP2 must be ≥ 0.50R
 };
 
@@ -721,12 +723,12 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
 // strictness). Core foundation — POC/VAH/VAL, Fibonacci zone, 4H bias votes,
 // confluence/HTF-zone logic — is never modified by this grid.
 const TUNE_GRID = [
-  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 0.35, MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 }, // baseline (current)
-  { SIGNAL_COOLDOWN_BARS: 3, MIN_RR1: 0.35, MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 },
-  { SIGNAL_COOLDOWN_BARS: 3, MIN_RR1: 0.30, MIN_RR2: 0.45, REJECTION_MIN_PATTERNS: 2 },
-  { SIGNAL_COOLDOWN_BARS: 2, MIN_RR1: 0.30, MIN_RR2: 0.45, REJECTION_MIN_PATTERNS: 2 },
-  { SIGNAL_COOLDOWN_BARS: 2, MIN_RR1: 0.25, MIN_RR2: 0.40, REJECTION_MIN_PATTERNS: 2 },
-  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 0.35, MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 3 }, // stricter — fewer but maybe cleaner
+  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 1.0,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 }, // baseline (current, v8.8)
+  { SIGNAL_COOLDOWN_BARS: 3, MIN_RR1: 1.0,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 },
+  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 1.15, MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 }, // tighter — right at the deep-entry cluster floor
+  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 0.9,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 }, // looser — closer to the old shallow cluster, sanity check
+  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 1.0,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 3 }, // stricter pattern requirement on top
+  { SIGNAL_COOLDOWN_BARS: 3, MIN_RR1: 1.0,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 3 },
 ];
 
 async function runTune(allData) {

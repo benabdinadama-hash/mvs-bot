@@ -113,13 +113,20 @@ module.exports = {
   // TP3 = VAH (BUY runner) or VAL (SELL runner) — full pillar exit
 
   // ── Surgical filter R:R thresholds ──────────────────────────────────────
-  // Loosened from 0.65/1.0 → 0.35/0.5 to allow 61.8% Fib entries through,
-  // which are geometrically disadvantaged vs 78.6% entries under the current
-  // SL anchor (swing wick ± ATR) — risk is large relative to TP1/TP2 distance
-  // when entry is far from the stop. Strategy logic and SL/TP placement are
-  // unchanged; only the gate thresholds are adjusted.
-  MIN_RR1: 0.35,   // TP1 must be ≥ 0.35R (was 0.65)
-  MIN_RR2: 0.50,   // TP2 must be ≥ 0.50R (was 1.0)
+  // v8.8 REVERT: was loosened 0.65→0.35 to admit 61.8% Fib entries, but the
+  // 720-day/96-trade backtest shows this split the trade population sharply
+  // bimodal by rr1: a ~0.65 cluster (46 trades, 41% BE rate, 85% real WR)
+  // from shallow 61.8% entries, vs a ~1.3 cluster (50 trades, 14% BE rate,
+  // 93% real WR) from deeper 78.6% entries — because SL is swing-wick
+  // anchored (fixed) while TP1 is the fixed 50% level, so rr1 only tracks
+  // entry depth. The 61.8% cluster wasn't producing more real losses, just
+  // far more breakeven scratches (capital tied up ~200 bars for 0R). Setting
+  // MIN_RR1 to 1.0 sits in the clean gap between the two clusters (0.66–1.23)
+  // and removes the weak shallow-entry population without touching the
+  // strong deep-entry one. Re-tune from data if a future backtest shifts
+  // these clusters.
+  MIN_RR1: 1.0,    // TP1 must be ≥ 1.0R
+  MIN_RR2: 0.50,   // TP2 must be ≥ 0.50R (rr2 is continuous, no bimodal split — left as-is)
 
   // ── KuCoin API ──────────────────────────────────────────────────────────
   BASE_URL: 'https://api.kucoin.com/api/v1',
