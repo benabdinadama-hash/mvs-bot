@@ -289,7 +289,7 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
   // DIAGNOSTIC FUNNEL — counts how many scanned bars survive each gate.
   // Purely instrumentation, does not change any trading logic.
   const funnel = {
-    scanned: 0, bias4hOk: 0, atrOk: 0, swingInRange: 0, biasAligned: 0,
+    scanned: 0, bias4hOk: 0, bullBias4h: 0, bearBias4h: 0, atrOk: 0, swingInRange: 0, biasAligned: 0,
     notOverExtended: 0, nearZone: 0, vpOk: 0, confluenceOk: 0, htfAligned: 0,
     notInvalidated: 0, cooldownOk: 0, rejectionOk: 0,
     surgF1: 0, surgF2: 0, surgF3: 0, surgF4: 0, surgicalOk: 0, opened: 0,
@@ -382,6 +382,8 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     const bias4h = get4HBias(bars4h);
     if (!bias4h || bias4h.bias === 'NEUTRAL') continue;
     funnel.bias4hOk++;
+    if (bias4h.bias === 'BULLISH') funnel.bullBias4h++;
+    else if (bias4h.bias === 'BEARISH') funnel.bearBias4h++;
 
     // ── STEP 1-2: Entry TF data + ATR ──────────────────────────────────────
     const window = history.slice(-CONFIG.VP_LOOKBACK);
@@ -591,6 +593,19 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     bySymbol[t.symbol].totalRR += t.rr;
   }
 
+  // By direction breakdown (BUY vs SELL) — surfaces any structural imbalance,
+  // e.g. a backtest window that's entirely BUY means the SELL side of the
+  // strategy has never actually been exercised, not that it doesn't exist.
+  const byDirection = {};
+  for (const t of closed) {
+    if (!byDirection[t.direction]) byDirection[t.direction] = { trades: 0, wins: 0, totalRR: 0 };
+    byDirection[t.direction].trades++;
+    if (t.rr > 0) byDirection[t.direction].wins++;
+    byDirection[t.direction].totalRR += t.rr;
+  }
+  const totalBullBias4h = Object.values(funnelsBySymbol).reduce((s, f) => s + (f ? f.bullBias4h : 0), 0);
+  const totalBearBias4h = Object.values(funnelsBySymbol).reduce((s, f) => s + (f ? f.bearBias4h : 0), 0);
+
   // Avg bars held
   const avgBarsHeld = closed.length
     ? (closed.reduce((s, t) => s + (t.barsHeld || 0), 0) / closed.length).toFixed(0)
@@ -640,13 +655,26 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
       return `  ${sym.padEnd(10)} ${s.trades} trades | ${(s.wins/s.trades*100).toFixed(0)}% WR | ${s.totalRR.toFixed(2)}R total`;
     }),
     '',
+    '── BY DIRECTION ────────────────────────────────────────────────────',
+    `  4H bias occurrence (all symbols) : BULLISH bars=${totalBullBias4h}  BEARISH bars=${totalBearBias4h}`,
+    ...(Object.keys(byDirection).length ? Object.keys(byDirection).map(dir => {
+      const d = byDirection[dir];
+      return `  ${dir.padEnd(6)} ${d.trades} trades | ${(d.wins/d.trades*100).toFixed(0)}% WR | ${d.totalRR.toFixed(2)}R total`;
+    }) : ['  No closed trades to break down by direction.']),
+    ...(totalBearBias4h === 0
+      ? ['  ⚠️ Zero BEARISH 4H bias bars across the whole window — the SELL side of this',
+         '     strategy has not been exercised at all in this backtest period. Any WR/PF',
+         '     numbers above only validate the BUY side. Extend the lookback (--days) to',
+         '     include a bear/range period before trusting this strategy in both directions.']
+      : []),
+    '',
     '── FUNNEL DIAGNOSTICS (bars surviving each gate, per symbol) ────────',
     ...requestedSymbols.flatMap(sym => {
       const f = funnelsBySymbol[sym];
       if (!f) return [`  ${sym}: no funnel data (fetch/insufficient-data — check console log)`];
       return [
         `  ${sym}:`,
-        `    scanned=${f.scanned}  bias4hOk=${f.bias4hOk}  atrOk=${f.atrOk}  swingInRange=${f.swingInRange}`,
+        `    scanned=${f.scanned}  bias4hOk=${f.bias4hOk} (bull=${f.bullBias4h}/bear=${f.bearBias4h})  atrOk=${f.atrOk}  swingInRange=${f.swingInRange}`,
         `    biasAligned=${f.biasAligned}  notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  vpOk=${f.vpOk}`,
         `    confluenceOk=${f.confluenceOk}  htfAligned=${f.htfAligned}  notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}`,
         `    rejectionOk=${f.rejectionOk}  surgF1(RR1)=${f.surgF1}  surgF2(RR2)=${f.surgF2}  surgF3(patterns)=${f.surgF3}  surgF4(POC)=${f.surgF4}  opened=${f.opened}`,

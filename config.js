@@ -4,7 +4,8 @@
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
  * TIMEFRAMES:  4H bias gate → 1hour entry candles, scanned every 15min.
- * SYMBOLS:     2 highest-performing pairs — ETH and SOL (100% WR across 180-day backtest)
+ * SYMBOLS:     8 liquid pairs — ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK
+ *              (90.6% real-money WR across 360-day, 8-pair backtest — see README)
  *              repo is PUBLIC — GitHub Actions minutes are unlimited and free.
  *
  * NO lagging indicators. Every parameter here is structural price/volume data.
