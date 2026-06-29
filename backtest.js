@@ -33,7 +33,7 @@ const path  = require('path');
 
 // ── Config (mirrors config.js exactly) ─────────────────────────────────────
 const CONFIG = {
-  SYMBOLS:                ['ETH-USDT', 'SOL-USDT'],
+  SYMBOLS:                ['ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT', 'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT'],
   TIMEFRAME:              '1hour',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      3600,
@@ -466,7 +466,8 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     funnel.surgF2++;
     if (rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;            // Filter 3: REJECTION_MIN_PATTERNS required (config.js)
     funnel.surgF3++;
-    if (bestPivot && bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) continue; // Filter 4: POC_RECLAIM for POC entries
+    // v8.7: removed redundant POC_RECLAIM-only veto — see strategy.js note.
+    // REJECTION_MIN_PATTERNS (2-of-4) is the real confirmation gate.
     funnel.surgF4++;
     funnel.surgicalOk++;
     funnel.opened++;

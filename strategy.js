@@ -827,11 +827,17 @@ const runStrategy = async (symbol) => {
       console.log(`  ⏭️  ONLY ${rejection.patterns.length} PATTERNS — need ${config.REJECTION_MIN_PATTERNS}-of-4. Got: ${rejection.patterns.join('+')}. Signal suppressed.`);
       return;
     }
-    // Filter 4: POC entries also require POC_RECLAIM
-    if (bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) {
-      console.log(`  ⏭️  POC ENTRY WITHOUT POC_RECLAIM — patterns: ${rejection.patterns.join('+')}. Signal suppressed.`);
-      return;
-    }
+    // v8.7: removed "Filter 4: POC entries also require POC_RECLAIM".
+    // This was a 5th, undocumented gate stacked on top of the stated
+    // foundation (POC+VAH+VAL+Fib+4H bias) — it demanded one *specific*
+    // named pattern instead of trusting the REJECTION_MIN_PATTERNS 2-of-4
+    // vote just above. A setup with PIN_BAR+ENGULFING at a POC pivot is
+    // exactly as confirmed as one with POC_RECLAIM+ENGULFING; there was no
+    // structural reason to single POC out. This was the exact filter that
+    // discarded every qualifying SOL-USDT setup in the v8.6 backtest
+    // (surgF4: 4 candidates → 0 opened). Foundation gates above (4H bias,
+    // D4 over-extension, zone proximity, A1 confluence, R:R, 2-of-4
+    // rejection) are all unchanged.
 
     // ── STEP 14: TELEGRAM ALERT ──────────────────────────────────────────
     const emoji     = direction === 'BUY' ? '🟢' : '🔴';

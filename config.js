@@ -1,5 +1,5 @@
 /**
- * MVS — Monthly Value Sniper v8.6
+ * MVS — Monthly Value Sniper v8.7
  * KuCoin API Configuration for Ghana
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
@@ -17,17 +17,14 @@ module.exports = {
   TELEGRAM_CHAT_ID:   process.env.TELEGRAM_CHAT_ID   || 'YOUR_CHAT_ID_HERE',
 
   // ── Assets ──────────────────────────────────────────────────────────────
-  // v8.2: reduced from 8 symbols to 4. This repo is PRIVATE, and GitHub
-  // Actions free minutes for private repos are capped at 2000/month. At
-  // 8 symbols x 2 timeframes x a 15-45min cadence, even the 45min-cadence
-  // fix alone wasn't enough margin to be safe — cutting to 4 symbols halves
-  // the KuCoin calls per run (16 -> 8) and gives real headroom instead of
-  // running right up against the quota every month. Kept the 4 most liquid,
-  // tightest-spread pairs for signal quality. To go back to 8, you must
-  // either make the repo public (then GitHub Actions minutes are free and
-  // unlimited) or accept GitHub billing you for the overage.
+  // v8.7: repo is PUBLIC, so GitHub Actions minutes are unlimited/free —
+  // no quota reason left to stay at 2 symbols. Back to 8 liquid pairs: the
+  // safest way to get more signals/week without touching strategy logic —
+  // every pair still passes the exact same POC/VAH/VAL/Fib + 4H-bias +
+  // rejection + R:R gates. More markets scanned ≠ looser filter.
   SYMBOLS: [
-    'ETH-USDT', 'SOL-USDT'
+    'ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT',
+    'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT'
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────
