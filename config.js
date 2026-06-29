@@ -109,6 +109,15 @@ module.exports = {
   // TP2 = POC of entry session (runner)
   // TP3 = VAH (BUY runner) or VAL (SELL runner) — full pillar exit
 
+  // ── Surgical filter R:R thresholds ──────────────────────────────────────
+  // Loosened from 0.65/1.0 → 0.35/0.5 to allow 61.8% Fib entries through,
+  // which are geometrically disadvantaged vs 78.6% entries under the current
+  // SL anchor (swing wick ± ATR) — risk is large relative to TP1/TP2 distance
+  // when entry is far from the stop. Strategy logic and SL/TP placement are
+  // unchanged; only the gate thresholds are adjusted.
+  MIN_RR1: 0.35,   // TP1 must be ≥ 0.35R (was 0.65)
+  MIN_RR2: 0.50,   // TP2 must be ≥ 0.50R (was 1.0)
+
   // ── KuCoin API ──────────────────────────────────────────────────────────
   BASE_URL: 'https://api.kucoin.com/api/v1',
 

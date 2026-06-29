@@ -811,14 +811,14 @@ const runStrategy = async (symbol) => {
     const rr3 = risk > 0 ? (reward3 / risk).toFixed(2) : 'N/A';
 
     // ── SURGICAL FILTER ──────────────────────────────────────────────────
-    // Filter 1: TP1 >= 0.65R
-    if (risk > 0 && (reward1 / risk) < 0.65) {
-      console.log(`  ⏭️  MIN R:R SKIP — TP1 only ${(reward1/risk).toFixed(2)}R. Signal suppressed.`);
+    // Filter 1: TP1 >= MIN_RR1 (set in config.js)
+    if (risk > 0 && (reward1 / risk) < config.MIN_RR1) {
+      console.log(`  ⏭️  MIN R:R SKIP — TP1 only ${(reward1/risk).toFixed(2)}R (min ${config.MIN_RR1}R). Signal suppressed.`);
       return;
     }
-    // Filter 2: TP2 >= 1.0R — ensures meaningful second target (not 0R VAH entries)
-    if (risk > 0 && (reward2 / risk) < 1.0) {
-      console.log(`  ⏭️  TP2 TOO CLOSE — TP2 only ${(reward2/risk).toFixed(2)}R. Signal suppressed.`);
+    // Filter 2: TP2 >= MIN_RR2 (set in config.js)
+    if (risk > 0 && (reward2 / risk) < config.MIN_RR2) {
+      console.log(`  ⏭️  TP2 TOO CLOSE — TP2 only ${(reward2/risk).toFixed(2)}R (min ${config.MIN_RR2}R). Signal suppressed.`);
       return;
     }
     // Filter 3: Require REJECTION_MIN_PATTERNS minimum (set in config.js)
