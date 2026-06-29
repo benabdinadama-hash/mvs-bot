@@ -177,8 +177,33 @@ const calcATR = (data, period = config.ATR_PERIOD) => {
 //  88.6%         → Structural extreme (beyond this = remap territory)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const calcFib = (high, low) => {
+// v8.8 FIX: calcFib is now direction-aware. Previously the pocket was ALWAYS
+// anchored from the high, measuring retracement downward (high - diff*pct).
+// That places the 60–80% golden pocket near the BOTTOM of the swing range —
+// correct for BUY (pullback-in-uptrend), but for SELL the pocket was still
+// being checked near the bottom of the range while price (by definition,
+// price > midpoint) sat in the upper half. The SELL path could structurally
+// never reach "near zone," regardless of how much real BEARISH bias existed.
+// Fix: for SELL, mirror the same 60–80% retracement, anchored from the low
+// and measured upward, so the pocket sits near the TOP of the range.
+const calcFib = (high, low, direction = 'BUY') => {
   const diff = high - low;
+
+  if (direction === 'SELL') {
+    return {
+      level236: low + diff * 0.236,
+      level382: low + diff * 0.382,
+      level500: low + diff * 0.500,   // TP1 (symmetric — same value either way)
+      level618: low + diff * 0.618,   // entry zone bottom (nearer mid)
+      level786: low + diff * 0.786,   // entry zone top (nearer high)
+      level886: low + diff * 0.886,   // structural extreme (near high)
+      zoneLow:  low + diff * config.FIB_ZONE_LOW,    // 60% — pocket lower
+      zoneHigh: low + diff * config.FIB_ZONE_HIGH,   // 80% — pocket upper
+      swingHigh: high,
+      swingLow:  low,
+    };
+  }
+
   return {
     level236: high - diff * 0.236,
     level382: high - diff * 0.382,
@@ -602,9 +627,9 @@ const runStrategy = async (symbol) => {
       return;
     }
 
-    const fib      = calcFib(swing.high, swing.low);
-    const midPoint = (swing.high + swing.low) / 2;
+    const midPoint  = (swing.high + swing.low) / 2;
     const direction = price < midPoint ? 'BUY' : 'SELL';
+    const fib       = calcFib(swing.high, swing.low, direction);
 
     // ── STEP 4: 4H DIRECTION GATE ────────────────────────────────────────
     // 4H bias must agree with entry-TF direction.

@@ -166,8 +166,23 @@ const calcATR = (data, period = CONFIG.ATR_PERIOD) => {
   return atr;
 };
 
-const calcFib = (high, low) => {
+// v8.8 FIX: mirrored for SELL — see strategy.js for full rationale.
+// Previously SELL reused the BUY-anchored (high-down) pocket, which sits
+// near the bottom of the swing range. Since SELL is only chosen when price
+// is in the upper half of the range, the SELL path could structurally never
+// reach "near zone" — explaining the 100% BUY / 0% SELL backtest result.
+const calcFib = (high, low, direction = 'BUY') => {
   const diff = high - low;
+  if (direction === 'SELL') {
+    return {
+      level500: low + diff * 0.500,
+      level618: low + diff * 0.618,
+      level786: low + diff * 0.786,
+      level886: low + diff * 0.886,
+      zoneLow:  low + diff * CONFIG.FIB_ZONE_LOW,
+      zoneHigh: low + diff * CONFIG.FIB_ZONE_HIGH,
+    };
+  }
   return {
     level500: high - diff * 0.500,
     level618: high - diff * 0.618,
@@ -397,9 +412,9 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     const swingL   = Math.min(...fibData.map(d => d.low));
     if (price > swingH || price < swingL) continue; // A2 remap — skip
     funnel.swingInRange++;
-    const fib      = calcFib(swingH, swingL);
-    const midPoint = (swingH + swingL) / 2;
+    const midPoint  = (swingH + swingL) / 2;
     const direction = price < midPoint ? 'BUY' : 'SELL';
+    const fib       = calcFib(swingH, swingL, direction);
 
     // ── STEP 4: 4H bias alignment ───────────────────────────────────────────
     const biasAligned =
