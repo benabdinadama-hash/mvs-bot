@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v8.3
+ *  MVS — MONTHLY VALUE SNIPER v8.4
  *  "Structure is everything. If price isn't at a pillar, it's not a trade."
  *  By Abdin
  *
@@ -821,10 +821,10 @@ const runStrategy = async (symbol) => {
       console.log(`  ⏭️  TP2 TOO CLOSE — TP2 only ${(reward2/risk).toFixed(2)}R. Signal suppressed.`);
       return;
     }
-    // Filter 3: Require 3-of-4 rejection patterns minimum
-    // This eliminates all historical losses which had only 2 patterns
-    if (rejection.patterns.length < 3) {
-      console.log(`  ⏭️  ONLY ${rejection.patterns.length} PATTERNS — need 3-of-4. Got: ${rejection.patterns.join('+')}. Signal suppressed.`);
+    // Filter 3: Require REJECTION_MIN_PATTERNS minimum (set in config.js)
+    // Default is 2-of-4. Set to 3 in config if you want ultra-strict filtering.
+    if (rejection.patterns.length < config.REJECTION_MIN_PATTERNS) {
+      console.log(`  ⏭️  ONLY ${rejection.patterns.length} PATTERNS — need ${config.REJECTION_MIN_PATTERNS}-of-4. Got: ${rejection.patterns.join('+')}. Signal suppressed.`);
       return;
     }
     // Filter 4: POC entries also require POC_RECLAIM
@@ -901,7 +901,7 @@ ${htfLine}
 
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v8.3   by Abdin               ║');
+console.log('║   MVS — Monthly Value Sniper v8.4   by Abdin               ║');
 console.log('║   Foundation: POC + VAH + VAL + FIBO  |  No lagging data   ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);
@@ -909,7 +909,7 @@ console.log(`   Entry   : ${config.TIMEFRAME}  →  Bias: ${config.BIAS_TIMEFRAM
 console.log(`   VP bars : ${config.VP_LOOKBACK} (entry-TF) | ${config.BIAS_LOOKBACK} (4H)`);
 console.log(`   Fib bars: ${config.FIB_LOOKBACK} (entry-TF) | ${config.BIAS_FIB_LOOKBACK} (4H)`);
 console.log(`   Confluence: ATR×${config.CONFLUENCE_ATR_MULT} | HTF zone: ATR×${config.HTFZONE_ATR_MULT}`);
-console.log(`   Rejection : ${config.REJECTION_MIN_PATTERNS}-of-4 patterns (POC_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION)`);
+console.log(`   Rejection : ${config.REJECTION_MIN_PATTERNS}-of-4 patterns min (POC_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION)`);
 console.log(`   Cooldown  : ${config.SIGNAL_COOLDOWN_BARS} bars | Zone void: ATR×${config.ZONE_INVALIDATION_ATR_MULT}`);
 console.log('');
 

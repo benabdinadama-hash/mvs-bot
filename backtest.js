@@ -1,14 +1,14 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — 90-DAY BACKTESTER  (backtest.js)  v2 — fixed TP ladder + min R:R filter
+ *  MVS — 90-DAY BACKTESTER  (backtest.js)  v3 — 1hour entry timeframe
  *
- *  Fetches real historical KuCoin data (15min + 4H) for the last 90 days,
- *  replays every 15-minute bar through the exact same MVS strategy logic
+ *  Fetches real historical KuCoin data (1hour + 4H) for the last 90 days,
+ *  replays every 1-hour bar through the exact same MVS strategy logic
  *  used in strategy.js, and produces a full performance report.
  *
  *  HOW IT WORKS:
  *  ─ Fetches up to 1500 bars per KuCoin request (KuCoin's max per call)
- *  ─ Pages backward in time to cover 90 days (8640 × 15min bars)
+ *  ─ Pages backward in time to cover 90 days (2160 × 1hour bars)
  *  ─ Replays each bar as if it were "live" — the strategy sees only data
  *    up to and including that bar (no lookahead bias)
  *  ─ Simulates entries, SL hits, and TP hits on subsequent bars
@@ -31,26 +31,26 @@ const axios = require('axios');
 const fs    = require('fs');
 const path  = require('path');
 
-// ── Config (mirrors strategy.js exactly) ─────────────────────────────────────
+// ── Config (mirrors config.js exactly) ─────────────────────────────────────
 const CONFIG = {
   SYMBOLS:                ['ETH-USDT', 'SOL-USDT'],
-  TIMEFRAME:              '15min',
+  TIMEFRAME:              '1hour',
   BIAS_TIMEFRAME:         '4hour',
-  ENTRY_BAR_SECONDS:      900,
-  VP_LOOKBACK:            500,      // 500 bars = 125h (~5.2 days) — matches TradingView VP Auto 500-bar + config.js
+  ENTRY_BAR_SECONDS:      3600,
+  VP_LOOKBACK:            120,      // 120 bars = 120h (5 days) — matches config.js
   BIAS_LOOKBACK:          50,
-  FIB_LOOKBACK:           800,      // 15min bars for swing detection (~8 days) — matches config.js
+  FIB_LOOKBACK:           200,      // 1hour bars for swing detection (~8.3 days) — matches config.js
   BIAS_FIB_LOOKBACK:      60,       // 4H bars for bias swing (~10 days) — matches config.js
   VP_ROWS:                100,
   VALUE_AREA_PCT:         0.70,
   FIB_ZONE_LOW:           0.60,
   FIB_ZONE_HIGH:          0.80,
   CONFLUENCE_ATR_MULT:    0.5,
-  HTFZONE_ATR_MULT:       1.5,
+  HTFZONE_ATR_MULT:       2.5,
   REJECTION_MIN_PATTERNS: 2,
   ABSORPTION_BODY_RATIO:  0.60,
   ZONE_INVALIDATION_ATR_MULT: 1.0,
-  SIGNAL_COOLDOWN_BARS:   20,
+  SIGNAL_COOLDOWN_BARS:   5,
   ATR_PERIOD:             14,
   SL_ATR_MULT:            0.25,
   BASE_URL:               'https://api.kucoin.com/api/v1',
@@ -91,11 +91,13 @@ const fetchKlines = async (symbol, interval, startAt, endAt) => {
 
 /**
  * Fetch full history for `days` days by paging backward in 1500-bar chunks.
- * KuCoin returns max 1500 bars per call; 90 days × 96 bars/day = 8640 bars
- * so we need at minimum 6 pages for 15min, 2 pages for 4H.
+ * KuCoin returns max 1500 bars per call; 90 days × 24 bars/day = 2160 bars
+ * for the 1hour entry timeframe, so 2 pages comfortably cover it (and 2
+ * pages for 4H, same as before).
  */
+const BAR_SECONDS_BY_INTERVAL = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1hour': 3600, '4hour': 14400 };
 const fetchHistory = async (symbol, interval, days) => {
-  const barSeconds = interval === '15min' ? 900 : 14400;
+  const barSeconds = BAR_SECONDS_BY_INTERVAL[interval] || 3600;
   const endAt   = Math.floor(Date.now() / 1000);
   const startAt = endAt - days * 86400;
 
@@ -424,7 +426,7 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     // SURGICAL FILTER
     if (rr1 < 0.65) continue;                                                          // Filter 1: TP1 >= 0.65R
     if ((Math.abs(tp2Price - entryPrice) / risk) < 1.0) continue;                     // Filter 2: TP2 >= 1.0R
-    if (rejection.patterns.length < 3) continue;                                       // Filter 3: 3-of-4 patterns required
+    if (rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;            // Filter 3: REJECTION_MIN_PATTERNS required (config.js)
     if (bestPivot && bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) continue; // Filter 4: POC_RECLAIM for POC entries
 
     // ── OPEN TRADE ──────────────────────────────────────────────────────────
@@ -580,17 +582,18 @@ const generateReport = (allTrades, days) => {
   console.log(' MVS — BACKTESTER v2.1');
   console.log(`  Symbols : ${symbols.join(', ')}`);
   console.log(`  Period  : Last ${days} days`);
-  console.log(`  Bars    : ~${days * 96} × 15min  |  ~${days * 6} × 4H`);
+  console.log(`  Bars    : ~${days * 24} × 1H  |  ~${days * 6} × 4H`);
   console.log('═══════════════════════════════════════════════════════════════════\n');
 
   const allTrades = [];
+  const minBarsNeeded = Math.max(CONFIG.VP_LOOKBACK, CONFIG.FIB_LOOKBACK) + CONFIG.ATR_PERIOD + 5;
 
   for (const symbol of symbols) {
     console.log(`\n▶ ${symbol}`);
-    const data15m = await fetchHistory(symbol, '15min', days + 10); // +10 days warmup buffer
+    const data15m = await fetchHistory(symbol, CONFIG.TIMEFRAME, days + 10); // +10 days warmup buffer
     const data4h  = await fetchHistory(symbol, '4hour', days + 10);
 
-    if (data15m.length < 500) {
+    if (data15m.length < minBarsNeeded) {
       console.log(`  ⚠️ Insufficient data for ${symbol} — skipping`);
       continue;
     }

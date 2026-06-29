@@ -1,9 +1,9 @@
 /**
- * MVS — Monthly Value Sniper v8.3
+ * MVS — Monthly Value Sniper v8.5
  * KuCoin API Configuration for Ghana
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
- * TIMEFRAMES:  4H bias gate → 15min entry candles, scanned every 15min.
+ * TIMEFRAMES:  4H bias gate → 1hour entry candles, scanned every 15min.
  * SYMBOLS:     2 highest-performing pairs — ETH and SOL (100% WR across 180-day backtest)
  *              repo is PUBLIC — GitHub Actions minutes are unlimited and free.
  *
@@ -31,28 +31,28 @@ module.exports = {
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────
-  TIMEFRAME:      '15min',   // entry timeframe (was 1hour — finer granularity, same structure)
+  TIMEFRAME:      '1hour',   // entry timeframe (v8.5: reverted from 15min — fewer/cleaner signals)
   BIAS_TIMEFRAME: '4hour',   // higher-timeframe bias — UNCHANGED, still the strict gate
 
   // Entry bar duration in seconds. MUST match TIMEFRAME above — used for
   // cooldown math (bars-since-last-signal). KuCoin bar seconds reference:
   // 1min=60, 5min=300, 15min=900, 30min=1800, 1hour=3600, 4hour=14400.
-  ENTRY_BAR_SECONDS: 900,
+  ENTRY_BAR_SECONDS: 3600,
 
   // ── Scan Frequency ──────────────────────────────────────────────────────
   // NOTE: this constant is documentation only — the actual cron schedule
   // lives in .github/workflows/mvs-scan.yml and must be kept in sync with
-  // this value by hand. v8.4: repo is public so Actions minutes are unlimited.
-  // Scan cadence restored to every 15min (same as the entry candle TIMEFRAME)
-  // for maximum signal freshness.
+  // this value by hand. v8.5: entry candle is now 1hour, but the scan still
+  // runs every 15min so a fresh 1H candle is picked up within 15min of close
+  // (not left waiting up to an hour for the next scan).
   SCAN_CRON: '*/15 * * * *',
 
   // ── Data lookbacks ──────────────────────────────────────────────────────
-  // Scaled to preserve the SAME real-world calendar windows as the old
-  // 1H setup — only the resolution changed, not how much history is used.
-  VP_LOOKBACK:        500,   // 500 bars = 125h (~5.2 days) — matches TradingView VP Auto 500-bar setting
+  // Scaled for 1hour bars — same real-world calendar windows as before,
+  // only the resolution changed, not how much history is used.
+  VP_LOOKBACK:        120,   // 120 bars = 120h (5 days) — matches TradingView VP Auto 500-bar setting on 15min
   BIAS_LOOKBACK:      200,   // 4H bars for bias module        (≈ 33 days) — unchanged
-  FIB_LOOKBACK:       800,   // 15min bars for swing detection (~8 days, same as before)
+  FIB_LOOKBACK:       200,   // 1hour bars for swing detection (~8.3 days, same as before)
   BIAS_FIB_LOOKBACK:   60,   // 4H bars for bias swing         (≈ 10 days) — unchanged
 
   // ── Volume Profile ──────────────────────────────────────────────────────
@@ -75,8 +75,9 @@ module.exports = {
 
   // 4H zone cross-check: entry price must be within this many ATRs of
   // a 4H structural level (4H POC, VAH, VAL, or key Fib) to pass.
-  // UNCHANGED — same strictness as the 1H version.
-  HTFZONE_ATR_MULT: 1.5,
+  // v8.5: loosened 1.5 → 2.5 — was too tight on 1hour candles, was choking
+  // off otherwise-valid signals.
+  HTFZONE_ATR_MULT: 2.5,
 
   // ── Rejection candle (2-of-4 rule) ──────────────────────────────────────
   // Patterns: POC_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION
@@ -95,9 +96,9 @@ module.exports = {
 
   // ── Signal cooldown ─────────────────────────────────────────────────────
   // Suppress re-alert on same zone+direction for N bars after firing.
-  // Scaled from 5 bars on 1H (= 5 real hours) to 20 bars on 15min
-  // (= 5 real hours) — SAME real-world cooldown window, not shortened.
-  SIGNAL_COOLDOWN_BARS: 20,
+  // 5 bars on 1hour = 5 real hours — SAME real-world cooldown window as
+  // the 20-bar setting on 15min.
+  SIGNAL_COOLDOWN_BARS: 5,
 
   // ── ATR ─────────────────────────────────────────────────────────────────
   ATR_PERIOD: 14,
