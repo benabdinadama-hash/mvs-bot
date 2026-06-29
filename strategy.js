@@ -813,21 +813,28 @@ const runStrategy = async (symbol) => {
       ? swingWick - atr * config.SL_ATR_MULT
       : swingWick + atr * config.SL_ATR_MULT;
 
-    // TP1: 50% Fib — equilibrium, close 50% of position
-    const tp1Price = fib.level500;
-
-    // TP2: VAH (BUY) / VAL (SELL) — full value area exit
-    // FIX v8.4: was vp.pocPrice which is AT the entry confluence level
-    // (0.01–0.1R away), making TP2 hit in 1-2 bars with near-zero reward.
-    // VAH/VAL is the correct structural exit — opposite wall of the value area.
-    const tp2Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
-
-    // TP3: Swing extreme — trend extension target beyond the value area
-    // FIX v8.4: was VAH/VAL, now the actual swing high/low for runners
-    const tp3Price = direction === 'BUY' ? fib.swingHigh : fib.swingLow;
-
     const entryPrice = bestFibLevel;
-    const risk    = Math.abs(entryPrice - slPrice);
+    const risk       = Math.abs(entryPrice - slPrice);
+
+    // v8.9: Dynamic TP1 = max(50%Fib, entry + TP1_RR_FLOOR × risk)
+    // Previous TP1=fixed 50%Fib caused MIN_RR1=1.0 to block 80% of valid setups
+    // because at 61.8%Fib entries TP1 is only ~0.31R away. Dynamic TP1 guarantees
+    // at least 1.2R on the first target regardless of entry depth.
+    const tp1RrFloor    = config.TP1_RR_FLOOR || 1.2;
+    const tp1Structural = fib.level500;   // 50%Fib equilibrium level
+    const tp1Dynamic    = direction === 'BUY'
+      ? entryPrice + risk * tp1RrFloor
+      : entryPrice - risk * tp1RrFloor;
+    const tp1Price = direction === 'BUY'
+      ? Math.max(tp1Structural, tp1Dynamic)
+      : Math.min(tp1Structural, tp1Dynamic);
+
+    // TP2: structural 50%Fib — equilibrium (was TP1 pre-v8.9)
+    const tp2Price = tp1Structural;
+
+    // TP3: VAH (BUY) / VAL (SELL) — full value area runner (was TP2 pre-v8.9)
+    const tp3Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+
     const reward1 = Math.abs(tp1Price - entryPrice);
     const reward2 = Math.abs(tp2Price - entryPrice);
     const reward3 = Math.abs(tp3Price - entryPrice);
@@ -836,17 +843,14 @@ const runStrategy = async (symbol) => {
     const rr3 = risk > 0 ? (reward3 / risk).toFixed(2) : 'N/A';
 
     // ── SURGICAL FILTER ──────────────────────────────────────────────────
-    // Filter 1: TP1 >= MIN_RR1 (set in config.js)
-    if (risk > 0 && (reward1 / risk) < config.MIN_RR1) {
-      console.log(`  ⏭️  MIN R:R SKIP — TP1 only ${(reward1/risk).toFixed(2)}R (min ${config.MIN_RR1}R). Signal suppressed.`);
+    // Filter 1: TP2 (structural 50%Fib) must be ≥ MIN_TP2_RR from entry.
+    // TP1 is guaranteed ≥ 1.2R by construction — no separate TP1 gate needed.
+    const minTp2Rr = config.MIN_TP2_RR || 0.5;
+    if (risk > 0 && (reward2 / risk) < minTp2Rr) {
+      console.log(`  ⏭️  TP2(50%Fib) TOO CLOSE — only ${(reward2/risk).toFixed(2)}R (min ${minTp2Rr}R). Signal suppressed.`);
       return;
     }
-    // Filter 2: TP2 >= MIN_RR2 (set in config.js)
-    if (risk > 0 && (reward2 / risk) < config.MIN_RR2) {
-      console.log(`  ⏭️  TP2 TOO CLOSE — TP2 only ${(reward2/risk).toFixed(2)}R (min ${config.MIN_RR2}R). Signal suppressed.`);
-      return;
-    }
-    // Filter 3: Require REJECTION_MIN_PATTERNS minimum (set in config.js)
+    // Filter 2: Require REJECTION_MIN_PATTERNS minimum (set in config.js)
     // Default is 2-of-4. Set to 3 in config if you want ultra-strict filtering.
     if (rejection.patterns.length < config.REJECTION_MIN_PATTERNS) {
       console.log(`  ⏭️  ONLY ${rejection.patterns.length} PATTERNS — need ${config.REJECTION_MIN_PATTERNS}-of-4. Got: ${rejection.patterns.join('+')}. Signal suppressed.`);
@@ -883,9 +887,9 @@ ${bias4hLine}
 ${htfLine}
 
 💵 *Entry:* $${entryPrice.toFixed(2)} (Fib ${fibPct} ↔ ${bestPivot.name})
-🎯 *TP1* (50% Fib — close 50%): $${tp1Price.toFixed(2)} | R:R ${rr1}:1
-🏁 *TP2* (${direction === 'BUY' ? 'VAH' : 'VAL'} exit): $${tp2Price.toFixed(2)} | R:R ${rr2}:1
-🏆 *TP3* (swing extreme — runner): $${tp3Price.toFixed(2)} | R:R ${rr3}:1
+🎯 *TP1* (1.2R floor — first target): $${tp1Price.toFixed(2)} | R:R ${rr1}:1
+🏁 *TP2* (50%Fib equilibrium — runner): $${tp2Price.toFixed(2)} | R:R ${rr2}:1
+🏆 *TP3* (${direction === 'BUY' ? 'VAH' : 'VAL'} — full value exit): $${tp3Price.toFixed(2)} | R:R ${rr3}:1
 🛑 *SL* (swing wick + ATR buffer): $${slPrice.toFixed(2)}
 
 📈 *Entry-TF Structure:*

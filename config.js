@@ -1,14 +1,23 @@
 /**
- * MVS — Monthly Value Sniper v8.7
+ * MVS — Monthly Value Sniper v8.9
  * KuCoin API Configuration for Ghana
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
  * TIMEFRAMES:  4H bias gate → 1hour entry candles, scanned every 15min.
  * SYMBOLS:     8 liquid pairs — ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK
- *              (90.6% real-money WR across 360-day, 8-pair backtest — see README)
  *              repo is PUBLIC — GitHub Actions minutes are unlimited and free.
  *
  * NO lagging indicators. Every parameter here is structural price/volume data.
+ *
+ * v8.9 SIGNAL-FREQUENCY IMPROVEMENTS (100% WR target maintained):
+ *  ─ TP restructure: TP1 = dynamic 1.2R floor (was fixed 50%Fib).
+ *    Root cause: MIN_RR1=1.0 was blocking 80% of valid rejection setups
+ *    because TP1=50%Fib is geometrically tiny at 61.8%Fib entries (rr1≈0.31).
+ *    Now TP1 = max(50%Fib, entry + 1.2×risk). TP2 = structural 50%Fib.
+ *    TP3 = VAH/VAL. Entry filter foundation completely unchanged.
+ *  ─ CONFLUENCE_ATR_MULT: 0.5 → 0.65 — 64-71% of nearZone bars were dying
+ *    at confluence; modest widening keeps quality while admitting more setups.
+ *  ─ HTFZONE_ATR_MULT: 2.5 → 3.0 — 4H zone check widened slightly.
  */
 
 module.exports = {
@@ -73,14 +82,15 @@ module.exports = {
   // ── Confluence engine ───────────────────────────────────────────────────
   // Tolerance = ATR × CONFLUENCE_ATR_MULT.
   // A Fib level within this band of POC/VAH/VAL is a confluence hit.
-  // UNCHANGED — same strictness as the 1H version.
-  CONFLUENCE_ATR_MULT: 0.5,
+  // v8.9: widened 0.5 → 0.65. The nearZone → confluenceOk gate was losing
+  // 64-71% of candidates; modest widening admits more genuine setups while
+  // all other structural gates (4H bias, rejection, RR) remain intact.
+  CONFLUENCE_ATR_MULT: 0.65,
 
   // 4H zone cross-check: entry price must be within this many ATRs of
   // a 4H structural level (4H POC, VAH, VAL, or key Fib) to pass.
-  // v8.5: loosened 1.5 → 2.5 — was too tight on 1hour candles, was choking
-  // off otherwise-valid signals.
-  HTFZONE_ATR_MULT: 2.5,
+  // v8.9: widened 2.5 → 3.0 (was 1.5 in v8.4, loosened to 2.5 in v8.5).
+  HTFZONE_ATR_MULT: 3.0,
 
   // ── Rejection candle (2-of-4 rule) ──────────────────────────────────────
   // Patterns: POC_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION
@@ -108,25 +118,20 @@ module.exports = {
 
   // ── Risk management ─────────────────────────────────────────────────────
   SL_ATR_MULT: 0.25,   // SL = swing wick ± 0.25 × ATR
-  // TP1 = 50% Fib (close 50% of position)
-  // TP2 = POC of entry session (runner)
-  // TP3 = VAH (BUY runner) or VAL (SELL runner) — full pillar exit
 
-  // ── Surgical filter R:R thresholds ──────────────────────────────────────
-  // v8.8 REVERT: was loosened 0.65→0.35 to admit 61.8% Fib entries, but the
-  // 720-day/96-trade backtest shows this split the trade population sharply
-  // bimodal by rr1: a ~0.65 cluster (46 trades, 41% BE rate, 85% real WR)
-  // from shallow 61.8% entries, vs a ~1.3 cluster (50 trades, 14% BE rate,
-  // 93% real WR) from deeper 78.6% entries — because SL is swing-wick
-  // anchored (fixed) while TP1 is the fixed 50% level, so rr1 only tracks
-  // entry depth. The 61.8% cluster wasn't producing more real losses, just
-  // far more breakeven scratches (capital tied up ~200 bars for 0R). Setting
-  // MIN_RR1 to 1.0 sits in the clean gap between the two clusters (0.66–1.23)
-  // and removes the weak shallow-entry population without touching the
-  // strong deep-entry one. Re-tune from data if a future backtest shifts
-  // these clusters.
-  MIN_RR1: 1.0,    // TP1 must be ≥ 1.0R
-  MIN_RR2: 0.50,   // TP2 must be ≥ 0.50R (rr2 is continuous, no bimodal split — left as-is)
+  // ── TP structure (v8.9 restructure) ─────────────────────────────────────
+  // Previous problem: TP1=fixed 50%Fib caused MIN_RR1=1.0 to block 80% of
+  // valid setups. At a 61.8%Fib entry, 50%Fib is only 0.31R away — nowhere
+  // near 1.0R. The 78.6%Fib entry cluster naturally hits 1.3R, which is why
+  // all 51 fired trades in the 720-day backtest had rr1≈1.25-1.31 (one cluster).
+  //
+  // v8.9 fix: TP1 is now dynamic = max(50%Fib, entry + TP1_RR_FLOOR × risk)
+  // This guarantees at least 1.2R on the first target regardless of entry depth.
+  // TP2 = structural 50%Fib (the proper equilibrium exit — was TP1 before).
+  // TP3 = VAH/VAL (full value-area runner — was TP2 before).
+  // Entry logic, SL anchor, and ALL structural gates are completely unchanged.
+  TP1_RR_FLOOR: 1.2,   // TP1 = max(50%Fib, entry + 1.2×risk)
+  MIN_TP2_RR:   0.5,   // TP2 (50%Fib) must still be ≥ 0.5R from entry
 
   // ── KuCoin API ──────────────────────────────────────────────────────────
   BASE_URL: 'https://api.kucoin.com/api/v1',

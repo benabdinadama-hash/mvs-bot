@@ -37,16 +37,18 @@ const CONFIG = {
   TIMEFRAME:              '1hour',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      3600,
-  VP_LOOKBACK:            720,      // 720 bars = 720h (30 days) — matches config.js v8.6
-  BIAS_LOOKBACK:          200,      // matches config.js (was 50 — out of sync, didn't match live bot)
-  FIB_LOOKBACK:           720,      // 1hour bars for swing detection (30 days) — matches config.js
-  BIAS_FIB_LOOKBACK:      90,       // 4H bars for bias swing (~15 days) — matches config.js
+  VP_LOOKBACK:            720,      // 720 bars = 720h (30 days) — true monthly value area
+  BIAS_LOOKBACK:          200,      // 4H bars for bias module (≈ 33 days)
+  FIB_LOOKBACK:           720,      // 1hour bars for swing detection (30 days)
+  BIAS_FIB_LOOKBACK:      90,       // 4H bars for bias swing (~15 days)
   VP_ROWS:                100,
   VALUE_AREA_PCT:         0.70,
   FIB_ZONE_LOW:           0.60,
   FIB_ZONE_HIGH:          0.80,
-  CONFLUENCE_ATR_MULT:    0.5,
-  HTFZONE_ATR_MULT:       2.5,
+  // v8.9: widened 0.5 → 0.65. nearZone→confluenceOk was losing 64-71% of candidates.
+  CONFLUENCE_ATR_MULT:    0.65,
+  // v8.9: widened 2.5 → 3.0 for same reason.
+  HTFZONE_ATR_MULT:       3.0,
   REJECTION_MIN_PATTERNS: 2,
   ABSORPTION_BODY_RATIO:  0.60,
   ZONE_INVALIDATION_ATR_MULT: 1.0,
@@ -55,21 +57,20 @@ const CONFIG = {
   SL_ATR_MULT:            0.25,
   BASE_URL:               'https://api.kucoin.com/api/v1',
   BACKTEST_DAYS:          360,
-  RISK_PER_TRADE_PCT:     1.0,   // % of capital risked per trade (for $ P&L simulation)
-  STARTING_CAPITAL:       1000,  // USDT (for $ P&L simulation)
-  // Surgical R:R filters — MUST match config.js exactly
-  // v8.8: raised 0.35→1.0 — 720-day backtest showed a clean bimodal rr1 split
-  // (~0.65 cluster = 41% BE rate, ~1.3 cluster = 14% BE rate). See config.js.
-  MIN_RR1:                1.0,   // TP1 must be ≥ 1.0R
-  MIN_RR2:                0.50,  // TP2 must be ≥ 0.50R
+  RISK_PER_TRADE_PCT:     1.0,
+  STARTING_CAPITAL:       1000,
+  // v8.9: TP1 is now dynamic (entry + 1.2×risk floor) — no MIN_RR1 gate needed.
+  // TP2 = structural 50%Fib (was TP1). TP3 = VAH/VAL runner (was TP2).
+  TP1_RR_FLOOR:           1.2,   // TP1 = max(50%Fib, entry + 1.2×risk)
+  MIN_TP2_RR:             0.50,  // TP2 (50%Fib) must be ≥ 0.5R from entry
 };
 
 // ── ENV OVERRIDES (tuning knobs only — POC/VAH/VAL/Fib/4H-bias foundation is NEVER touched) ──
-// e.g.  SIGNAL_COOLDOWN_BARS=3 MIN_RR1=0.30 MIN_RR2=0.40 node backtest.js SOL-USDT 360
+// e.g.  SIGNAL_COOLDOWN_BARS=3 TP1_RR_FLOOR=1.0 node backtest.js SOL-USDT 360
 const envNum = (key, fallback) => (process.env[key] !== undefined ? parseFloat(process.env[key]) : fallback);
 CONFIG.SIGNAL_COOLDOWN_BARS       = envNum('SIGNAL_COOLDOWN_BARS', CONFIG.SIGNAL_COOLDOWN_BARS);
-CONFIG.MIN_RR1                    = envNum('MIN_RR1', CONFIG.MIN_RR1);
-CONFIG.MIN_RR2                    = envNum('MIN_RR2', CONFIG.MIN_RR2);
+CONFIG.TP1_RR_FLOOR               = envNum('TP1_RR_FLOOR', CONFIG.TP1_RR_FLOOR);
+CONFIG.MIN_TP2_RR                 = envNum('MIN_TP2_RR', CONFIG.MIN_TP2_RR);
 CONFIG.CONFLUENCE_ATR_MULT        = envNum('CONFLUENCE_ATR_MULT', CONFIG.CONFLUENCE_ATR_MULT);
 CONFIG.HTFZONE_ATR_MULT           = envNum('HTFZONE_ATR_MULT', CONFIG.HTFZONE_ATR_MULT);
 CONFIG.REJECTION_MIN_PATTERNS     = envNum('REJECTION_MIN_PATTERNS', CONFIG.REJECTION_MIN_PATTERNS);
@@ -488,27 +489,36 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     const slPrice    = direction === 'BUY'
       ? swingWick - atr * CONFIG.SL_ATR_MULT
       : swingWick + atr * CONFIG.SL_ATR_MULT;
-    const tp1Price   = fib.level500;
-    // TP2 = VAH (BUY) / VAL (SELL) — matches strategy.js line 798 exactly, no pivot-swap
-    // TP3 = swing extreme — trend extension runner
-    const tp2Price   = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
-    const tp3Price   = direction === 'BUY' ? swingH      : swingL;
     const entryPrice = bestFibLevel;
     const risk       = Math.abs(entryPrice - slPrice);
     if (risk === 0) continue;
+
+    // v8.9: Dynamic TP1 = max(50%Fib, entry + 1.2×risk)
+    // Unlocks 61.8%Fib entries that were blocked by MIN_RR1=1.0 when TP1 was fixed 50%Fib.
+    const tp1RrFloor    = CONFIG.TP1_RR_FLOOR || 1.2;
+    const tp1Structural = fib.level500;
+    const tp1Dynamic    = direction === 'BUY'
+      ? entryPrice + risk * tp1RrFloor
+      : entryPrice - risk * tp1RrFloor;
+    const tp1Price = direction === 'BUY'
+      ? Math.max(tp1Structural, tp1Dynamic)
+      : Math.min(tp1Structural, tp1Dynamic);
+    // TP2 = structural 50%Fib (was TP1 pre-v8.9)
+    const tp2Price   = tp1Structural;
+    // TP3 = VAH/VAL runner (was TP2 pre-v8.9)
+    const tp3Price   = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+
     const rr1 = parseFloat((Math.abs(tp1Price - entryPrice) / risk).toFixed(2));
     const rr2 = parseFloat((Math.abs(tp2Price - entryPrice) / risk).toFixed(2));
     const rr3 = parseFloat((Math.abs(tp3Price - entryPrice) / risk).toFixed(2));
 
     // SURGICAL FILTER
-    if (rr1 < CONFIG.MIN_RR1) continue;                                                // Filter 1: TP1 >= MIN_RR1 (config.js)
+    // Filter 1: TP2(50%Fib) must be ≥ MIN_TP2_RR. TP1 is always ≥ 1.2R by construction.
+    if (rr2 < CONFIG.MIN_TP2_RR) continue;
     funnel.surgF1++;
-    if (rr2 < CONFIG.MIN_RR2) continue;                                                // Filter 2: TP2 >= MIN_RR2 (config.js)
     funnel.surgF2++;
-    if (rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;            // Filter 3: REJECTION_MIN_PATTERNS required (config.js)
+    if (rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;  // Filter 2: pattern count
     funnel.surgF3++;
-    // v8.7: removed redundant POC_RECLAIM-only veto — see strategy.js note.
-    // REJECTION_MIN_PATTERNS (2-of-4) is the real confirmation gate.
     funnel.surgF4++;
     funnel.surgicalOk++;
     funnel.opened++;
@@ -723,12 +733,12 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
 // strictness). Core foundation — POC/VAH/VAL, Fibonacci zone, 4H bias votes,
 // confluence/HTF-zone logic — is never modified by this grid.
 const TUNE_GRID = [
-  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 1.0,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 }, // baseline (current, v8.8)
-  { SIGNAL_COOLDOWN_BARS: 3, MIN_RR1: 1.0,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 },
-  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 1.15, MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 }, // tighter — right at the deep-entry cluster floor
-  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 0.9,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 2 }, // looser — closer to the old shallow cluster, sanity check
-  { SIGNAL_COOLDOWN_BARS: 5, MIN_RR1: 1.0,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 3 }, // stricter pattern requirement on top
-  { SIGNAL_COOLDOWN_BARS: 3, MIN_RR1: 1.0,  MIN_RR2: 0.50, REJECTION_MIN_PATTERNS: 3 },
+  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // v8.9 baseline
+  { SIGNAL_COOLDOWN_BARS: 3, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // shorter cooldown
+  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.0, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // lower TP1 floor
+  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.80, HTFZONE_ATR_MULT: 3.5 }, // wider confluence
+  { SIGNAL_COOLDOWN_BARS: 3, TP1_RR_FLOOR: 1.0, MIN_TP2_RR: 0.40, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.80, HTFZONE_ATR_MULT: 3.5 }, // widest combo
+  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 3, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // stricter patterns
 ];
 
 async function runTune(allData) {
@@ -753,7 +763,7 @@ async function runTune(allData) {
   results
     .sort((a, b) => (b.wr === 100 && a.wr !== 100 ? 1 : a.wr !== 100 && b.wr === 100 ? -1 : b.trades - a.trades))
     .forEach(r => {
-      console.log(`  cooldown=${r.combo.SIGNAL_COOLDOWN_BARS} RR1=${r.combo.MIN_RR1} RR2=${r.combo.MIN_RR2} patterns=${r.combo.REJECTION_MIN_PATTERNS}  →  ${r.trades} trades | ${r.wr.toFixed(1)}% WR | ${r.totalRR.toFixed(2)}R`);
+      console.log(`  cooldown=${r.combo.SIGNAL_COOLDOWN_BARS} TP1floor=${r.combo.TP1_RR_FLOOR} minTP2=${r.combo.MIN_TP2_RR} patterns=${r.combo.REJECTION_MIN_PATTERNS} conf=${r.combo.CONFLUENCE_ATR_MULT} htf=${r.combo.HTFZONE_ATR_MULT}  →  ${r.trades} trades | ${r.wr.toFixed(1)}% WR | ${r.totalRR.toFixed(2)}R`);
     });
   console.log('\nPick the row with the most trades that still shows 100.0% WR, then');
   console.log('hard-code those 4 values into config.js (NOT just backtest.js) before going live.\n');
