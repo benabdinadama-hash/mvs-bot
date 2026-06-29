@@ -268,7 +268,8 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
   const funnel = {
     scanned: 0, bias4hOk: 0, atrOk: 0, swingInRange: 0, biasAligned: 0,
     notOverExtended: 0, nearZone: 0, vpOk: 0, confluenceOk: 0, htfAligned: 0,
-    notInvalidated: 0, cooldownOk: 0, rejectionOk: 0, surgicalOk: 0, opened: 0,
+    notInvalidated: 0, cooldownOk: 0, rejectionOk: 0,
+    surgF1: 0, surgF2: 0, surgF3: 0, surgF4: 0, surgicalOk: 0, opened: 0,
   };
 
   // We need enough warmup bars before we start scanning
@@ -444,11 +445,31 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     const rr2 = parseFloat((Math.abs(tp2Price - entryPrice) / risk).toFixed(2));
     const rr3 = parseFloat((Math.abs(tp3Price - entryPrice) / risk).toFixed(2));
 
+    // DIAGNOSTIC: log every candidate that reaches the surgical filter, before
+    // any surgical filter is applied, so we can see real rr1/rr2/risk numbers.
+    if (!funnel._surgicalSamples) funnel._surgicalSamples = [];
+    if (funnel._surgicalSamples.length < 15) {
+      funnel._surgicalSamples.push({
+        symbol, direction, pivot: bestPivot ? bestPivot.name : null,
+        entryPrice: parseFloat(entryPrice.toFixed(4)),
+        slPrice: parseFloat(slPrice.toFixed(4)),
+        tp1Price: parseFloat(tp1Price.toFixed(4)),
+        tp2Price: parseFloat(tp2Price.toFixed(4)),
+        risk: parseFloat(risk.toFixed(4)),
+        rr1, rr2,
+        patterns: rejection.patterns,
+      });
+    }
+
     // SURGICAL FILTER
     if (rr1 < 0.65) continue;                                                          // Filter 1: TP1 >= 0.65R
+    funnel.surgF1++;
     if ((Math.abs(tp2Price - entryPrice) / risk) < 1.0) continue;                     // Filter 2: TP2 >= 1.0R
+    funnel.surgF2++;
     if (rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;            // Filter 3: REJECTION_MIN_PATTERNS required (config.js)
+    funnel.surgF3++;
     if (bestPivot && bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) continue; // Filter 4: POC_RECLAIM for POC entries
+    funnel.surgF4++;
     funnel.surgicalOk++;
     funnel.opened++;
 
@@ -484,6 +505,9 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
 
   // Print the gate funnel so we can see exactly where bars get filtered out.
   console.log(`  [FUNNEL] ${symbol}:`, JSON.stringify(funnel));
+  if (funnel._surgicalSamples && funnel._surgicalSamples.length) {
+    console.log(`  [SAMPLES] ${symbol}:`, JSON.stringify(funnel._surgicalSamples));
+  }
 
   trades._funnel = funnel; // non-enumerable-ish attach, doesn't break array consumers
   return trades;
