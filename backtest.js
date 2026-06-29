@@ -263,6 +263,14 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
   const cooldownMap  = {};  // direction → last signal bar time
   let   openTrade    = null;
 
+  // DIAGNOSTIC FUNNEL — counts how many scanned bars survive each gate.
+  // Purely instrumentation, does not change any trading logic.
+  const funnel = {
+    scanned: 0, bias4hOk: 0, atrOk: 0, swingInRange: 0, biasAligned: 0,
+    notOverExtended: 0, nearZone: 0, vpOk: 0, confluenceOk: 0, htfAligned: 0,
+    notInvalidated: 0, cooldownOk: 0, rejectionOk: 0, surgicalOk: 0, opened: 0,
+  };
+
   // We need enough warmup bars before we start scanning
   const warmup = Math.max(CONFIG.VP_LOOKBACK, CONFIG.FIB_LOOKBACK) + CONFIG.ATR_PERIOD + 5;
 
@@ -322,21 +330,25 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
 
     // ── STEP 0: 4H Bias ────────────────────────────────────────────────────
     // Find 4H bars up to current bar time
+    funnel.scanned++;
     const bars4h = data4h.filter(b => b.time <= bar.time).slice(-CONFIG.BIAS_LOOKBACK);
     if (bars4h.length < 20) continue;
     const bias4h = get4HBias(bars4h);
     if (!bias4h || bias4h.bias === 'NEUTRAL') continue;
+    funnel.bias4hOk++;
 
     // ── STEP 1-2: Entry TF data + ATR ──────────────────────────────────────
     const window = history.slice(-CONFIG.VP_LOOKBACK);
     const atr    = calcATR(window);
     if (!atr) continue;
+    funnel.atrOk++;
 
     // ── STEP 3: Fibonacci swing ─────────────────────────────────────────────
     const fibData  = history.slice(-CONFIG.FIB_LOOKBACK);
     const swingH   = Math.max(...fibData.map(d => d.high));
     const swingL   = Math.min(...fibData.map(d => d.low));
     if (price > swingH || price < swingL) continue; // A2 remap — skip
+    funnel.swingInRange++;
     const fib      = calcFib(swingH, swingL);
     const midPoint = (swingH + swingL) / 2;
     const direction = price < midPoint ? 'BUY' : 'SELL';
@@ -346,17 +358,21 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
       (direction === 'BUY'  && bias4h.bias === 'BULLISH') ||
       (direction === 'SELL' && bias4h.bias === 'BEARISH');
     if (!biasAligned) continue;
+    funnel.biasAligned++;
 
     // ── STEP 5: D4 over-extension ───────────────────────────────────────────
     if ((direction === 'BUY'  && price < fib.level886) ||
         (direction === 'SELL' && price > fib.level886)) continue;
+    funnel.notOverExtended++;
 
     // ── STEP 6: Early proximity skip ───────────────────────────────────────
     if (price < fib.zoneLow - atr || price > fib.zoneHigh + atr) continue;
+    funnel.nearZone++;
 
     // ── STEP 7: Volume Profile ──────────────────────────────────────────────
     const vp = calcVolumeProfile(window);
     if (!vp) continue;
+    funnel.vpOk++;
 
     // ── STEP 8: Confluence ──────────────────────────────────────────────────
     const checkLevels = [fib.level618, fib.level786, (fib.zoneHigh + fib.zoneLow) / 2];
@@ -373,29 +389,34 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
       }
     }
     if (bestScore < 1) continue;
+    funnel.confluenceOk++;
 
     // ── STEP 9: 4H Zone cross-check ─────────────────────────────────────────
     const tol4h = atr * CONFIG.HTFZONE_ATR_MULT;
     const levels4h = [bias4h.poc4h, bias4h.vah4h, bias4h.val4h, bias4h.fibMid4h];
     const htfAligned = levels4h.some(lvl => Math.abs(bestFibLevel - lvl) <= tol4h);
     if (!htfAligned) continue;
+    funnel.htfAligned++;
 
     // ── STEP 10: Zone invalidation ──────────────────────────────────────────
     const margin = atr * CONFIG.ZONE_INVALIDATION_ATR_MULT;
     if (direction === 'BUY'  && price < bestFibLevel - margin) continue;
     if (direction === 'SELL' && price > bestFibLevel + margin) continue;
+    funnel.notInvalidated++;
 
     // ── STEP 11: Cooldown ───────────────────────────────────────────────────
     const coolKey = `${direction}`;
     const lastBar = cooldownMap[coolKey] || 0;
     const barsSince = Math.round((bar.time - lastBar) / CONFIG.ENTRY_BAR_SECONDS);
     if (barsSince < CONFIG.SIGNAL_COOLDOWN_BARS) continue;
+    funnel.cooldownOk++;
 
     // ── STEP 12: Rejection patterns ─────────────────────────────────────────
     const zoneLow  = fib.zoneLow  - atr * 0.1;
     const zoneHigh = fib.zoneHigh + atr * 0.1;
     const rejection = detectRejection(window, zoneLow, zoneHigh, direction, vp.pocPrice);
     if (!rejection.valid) continue;
+    funnel.rejectionOk++;
 
     // ── STEP 13: SL / TP ────────────────────────────────────────────────────
     const swingWick  = direction === 'BUY' ? swingL : swingH;
@@ -428,6 +449,8 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     if ((Math.abs(tp2Price - entryPrice) / risk) < 1.0) continue;                     // Filter 2: TP2 >= 1.0R
     if (rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;            // Filter 3: REJECTION_MIN_PATTERNS required (config.js)
     if (bestPivot && bestPivot.name === 'POC' && !rejection.patterns.includes('POC_RECLAIM')) continue; // Filter 4: POC_RECLAIM for POC entries
+    funnel.surgicalOk++;
+    funnel.opened++;
 
     // ── OPEN TRADE ──────────────────────────────────────────────────────────
     cooldownMap[coolKey] = bar.time;
@@ -459,6 +482,10 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     });
   }
 
+  // Print the gate funnel so we can see exactly where bars get filtered out.
+  console.log(`  [FUNNEL] ${symbol}:`, JSON.stringify(funnel));
+
+  trades._funnel = funnel; // non-enumerable-ish attach, doesn't break array consumers
   return trades;
 };
 
