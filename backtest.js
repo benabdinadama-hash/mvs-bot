@@ -307,18 +307,40 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
 
     // ── If we have an open trade, check if SL or TP was hit this bar ──────
     if (openTrade) {
-      const { direction, entryPrice, slPrice, tp1Price, tp2Price, tp3Price } = openTrade;
+      // v8.7: BREAKEVEN RULE. Once price reaches the halfway point to TP1,
+      // move SL to entry. This is pure exit-side risk management — it does
+      // not touch POC/VAH/VAL/Fib/4H-bias entry logic at all. It exists
+      // because the v8.7 8-symbol backtest showed 5 of 6 losses were
+      // TIMEOUT exits (200-bar max hold force-closed at market), not SL
+      // hits — i.e. trades that moved partway favorable, stalled, then got
+      // closed at whatever price prevailed. Locking in breakeven once a
+      // trade has proven itself (reached 50% of the way to TP1) converts
+      // those stalled trades into worst-case scratches instead of losses.
+      if (!openTrade.beMoved) {
+        const halfway = openTrade.direction === 'BUY'
+          ? openTrade.entryPrice + (openTrade.tp1Price - openTrade.entryPrice) * 0.5
+          : openTrade.entryPrice - (openTrade.entryPrice - openTrade.tp1Price) * 0.5;
+        const reached = openTrade.direction === 'BUY' ? bar.high >= halfway : bar.low <= halfway;
+        if (reached) {
+          openTrade.slPrice = openTrade.entryPrice;
+          openTrade.beMoved = true;
+        }
+      }
+
+      const { direction, entryPrice, slPrice, tp1Price, tp2Price, tp3Price, origSlPrice } = openTrade;
+      const origRisk = Math.abs(entryPrice - origSlPrice);
+      const slRR = parseFloat((((slPrice - entryPrice) / origRisk) * (direction === 'BUY' ? 1 : -1)).toFixed(2));
 
       let outcome = null;
 
       // FIX: SL always checked first — if both SL and TP hit same bar, SL wins (conservative)
       if (direction === 'BUY') {
-        if      (bar.low  <= slPrice)   outcome = { result: 'SL',  exitPrice: slPrice,  rr: -1 };
+        if      (bar.low  <= slPrice)   outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
         else if (bar.high >= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price, rr: openTrade.rr3 };
         else if (bar.high >= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price, rr: openTrade.rr2 };
         else if (bar.high >= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price, rr: openTrade.rr1 };
       } else {
-        if      (bar.high >= slPrice)   outcome = { result: 'SL',  exitPrice: slPrice,  rr: -1 };
+        if      (bar.high >= slPrice)   outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
         else if (bar.low  <= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price, rr: openTrade.rr3 };
         else if (bar.low  <= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price, rr: openTrade.rr2 };
         else if (bar.low  <= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price, rr: openTrade.rr1 };
@@ -337,14 +359,14 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
         continue;
       }
 
-      // Max hold: 200 bars (50 hours) — close at market if no TP/SL hit
+      // Max hold: 200 bars on 1hour candles = 200 hours (~8.3 days) — close at market if no TP/SL hit
       if (i - openTrade.entryBarIdx > 200) {
         trades.push({
           ...openTrade,
           exitTime:  bar.time,
           exitPrice: price,
           result:    'TIMEOUT',
-          rr:        parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.slPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
+          rr:        parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
           barsHeld:  200,
         });
         openTrade = null;
@@ -479,6 +501,7 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
       entryTime:    bar.time,
       entryBarIdx:  i,
       entryPrice, slPrice, tp1Price, tp2Price, tp3Price,
+      origSlPrice: slPrice,
       rr1, rr2, rr3,
       patterns:    rejection.patterns,
       pivot:       bestPivot.name,
@@ -496,7 +519,7 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
       exitPrice: lastBar.close,
       result:    'OPEN',
       rr:        parseFloat(((lastBar.close - openTrade.entryPrice) /
-        Math.abs(openTrade.entryPrice - openTrade.slPrice) *
+        Math.abs(openTrade.entryPrice - openTrade.origSlPrice) *
         (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
       barsHeld: data15m.length - 1 - openTrade.entryBarIdx,
     });
@@ -517,6 +540,7 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
   const tp2s   = closed.filter(t => t.result === 'TP2');
   const tp3s   = closed.filter(t => t.result === 'TP3');
   const sls    = closed.filter(t => t.result === 'SL');
+  const bes    = closed.filter(t => t.result === 'BE');
   const timeouts = closed.filter(t => t.result === 'TIMEOUT');
 
   const winRate   = closed.length ? (wins.length / closed.length * 100).toFixed(1) : '0.0';
@@ -592,6 +616,7 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     `  TP2 hits  : ${tp2s.length}`,
     `  TP3 hits  : ${tp3s.length}`,
     `  SL hits   : ${sls.length}`,
+    `  BE hits   : ${bes.length}  (SL moved to entry, exited flat — see v8.7 note)`,
     `  Timeouts  : ${timeouts.length}`,
     '',
     '── $ P&L SIMULATION (1% risk / trade, $1000 start) ─────────────────',
