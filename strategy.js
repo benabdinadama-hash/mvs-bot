@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v8.2
+ *  MVS — MONTHLY VALUE SNIPER v8.3
  *  "Structure is everything. If price isn't at a pillar, it's not a trade."
  *  By Abdin
  *
@@ -206,10 +206,10 @@ const calcFib = (high, low) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const calcVolumeProfile = (data, rows = config.VP_ROWS) => {
-  // Rolling 200-bar window = 50 hours = ~2 days.
-  // Sweet spot: wide enough for meaningful zones, tight enough for current structure.
-  // More signals than 500-bar VP while still giving institutional-level confluence.
-  const workingBars = data.slice(-200);
+  // Rolling window uses config.VP_LOOKBACK — set to 500 bars (125h / ~5 days)
+  // to match the TradingView Volume Profile Auto 500-bar setting exactly.
+  // This ensures the bot's POC/VAH/VAL match what you see on chart.
+  const workingBars = data.slice(-config.VP_LOOKBACK);
 
   if (workingBars.length < 4) return null;
 
@@ -604,7 +604,7 @@ const runStrategy = async (symbol) => {
 
     const fib      = calcFib(swing.high, swing.low);
     const midPoint = (swing.high + swing.low) / 2;
-    const direction = price > midPoint ? 'BUY' : 'SELL';
+    const direction = price < midPoint ? 'BUY' : 'SELL';
 
     // ── STEP 4: 4H DIRECTION GATE ────────────────────────────────────────
     // 4H bias must agree with entry-TF direction.
@@ -853,8 +853,8 @@ ${htfLine}
 
 💵 *Entry:* $${entryPrice.toFixed(2)} (Fib ${fibPct} ↔ ${bestPivot.name})
 🎯 *TP1* (50% Fib — close 50%): $${tp1Price.toFixed(2)} | R:R ${rr1}:1
-🏁 *TP2* (POC runner): $${tp2Price.toFixed(2)} | R:R ${rr2}:1
-🏆 *TP3* (${direction === 'BUY' ? 'VAH' : 'VAL'} full exit): $${tp3Price.toFixed(2)} | R:R ${rr3}:1
+🏁 *TP2* (${direction === 'BUY' ? 'VAH' : 'VAL'} exit): $${tp2Price.toFixed(2)} | R:R ${rr2}:1
+🏆 *TP3* (swing extreme — runner): $${tp3Price.toFixed(2)} | R:R ${rr3}:1
 🛑 *SL* (swing wick + ATR buffer): $${slPrice.toFixed(2)}
 
 📈 *Entry-TF Structure:*
@@ -865,7 +865,7 @@ ${htfLine}
 📐 *ATR(14):* $${atr.toFixed(2)}
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v8.2 — Structure is everything.*
+⚡ *MVS v8.3 — Structure is everything.*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -901,7 +901,7 @@ ${htfLine}
 
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v8.2   by Abdin               ║');
+console.log('║   MVS — Monthly Value Sniper v8.3   by Abdin               ║');
 console.log('║   Foundation: POC + VAH + VAL + FIBO  |  No lagging data   ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);

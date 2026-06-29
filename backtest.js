@@ -37,10 +37,10 @@ const CONFIG = {
   TIMEFRAME:              '15min',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      900,
-  VP_LOOKBACK:            200,      // bars = 50h (~2 days) — sweet spot for signal frequency vs zone quality
+  VP_LOOKBACK:            500,      // 500 bars = 125h (~5.2 days) — matches TradingView VP Auto 500-bar + config.js
   BIAS_LOOKBACK:          50,
-  FIB_LOOKBACK:           100,
-  BIAS_FIB_LOOKBACK:      30,
+  FIB_LOOKBACK:           800,      // 15min bars for swing detection (~8 days) — matches config.js
+  BIAS_FIB_LOOKBACK:      60,       // 4H bars for bias swing (~10 days) — matches config.js
   VP_ROWS:                100,
   VALUE_AREA_PCT:         0.70,
   FIB_ZONE_LOW:           0.60,
@@ -54,7 +54,7 @@ const CONFIG = {
   ATR_PERIOD:             14,
   SL_ATR_MULT:            0.25,
   BASE_URL:               'https://api.kucoin.com/api/v1',
-  BACKTEST_DAYS:          90,
+  BACKTEST_DAYS:          360,
   RISK_PER_TRADE_PCT:     1.0,   // % of capital risked per trade (for $ P&L simulation)
   STARTING_CAPITAL:       1000,  // USDT (for $ P&L simulation)
 };
@@ -520,7 +520,7 @@ const generateReport = (allTrades, days) => {
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ' MVS — 90-DAY BACKTEST REPORT',
+    ` MVS — BACKTEST REPORT`,
     ` Period: Last ${days} days  |  Symbols: ${[...new Set(allTrades.map(t => t.symbol))].join(', ')}`,
     '═══════════════════════════════════════════════════════════════════',
     '',
@@ -577,7 +577,7 @@ const generateReport = (allTrades, days) => {
 
 (async () => {
   console.log('\n═══════════════════════════════════════════════════════════════════');
-  console.log(' MVS — 90-DAY BACKTESTER');
+  console.log(' MVS — BACKTESTER v2.1');
   console.log(`  Symbols : ${symbols.join(', ')}`);
   console.log(`  Period  : Last ${days} days`);
   console.log(`  Bars    : ~${days * 96} × 15min  |  ~${days * 6} × 4H`);

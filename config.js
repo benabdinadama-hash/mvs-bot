@@ -1,5 +1,5 @@
 /**
- * MVS — Monthly Value Sniper v8.2
+ * MVS — Monthly Value Sniper v8.3
  * KuCoin API Configuration for Ghana
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
