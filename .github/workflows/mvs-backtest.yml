@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       symbol:
-        description: 'Symbol (leave blank for both ETH-USDT and SOL-USDT)'
+        description: 'Symbol(s), comma-separated (leave blank for all 8 default pairs: ETH,SOL,BTC,XRP,ADA,DOGE,AVAX,LINK-USDT)'
         required: false
       days:
         description: 'Days to backtest (default 90)'
