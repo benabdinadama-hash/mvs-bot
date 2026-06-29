@@ -36,7 +36,8 @@ const send = async (text) => {
   }
 };
 
-const LOG_FILE = path.join(__dirname, 'signals.log.json');
+const LOG_FILE    = path.join(__dirname, 'signals.log.json');
+const EQUITY_FILE = path.join(__dirname, 'equity-curve.json');
 
 const loadJSON = (file, fallback) => {
   try {
@@ -47,13 +48,83 @@ const loadJSON = (file, fallback) => {
   }
 };
 
+// ── Equity curve logger (v8.10 Improvement 8) ────────────────────────────────
+// Reads closed trades from signals.log.json, simulates cumulative R and
+// drawdown, and appends a weekly snapshot to equity-curve.json.
+// This file is committed back to the repo by the workflow, giving a running
+// picture of live performance that can be charted over time.
+const updateEquityCurve = (log) => {
+  const curve   = loadJSON(EQUITY_FILE, []);
+  const RISK    = config.RISK_PER_TRADE_PCT || 1.5;
+  const SLIP    = config.SLIPPAGE_PCT       || 0.001;
+  const START   = 1000;
+
+  // Use closed trade entries that have an rr field (logged on trade close)
+  const closedEntries = log.filter(e => e.rr !== undefined && e.rr !== null && e.exitTime);
+  if (!closedEntries.length) return curve;
+
+  // Build cumulative equity from scratch so the curve is always consistent
+  let capital = START;
+  let peak    = capital;
+  let maxDD   = 0;
+  const points = [{ date: null, capital, cumulativeR: 0, tradeN: 0, drawdownPct: 0 }];
+
+  for (const [i, t] of closedEntries.entries()) {
+    const riskAmt  = capital * (RISK / 100);
+    const slipCost = capital * SLIP;
+    capital += riskAmt * t.rr - slipCost;
+    if (capital > peak) peak = capital;
+    const dd = (peak - capital) / peak * 100;
+    if (dd > maxDD) maxDD = dd;
+    points.push({
+      date:          t.exitTime ? new Date(t.exitTime * 1000).toISOString().slice(0, 10) : null,
+      capital:       parseFloat(capital.toFixed(2)),
+      cumulativeR:   parseFloat(closedEntries.slice(0, i + 1).reduce((s, x) => s + (x.rr || 0), 0).toFixed(2)),
+      tradeN:        i + 1,
+      drawdownPct:   parseFloat(dd.toFixed(2)),
+      result:        t.signal || t.result,
+      symbol:        t.symbol,
+    });
+  }
+
+  // Weekly snapshot for the curve file
+  const weekLabel = new Date().toISOString().slice(0, 10);
+  const latest    = points[points.length - 1];
+  const snapshot  = {
+    week:          weekLabel,
+    totalTrades:   closedEntries.length,
+    capital:       latest.capital,
+    totalReturn:   parseFloat(((latest.capital - START) / START * 100).toFixed(1)),
+    cumulativeR:   latest.cumulativeR,
+    maxDrawdownPct: parseFloat(maxDD.toFixed(2)),
+    equityPoints:  points,
+  };
+
+  // Append or replace the snapshot for this week
+  const idx = curve.findIndex(s => s.week === weekLabel);
+  if (idx >= 0) curve[idx] = snapshot;
+  else curve.push(snapshot);
+
+  fs.writeFileSync(EQUITY_FILE, JSON.stringify(curve, null, 2));
+  console.log(`✅ Equity curve updated → ${EQUITY_FILE} (${closedEntries.length} trades, capital $${latest.capital})`);
+  return curve;
+};
+
 (async () => {
   const log    = loadJSON(LOG_FILE, []);
+
+  // ── Update equity curve first (writes equity-curve.json) ────────────────
+  const curve  = updateEquityCurve(log);
+  const latest = curve.length ? curve[curve.length - 1] : null;
+
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const recent  = log.filter(e => new Date(e.time).getTime() >= weekAgo);
 
   if (!recent.length) {
-    await send('📅 *MVS Weekly Summary*\n\nNo signals logged in the last 7 days.');
+    const equityLine = latest
+      ? `\n\n📊 *Live Equity:* $${latest.capital} | +${latest.totalReturn}% total | ${latest.cumulativeR}R | Max DD ${latest.maxDrawdownPct}%`
+      : '';
+    await send(`📅 *MVS Weekly Summary*\n\nNo signals logged in the last 7 days.${equityLine}`);
     console.log('✅ Weekly summary sent (no signals).');
     return;
   }
@@ -72,8 +143,21 @@ const loadJSON = (file, fallback) => {
   if (entries.length) {
     msg += `\n\n🎯 *Entries (${entries.length}):*`;
     for (const e of entries.slice(-10)) {
-      msg += `\n${e.symbol} ${e.direction} @ $${Number(e.entryPrice).toFixed(2)} (TP1 RR ${e.rr1} | TP2 RR ${e.rr2} | TP3 RR ${e.rr3})`;
+      msg += `\n${e.symbol} ${e.direction} @ $${Number(e.entryPrice).toFixed(4)}`;
+      msg += `\n  SL $${Number(e.slPrice).toFixed(4)} | TP2 $${Number(e.tp2Price).toFixed(4)} | TP3 $${Number(e.tp3Price).toFixed(4)}`;
+      msg += `\n  Patterns: ${(e.patterns || []).join(' + ')} | R:R ${e.rr2}/${e.rr3}`;
     }
+  }
+
+  // Equity curve summary
+  if (latest) {
+    msg += `\n\n━━━━━━━━━━━━━━━━━━━━`;
+    msg += `\n📊 *Live Equity Snapshot:*`;
+    msg += `\n  Capital:     $${latest.capital}`;
+    msg += `\n  Total return: +${latest.totalReturn}%`;
+    msg += `\n  Cum. R:      ${latest.cumulativeR}R`;
+    msg += `\n  Max drawdown: ${latest.maxDrawdownPct}%`;
+    msg += `\n  Total trades: ${latest.totalTrades}`;
   }
 
   await send(msg);

@@ -119,6 +119,23 @@ module.exports = {
   // ── Risk management ─────────────────────────────────────────────────────
   SL_ATR_MULT: 0.25,   // SL = swing wick ± 0.25 × ATR
 
+  // v8.10: 1% → 1.5% risk per trade. Backtest max drawdown was only 1.0%
+  // at 1% risk, so there is structural headroom. Confirm with 3 months of
+  // live data before pushing beyond 2%.
+  RISK_PER_TRADE_PCT: 1.5,
+
+  // v8.10: Conservative 0.1% slippage/spread assumption on entry+exit.
+  // KuCoin limit orders rarely slip, but DOGE/ADA spreads can widen during
+  // volatility. This keeps the equity sim honest.
+  SLIPPAGE_PCT: 0.001,
+
+  // v8.10: POC confluence gate. POC_RECLAIM entries with weak Fib alignment
+  // (confluenceScore=1) are the only category that produced hard SL losses.
+  // Requiring score>=2 at POC entries means the Fib level must sit TIGHTLY
+  // on top of POC (within 0.5×ATR), not just loosely near it (within 1×ATR).
+  // VAH/VAL entries are exempt — they are cleaner boundary levels.
+  MIN_CONFLUENCE_POC: 2,
+
   // ── TP structure (v8.9 restructure) ─────────────────────────────────────
   // Previous problem: TP1=fixed 50%Fib caused MIN_RR1=1.0 to block 80% of
   // valid setups. At a 61.8%Fib entry, 50%Fib is only 0.31R away — nowhere

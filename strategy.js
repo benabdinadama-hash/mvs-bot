@@ -726,6 +726,13 @@ const runStrategy = async (symbol) => {
       return;
     }
 
+    // v8.10: POC confluence gate — require tight Fib/POC alignment (score≥2)
+    // for POC entries. VAH/VAL entries are cleaner boundary levels and exempt.
+    if (bestPivot.name === 'POC' && bestScore < (config.MIN_CONFLUENCE_POC || 2)) {
+      console.log(`  ⚠️  A1 POC gate: score ${bestScore}/2 — POC entries require score≥2 (tight Fib stack). Skipping.`);
+      return;
+    }
+
     const fibPct = bestFibLevel === fib.level618 ? '61.8%'
                  : bestFibLevel === fib.level786 ? '78.6%'
                  : '70% mid-pocket';
@@ -879,6 +886,12 @@ const runStrategy = async (symbol) => {
 
     const htfLine = `🔗 *4H Zone:* Entry near ${htfCheck.nearestLevel} ($${htfCheck.nearestPrice.toFixed(2)}) ✅`;
 
+    // Confluence quality badge (v8.10)
+    const confBadge = bestScore >= 2 ? '🔒 TIGHT (2/2)' : '⚡ LOOSE (1/2)';
+
+    // Risk sizing note (v8.10: 1.5% risk + 0.1% slippage)
+    const riskNote = `⚖️ *Risk:* 1.5% capital | 0.1% slippage assumed`;
+
     const message = `
 ${emoji} *${symbol} — MVS ${signalTag}*
 
@@ -886,21 +899,24 @@ ${emoji} *${symbol} — MVS ${signalTag}*
 ${bias4hLine}
 ${htfLine}
 
-💵 *Entry:* $${entryPrice.toFixed(2)} (Fib ${fibPct} ↔ ${bestPivot.name})
-🎯 *TP1* (1.2R floor — first target): $${tp1Price.toFixed(2)} | R:R ${rr1}:1
-🏁 *TP2* (50%Fib equilibrium — runner): $${tp2Price.toFixed(2)} | R:R ${rr2}:1
-🏆 *TP3* (${direction === 'BUY' ? 'VAH' : 'VAL'} — full value exit): $${tp3Price.toFixed(2)} | R:R ${rr3}:1
-🛑 *SL* (swing wick + ATR buffer): $${slPrice.toFixed(2)}
+━━━━━━━━━━━━━━━━━━━━
+💵 *Entry:* \`$${entryPrice.toFixed(4)}\` (Fib ${fibPct} ↔ ${bestPivot.name})
+🛑 *SL:* \`$${slPrice.toFixed(4)}\` (swing wick + 0.25×ATR)
+━━━━━━━━━━━━━━━━━━━━
+🎯 *TP1* — 1.2R floor:     \`$${tp1Price.toFixed(4)}\`  R:R ${rr1}:1
+🏁 *TP2* — 50% Fib (½ exit): \`$${tp2Price.toFixed(4)}\`  R:R ${rr2}:1
+🏆 *TP3* — ${direction === 'BUY' ? 'VAH' : 'VAL'} runner (½ exit):  \`$${tp3Price.toFixed(4)}\`  R:R ${rr3}:1
+━━━━━━━━━━━━━━━━━━━━
+📈 *Monthly Structure (1H VP):*
+   POC: $${vp.pocPrice.toFixed(4)} | VAH: $${vp.vahPrice.toFixed(4)} | VAL: $${vp.valPrice.toFixed(4)}
+   Confluence: ${confBadge} | Pivot: ${bestPivot.name}
 
-📈 *Entry-TF Structure:*
-   • POC: $${vp.pocPrice.toFixed(2)} | VAH: $${vp.vahPrice.toFixed(2)} | VAL: $${vp.valPrice.toFixed(2)}
-   • Confluence score: ${bestScore}/2
-
-🕯 *Rejection (${rejection.score}/${config.REJECTION_MIN_PATTERNS} patterns):* ${patternStr}
-📐 *ATR(14):* $${atr.toFixed(2)}
+🕯 *Rejection patterns (${rejection.score}/${config.REJECTION_MIN_PATTERNS}):* ${patternStr}
+📐 *ATR(14):* $${atr.toFixed(4)}
+${riskNote}
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v8.3 — Structure is everything.*
+⚡ *MVS v8.10 — Structure is everything.*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -936,7 +952,7 @@ ${htfLine}
 
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v8.4   by Abdin               ║');
+console.log('║   MVS — Monthly Value Sniper v8.10  by Abdin               ║');
 console.log('║   Foundation: POC + VAH + VAL + FIBO  |  No lagging data   ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);

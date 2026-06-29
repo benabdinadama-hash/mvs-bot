@@ -57,7 +57,9 @@ const CONFIG = {
   SL_ATR_MULT:            0.25,
   BASE_URL:               'https://api.kucoin.com/api/v1',
   BACKTEST_DAYS:          360,
-  RISK_PER_TRADE_PCT:     1.0,
+  RISK_PER_TRADE_PCT:     1.5,   // v8.10: 1% → 1.5% (max drawdown headroom confirmed)
+  SLIPPAGE_PCT:           0.001, // v8.10: 0.1% slippage/spread per entry+exit
+  MIN_CONFLUENCE_POC:     2,     // v8.10: POC entries require tight Fib alignment (score≥2)
   STARTING_CAPITAL:       1000,
   // v8.9: TP1 is now dynamic (entry + 1.2×risk floor) — no MIN_RR1 gate needed.
   // TP2 = structural 50%Fib (was TP1). TP3 = VAH/VAL runner (was TP2).
@@ -75,6 +77,9 @@ CONFIG.CONFLUENCE_ATR_MULT        = envNum('CONFLUENCE_ATR_MULT', CONFIG.CONFLUE
 CONFIG.HTFZONE_ATR_MULT           = envNum('HTFZONE_ATR_MULT', CONFIG.HTFZONE_ATR_MULT);
 CONFIG.REJECTION_MIN_PATTERNS     = envNum('REJECTION_MIN_PATTERNS', CONFIG.REJECTION_MIN_PATTERNS);
 CONFIG.ZONE_INVALIDATION_ATR_MULT = envNum('ZONE_INVALIDATION_ATR_MULT', CONFIG.ZONE_INVALIDATION_ATR_MULT);
+CONFIG.RISK_PER_TRADE_PCT         = envNum('RISK_PER_TRADE_PCT', CONFIG.RISK_PER_TRADE_PCT);
+CONFIG.SLIPPAGE_PCT               = envNum('SLIPPAGE_PCT', CONFIG.SLIPPAGE_PCT);
+CONFIG.MIN_CONFLUENCE_POC         = envNum('MIN_CONFLUENCE_POC', CONFIG.MIN_CONFLUENCE_POC);
 
 // ── CLI args ─────────────────────────────────────────────────────────────────
 // node backtest.js                          -> all CONFIG.SYMBOLS, 360 days
@@ -351,17 +356,41 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
 
       let outcome = null;
 
+      // ── PARTIAL EXIT (v8.10 Improvement 4) ────────────────────────────
+      // First TP2 touch: close 50% of position and move SL to TP2.
+      // The remaining 50% runs free to TP3 with zero downside past TP2.
+      if (!openTrade.halfExited) {
+        const tp2Hit = direction === 'BUY' ? bar.high >= tp2Price : bar.low <= tp2Price;
+        if (tp2Hit) {
+          openTrade.halfExited = true;
+          openTrade.halfR      = openTrade.rr2;        // locked-in R for first half
+          openTrade.slPrice    = tp2Price;              // SL moves to TP2 — runner is risk-free
+        }
+      }
+
       // FIX: SL always checked first — if both SL and TP hit same bar, SL wins (conservative)
-      if (direction === 'BUY') {
-        if      (bar.low  <= slPrice)   outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
-        else if (bar.high >= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price, rr: openTrade.rr3 };
-        else if (bar.high >= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price, rr: openTrade.rr2 };
-        else if (bar.high >= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price, rr: openTrade.rr1 };
+      if (openTrade.halfExited) {
+        // Runner phase: SL is now at TP2, only TP3 or SL-at-TP2 can exit
+        if (direction === 'BUY') {
+          if      (bar.low  <= openTrade.slPrice) outcome = { result: 'TP2+BE',  exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * 0.5).toFixed(2)) };
+          else if (bar.high >= tp3Price)          outcome = { result: 'TP2+TP3', exitPrice: tp3Price,          rr: parseFloat(((openTrade.halfR + openTrade.rr3) * 0.5).toFixed(2)) };
+        } else {
+          if      (bar.high >= openTrade.slPrice) outcome = { result: 'TP2+BE',  exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * 0.5).toFixed(2)) };
+          else if (bar.low  <= tp3Price)          outcome = { result: 'TP2+TP3', exitPrice: tp3Price,          rr: parseFloat(((openTrade.halfR + openTrade.rr3) * 0.5).toFixed(2)) };
+        }
       } else {
-        if      (bar.high >= slPrice)   outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
-        else if (bar.low  <= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price, rr: openTrade.rr3 };
-        else if (bar.low  <= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price, rr: openTrade.rr2 };
-        else if (bar.low  <= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price, rr: openTrade.rr1 };
+        // Original full-position exit (before first TP2 touch)
+        if (direction === 'BUY') {
+          if      (bar.low  <= slPrice)   outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice,   rr: slRR };
+          else if (bar.high >= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price,  rr: openTrade.rr3 };
+          else if (bar.high >= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price,  rr: openTrade.rr2 };
+          else if (bar.high >= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price,  rr: openTrade.rr1 };
+        } else {
+          if      (bar.high >= slPrice)   outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice,   rr: slRR };
+          else if (bar.low  <= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price,  rr: openTrade.rr3 };
+          else if (bar.low  <= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price,  rr: openTrade.rr2 };
+          else if (bar.low  <= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price,  rr: openTrade.rr1 };
+        }
       }
 
       if (outcome) {
@@ -456,6 +485,14 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     }
     if (bestScore < 1) continue;
     funnel.confluenceOk++;
+
+    // v8.10: POC confluence gate — POC entries require tight Fib alignment
+    // (score≥2). VAH/VAL entries are exempt (cleaner boundary levels).
+    // Root cause of the single SL loss: BTC BUY 2026-06-19 was a POC entry
+    // with confluenceScore=1 (Fib loosely near POC, not tightly stacked).
+    // The reclaim candle pattern was valid but the Fib/POC stack was weak,
+    // making it susceptible to a false reclaim. This gate filters that class.
+    if (bestPivot.name === 'POC' && bestScore < CONFIG.MIN_CONFLUENCE_POC) continue;
 
     // ── STEP 9: 4H Zone cross-check ─────────────────────────────────────────
     const tol4h = atr * CONFIG.HTFZONE_ATR_MULT;
@@ -566,10 +603,10 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
   const wins   = closed.filter(t => t.rr > 0);
   const losses = closed.filter(t => t.rr <= 0);
   const tp1s   = closed.filter(t => t.result === 'TP1');
-  const tp2s   = closed.filter(t => t.result === 'TP2');
-  const tp3s   = closed.filter(t => t.result === 'TP3');
+  const tp2s   = closed.filter(t => t.result === 'TP2' || t.result === 'TP2+BE' || t.result === 'TP2+TP3');
+  const tp3s   = closed.filter(t => t.result === 'TP3' || t.result === 'TP2+TP3');
   const sls    = closed.filter(t => t.result === 'SL');
-  const bes    = closed.filter(t => t.result === 'BE');
+  const bes    = closed.filter(t => t.result === 'BE' || t.result === 'TP2+BE');
   const timeouts = closed.filter(t => t.result === 'TIMEOUT');
 
   const winRate   = closed.length ? (wins.length / closed.length * 100).toFixed(1) : '0.0';
@@ -589,18 +626,23 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
   const grossLoss = Math.abs(losses.reduce((s, t) => s + t.rr, 0));
   const profitFactor = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : '∞';
 
-  // Simulate $ P&L (1% risk per trade)
+  // Simulate $ P&L (1.5% risk per trade, 0.1% slippage per round-trip)
+  // Slippage reduces effective R: a 1R win at 1% risk on $1000 = $10,
+  // but 0.1% slip on entry+exit eats ~0.2% of capital ≈ $2 → net ~$8.
+  // We model it as a flat slippage cost deducted from every closed trade.
   let capital = CONFIG.STARTING_CAPITAL;
   let peak    = capital;
   let maxDD   = 0;
-  const equity = [capital];
+  const equityCurve = [{ trade: 0, capital: parseFloat(capital.toFixed(2)), date: null }];
   for (const t of closed) {
-    const riskAmt = capital * (CONFIG.RISK_PER_TRADE_PCT / 100);
-    capital += riskAmt * t.rr;
+    const riskAmt    = capital * (CONFIG.RISK_PER_TRADE_PCT / 100);
+    const slipCost   = capital * (CONFIG.SLIPPAGE_PCT || 0);  // entry slip + exit slip
+    capital += riskAmt * t.rr - slipCost;
     if (capital > peak) peak = capital;
     const dd = (peak - capital) / peak * 100;
     if (dd > maxDD) maxDD = dd;
-    equity.push(capital);
+    const tradeDate = t.exitTime ? new Date(t.exitTime * 1000).toISOString().slice(0, 10) : null;
+    equityCurve.push({ trade: equityCurve.length, capital: parseFloat(capital.toFixed(2)), date: tradeDate, result: t.result, rr: t.rr });
   }
   const finalCapital = capital.toFixed(2);
   const totalReturn  = ((capital - CONFIG.STARTING_CAPITAL) / CONFIG.STARTING_CAPITAL * 100).toFixed(1);
@@ -669,7 +711,7 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     `  BE hits   : ${bes.length}  (SL moved to entry, exited flat — see v8.7 note)`,
     `  Timeouts  : ${timeouts.length}`,
     '',
-    '── $ P&L SIMULATION (1% risk / trade, $1000 start) ─────────────────',
+    `── $ P&L SIMULATION (${CONFIG.RISK_PER_TRADE_PCT}% risk / trade + 0.1% slippage, $${CONFIG.STARTING_CAPITAL} start) ──────`,
     `  Starting capital      : $${CONFIG.STARTING_CAPITAL}`,
     `  Final capital         : $${finalCapital}`,
     `  Total return          : ${totalReturn}%`,
@@ -725,7 +767,7 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     '═══════════════════════════════════════════════════════════════════',
   ];
 
-  return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount, funnels: funnelsBySymbol } };
+  return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount, funnels: funnelsBySymbol }, equityCurve };
 };
 
 // ── TUNE MODE ────────────────────────────────────────────────────────────────
@@ -834,7 +876,8 @@ async function runTune(allData) {
     process.exit(0);
   }
 
-  const { lines, stats } = generateReport(allTrades, days, funnelsBySymbol);
+  const report = generateReport(allTrades, days, funnelsBySymbol);
+  const { lines, stats, equityCurve } = report;
 
   // Print to console
   console.log('\n' + lines.join('\n'));
@@ -846,7 +889,7 @@ async function runTune(allData) {
   );
   fs.writeFileSync(
     path.join(__dirname, 'backtest-report.json'),
-    JSON.stringify({ generatedAt: new Date().toISOString(), days, symbols, stats, trades: allTrades }, null, 2)
+    JSON.stringify({ generatedAt: new Date().toISOString(), days, symbols, stats, equityCurve, trades: allTrades }, null, 2)
   );
 
   console.log('\n✅ Done. Files saved: backtest-report.txt  backtest-report.json\n');
