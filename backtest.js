@@ -57,6 +57,9 @@ const CONFIG = {
   BACKTEST_DAYS:          360,
   RISK_PER_TRADE_PCT:     1.0,   // % of capital risked per trade (for $ P&L simulation)
   STARTING_CAPITAL:       1000,  // USDT (for $ P&L simulation)
+  // Surgical R:R filters — MUST match config.js exactly
+  MIN_RR1:                0.35,  // TP1 must be ≥ 0.35R
+  MIN_RR2:                0.50,  // TP2 must be ≥ 0.50R
 };
 
 // ── CLI args ─────────────────────────────────────────────────────────────────
@@ -425,18 +428,9 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
       ? swingWick - atr * CONFIG.SL_ATR_MULT
       : swingWick + atr * CONFIG.SL_ATR_MULT;
     const tp1Price   = fib.level500;
-    // FIX: TP2 = VAH(BUY)/VAL(SELL) — full value area exit (not POC which is AT entry)
-    // TP3 = swing extreme — trend extension target
-    // TP2: dynamic — avoid 0R when entry pivot = TP2 target
-    const tp2Price = (() => {
-      if (direction === 'BUY') {
-        if (bestPivot && bestPivot.name === 'VAH') return swingH;
-        return vp.vahPrice;
-      } else {
-        if (bestPivot && bestPivot.name === 'VAL') return swingL;
-        return vp.valPrice;
-      }
-    })();
+    // TP2 = VAH (BUY) / VAL (SELL) — matches strategy.js line 798 exactly, no pivot-swap
+    // TP3 = swing extreme — trend extension runner
+    const tp2Price   = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
     const tp3Price   = direction === 'BUY' ? swingH      : swingL;
     const entryPrice = bestFibLevel;
     const risk       = Math.abs(entryPrice - slPrice);
@@ -489,13 +483,12 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
 
   // Print the gate funnel so we can see exactly where bars get filtered out.
   console.log(`  [FUNNEL] ${symbol}:`, JSON.stringify(funnel));
-  trades._funnel = funnel; // non-enumerable-ish attach, doesn't break array consumers
-  return trades;
+  return { trades, funnel };
 };
 
 // ── Report generator ──────────────────────────────────────────────────────────
 
-const generateReport = (allTrades, days) => {
+const generateReport = (allTrades, days, funnelsBySymbol) => {
   const closed = allTrades.filter(t => t.result !== 'OPEN');
   const wins   = closed.filter(t => t.rr > 0);
   const losses = closed.filter(t => t.rr <= 0);
@@ -566,7 +559,7 @@ const generateReport = (allTrades, days) => {
     `  Total R accumulated   : ${totalRR.toFixed(2)}R`,
     `  Avg win R:R           : ${avgWinRR}R`,
     `  Avg loss R:R          : ${avgLossRR}R`,
-    `  Avg bars held         : ${avgBarsHeld} bars (~${(parseInt(avgBarsHeld) * 15 / 60).toFixed(1)}h)`,
+    `  Avg bars held         : ${avgBarsHeld} bars (~${(parseInt(avgBarsHeld) * CONFIG.ENTRY_BAR_SECONDS / 3600).toFixed(1)}h)`,
     '',
     '── OUTCOME BREAKDOWN ───────────────────────────────────────────────',
     `  TP1 hits  : ${tp1s.length}`,
@@ -603,7 +596,7 @@ const generateReport = (allTrades, days) => {
     '═══════════════════════════════════════════════════════════════════',
   ];
 
-  return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount } };
+  return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount, funnels: funnelsBySymbol } };
 };
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
@@ -617,6 +610,7 @@ const generateReport = (allTrades, days) => {
   console.log('═══════════════════════════════════════════════════════════════════\n');
 
   const allTrades = [];
+  const funnelsBySymbol = {};
   const minBarsNeeded = Math.max(CONFIG.VP_LOOKBACK, CONFIG.FIB_LOOKBACK) + CONFIG.ATR_PERIOD + 5;
 
   for (const symbol of symbols) {
@@ -629,9 +623,10 @@ const generateReport = (allTrades, days) => {
       continue;
     }
 
-    const trades = await backtestSymbol(symbol, data15m, data4h);
+    const { trades, funnel } = await backtestSymbol(symbol, data15m, data4h);
     console.log(`  → ${trades.length} signals fired`);
     allTrades.push(...trades);
+    funnelsBySymbol[symbol] = funnel;
     await sleep(500);
   }
 
@@ -654,7 +649,7 @@ const generateReport = (allTrades, days) => {
     process.exit(0);
   }
 
-  const { lines, stats } = generateReport(allTrades, days);
+  const { lines, stats } = generateReport(allTrades, days, funnelsBySymbol);
 
   // Print to console
   console.log('\n' + lines.join('\n'));
