@@ -1,5 +1,5 @@
 /**
- * MVS — Monthly Value Sniper v8.5
+ * MVS — Monthly Value Sniper v8.6
  * KuCoin API Configuration for Ghana
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
@@ -50,10 +50,15 @@ module.exports = {
   // ── Data lookbacks ──────────────────────────────────────────────────────
   // Scaled for 1hour bars — same real-world calendar windows as before,
   // only the resolution changed, not how much history is used.
-  VP_LOOKBACK:        120,   // 120 bars = 120h (5 days) — matches TradingView VP Auto 500-bar setting on 15min
+  // v8.6: MONTHLY re-calibration. Previous values (120 / 200 / 60) anchored
+  // POC/VAH/VAL/Fib to only 5–8 days of 1hour bars — far shorter than the
+  // actual monthly range traders read off the chart, which squeezed all
+  // structural levels into an unrealistically tight band and starved the
+  // bot of valid signals. Lookbacks below are now genuinely monthly.
+  VP_LOOKBACK:        720,   // 720 bars = 720h (30 days) — true monthly value area
   BIAS_LOOKBACK:      200,   // 4H bars for bias module        (≈ 33 days) — unchanged
-  FIB_LOOKBACK:       200,   // 1hour bars for swing detection (~8.3 days, same as before)
-  BIAS_FIB_LOOKBACK:   60,   // 4H bars for bias swing         (≈ 10 days) — unchanged
+  FIB_LOOKBACK:       720,   // 1hour bars for swing detection (30 days) — matches VP window
+  BIAS_FIB_LOOKBACK:   90,   // 4H bars for bias swing         (≈ 15 days)
 
   // ── Volume Profile ──────────────────────────────────────────────────────
   VP_ROWS: 100,              // 100 price buckets = sharp resolution

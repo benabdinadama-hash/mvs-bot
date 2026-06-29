@@ -37,10 +37,10 @@ const CONFIG = {
   TIMEFRAME:              '1hour',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      3600,
-  VP_LOOKBACK:            120,      // 120 bars = 120h (5 days) — matches config.js
-  BIAS_LOOKBACK:          50,
-  FIB_LOOKBACK:           200,      // 1hour bars for swing detection (~8.3 days) — matches config.js
-  BIAS_FIB_LOOKBACK:      60,       // 4H bars for bias swing (~10 days) — matches config.js
+  VP_LOOKBACK:            720,      // 720 bars = 720h (30 days) — matches config.js v8.6
+  BIAS_LOOKBACK:          200,      // matches config.js (was 50 — out of sync, didn't match live bot)
+  FIB_LOOKBACK:           720,      // 1hour bars for swing detection (30 days) — matches config.js
+  BIAS_FIB_LOOKBACK:      90,       // 4H bars for bias swing (~15 days) — matches config.js
   VP_ROWS:                100,
   VALUE_AREA_PCT:         0.70,
   FIB_ZONE_LOW:           0.60,
@@ -615,8 +615,8 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
 
   for (const symbol of symbols) {
     console.log(`\n▶ ${symbol}`);
-    const data15m = await fetchHistory(symbol, CONFIG.TIMEFRAME, days + 10); // +10 days warmup buffer
-    const data4h  = await fetchHistory(symbol, '4hour', days + 10);
+    const data15m = await fetchHistory(symbol, CONFIG.TIMEFRAME, days + 35); // +35 days warmup buffer (covers 30-day VP/FIB lookback + ATR/cooldown margin)
+    const data4h  = await fetchHistory(symbol, '4hour', days + 35);
 
     if (data15m.length < minBarsNeeded) {
       console.log(`  ⚠️ Insufficient data for ${symbol} — skipping`);
