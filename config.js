@@ -4,8 +4,9 @@
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
  * TIMEFRAMES:  4H bias gate → 1hour entry candles, scanned every 15min.
- * SYMBOLS:     8 liquid pairs — ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK
- *              repo is PUBLIC — GitHub Actions minutes are unlimited and free.
+ * SYMBOLS:     13 liquid pairs — ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK,
+ *              BNB, DOT, LTC, TRX, POL — repo is PUBLIC — GitHub Actions
+ *              minutes are unlimited and free.
  *
  * NO lagging indicators. Every parameter here is structural price/volume data.
  *

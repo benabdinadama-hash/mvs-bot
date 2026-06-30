@@ -155,14 +155,14 @@ Institutional-grade crypto signals built on one principle: *price always reverts
 
 *Strategy:* Volume Profile (POC + VAH + VAL) + Fibonacci (61.8–78.6% pocket) across two timeframes — 4H bias gate + 1H entry.
 
-*Verified Performance (720-day backtest, 8 pairs):*
-• Signals fired: *90*
-• Win Rate: *79.8%* (71W / 18L)
-• Real-money WR: *87.6%* (excludes 64 breakeven scratches)
-• Total R: *+28.05R*
-• Total Return: *+39%* on $1,000
-• Max Drawdown: *3.2%*
-• Profit Factor: *5.99*
+*Verified Performance (720-day backtest, 13 pairs):*
+• Signals fired: *151*
+• Win Rate: *75.3%* (113W / 37L)
+• Real-money WR: *90.7%* (excludes 109 breakeven scratches)
+• Total R: *+43.75R*
+• Total Return: *+65.2%* on $1,000
+• Max Drawdown: *3.3%*
+• Profit Factor: *5.26*
 • Avg Hold: *~50 hours*
 
 Zero lagging indicators. No EMA, no RSI. Pure structure.`
@@ -172,16 +172,21 @@ Zero lagging indicators. No EMA, no RSI. Pure structure.`
 // ── /pairs ────────────────────────────────────────────────────────────────
 const cmdPairs = async () => {
   await send(
-`💱 *Tracked Pairs (8 total — 720-day backtest)*
+`💱 *Tracked Pairs (13 total — 720-day backtest)*
 
-• *ETH-USDT* — 14 trades | 86% WR | +5.48R
+• *ETH-USDT* — 16 trades | 81% WR | +6.46R
 • *SOL-USDT* — 9 trades | 67% WR | +2.58R
-• *BTC-USDT* — 9 trades | 89% WR | +3.82R
-• *XRP-USDT* — 18 trades | 83% WR | +5.04R
-• *ADA-USDT* — 9 trades | 100% WR | +4.27R
+• *BTC-USDT* — 10 trades | 90% WR | +4.02R
+• *XRP-USDT* — 19 trades | 84% WR | +5.22R
+• *ADA-USDT* — 10 trades | 100% WR | +4.59R
 • *DOGE-USDT* — 7 trades | 57% WR | +2.21R
 • *AVAX-USDT* — 10 trades | 80% WR | +1.88R
-• *LINK-USDT* — 13 trades | 69% WR | +2.77R
+• *LINK-USDT* — 14 trades | 71% WR | +3.04R
+• *BNB-USDT* — 10 trades | 70% WR | +1.00R
+• *DOT-USDT* — 12 trades | 67% WR | +2.73R
+• *LTC-USDT* — 10 trades | 80% WR | +4.44R
+• *TRX-USDT* — 9 trades | 56% WR | +0.97R
+• *POL-USDT* — 14 trades | 64% WR | +4.61R
 
 Exchange: *KuCoin* — fully accessible from Ghana without VPN.`
   );

@@ -1,11 +1,11 @@
 # MVS — Monthly Value Sniper
 ## By Abdin — KuCoin Edition for Ghana
 
-![Win Rate](https://img.shields.io/badge/Real--Money%20WR-87.6%25-brightgreen?style=for-the-badge)
-![Profit Factor](https://img.shields.io/badge/Profit%20Factor-5.99-brightgreen?style=for-the-badge)
+![Win Rate](https://img.shields.io/badge/Real--Money%20WR-90.7%25-brightgreen?style=for-the-badge)
+![Profit Factor](https://img.shields.io/badge/Profit%20Factor-5.26-brightgreen?style=for-the-badge)
 ![Verified](https://img.shields.io/badge/Backtest-720%20Days%20Verified-blue?style=for-the-badge)
-![Return](https://img.shields.io/badge/Return-+39%25%20on%20%241k-gold?style=for-the-badge)
-![Pairs](https://img.shields.io/badge/Pairs-8%20Liquid%20Pairs-orange?style=for-the-badge)
+![Return](https://img.shields.io/badge/Return-+65%25%20on%20%241k-gold?style=for-the-badge)
+![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
 ![Version](https://img.shields.io/badge/Version-v9.0-purple?style=for-the-badge)
 
@@ -75,7 +75,7 @@ A signal only fires when **both timeframes agree on direction** AND **the entry 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
 | **Entry Timeframe** | 1H candles | Matches monthly POC/VAH/VAL/Fib structure — scanned every 15min so a fresh candle is picked up promptly |
-| **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK (USDT) | 8 liquid pairs — repo is public, Actions minutes are free |
+| **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL (USDT) | 13 liquid pairs — repo is public, Actions minutes are free |
 | **Scan cadence** | Every 15 minutes | Picks up each new 1H candle close within 15min |
 | **Min R:R filter** | TP1 ≥ 0.35R, TP2 ≥ 0.50R | Surgical filter — see backtest funnel diagnostics for pass rates |
 | **Command polling** | Every 2 minutes | Near real-time response to Telegram commands |
@@ -158,25 +158,30 @@ A B-signal fires only if **at least 2 of these 4 patterns** appear on the last c
 
 | Signal Type | Frequency |
 |-------------|-----------|
-| B1/B2 Sniper Entries | **~1.1/week average** (90 signals over 720 days, 8 pairs) |
-| TP2 hits | **61%** of entries (55 of 90) |
-| TP3 hits | **16%** of entries (14 of 90) |
-| SL hits | **4** over 720 days (4.4%) |
-| BE scratches | **64** (71% of all exits — stops moved to entry after TP1) |
+| B1/B2 Sniper Entries | **~1.47/week average** (151 signals over 720 days, 13 pairs) |
+| TP2 hits | **58%** of entries (87 of 150 closed) |
+| TP3 hits | **15%** of entries (22 of 150 closed) |
+| SL hits | **9** over 720 days (6.0%) |
+| BE scratches | **109** (73% of all exits — stops moved to entry after TP1) |
 | Avg hold time | **~50 hours** |
 
 **By pair (720-day):**
 
 | Pair | Trades | Win Rate | Total R |
 |------|--------|----------|---------|
-| ETH-USDT | 14 | 86% | +5.48R |
+| ETH-USDT | 16 | 81% | +6.46R |
 | SOL-USDT | 9 | 67% | +2.58R |
-| BTC-USDT | 9 | 89% | +3.82R |
-| XRP-USDT | 18 | 83% | +5.04R |
-| ADA-USDT | 9 | 100% | +4.27R |
+| BTC-USDT | 10 | 90% | +4.02R |
+| XRP-USDT | 19 | 84% | +5.22R |
+| ADA-USDT | 10 | 100% | +4.59R |
 | DOGE-USDT | 7 | 57% | +2.21R |
 | AVAX-USDT | 10 | 80% | +1.88R |
-| LINK-USDT | 13 | 69% | +2.77R |
+| LINK-USDT | 14 | 71% | +3.04R |
+| BNB-USDT | 10 | 70% | +1.00R |
+| DOT-USDT | 12 | 67% | +2.73R |
+| LTC-USDT | 10 | 80% | +4.44R |
+| TRX-USDT | 9 | 56% | +0.97R |
+| POL-USDT | 14 | 64% | +4.61R |
 
 ---
 
@@ -224,25 +229,25 @@ STEP 14: Fire B1 (Bullish) or B2 (Bearish) alert to Telegram
 
 MVS has been backtested against real KuCoin historical data using `backtest.js` — no curve fitting, no optimisation. Data pulled directly from KuCoin's public API.
 
-### 720-Day Backtest — 8 Pairs (ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK)
+### 720-Day Backtest — 13 Pairs (ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL)
 
 | Metric | Result |
 |--------|--------|
 | Period | 720 days |
-| Symbols | ETH-USDT, SOL-USDT, BTC-USDT, XRP-USDT, ADA-USDT, DOGE-USDT, AVAX-USDT, LINK-USDT |
-| Total signals fired | 90 |
-| Closed trades | 89 |
-| Headline win rate | **79.8%** (71W / 18L) |
-| Real-money win rate | **87.6%** — excludes 64 breakeven scratches (0R); only 11 of 89 closed trades lost real capital |
-| Profit factor | **5.99** |
-| Total R accumulated | **+28.05R** |
+| Symbols | ETH-USDT, SOL-USDT, BTC-USDT, XRP-USDT, ADA-USDT, DOGE-USDT, AVAX-USDT, LINK-USDT, BNB-USDT, DOT-USDT, LTC-USDT, TRX-USDT, POL-USDT |
+| Total signals fired | 151 |
+| Closed trades | 150 (1 open/unrealised) |
+| Headline win rate | **75.3%** (113W / 37L) |
+| Real-money win rate | **90.7%** — excludes 109 breakeven scratches (0R); only 14 of 150 closed trades lost real capital |
+| Profit factor | **5.26** |
+| Total R accumulated | **+43.75R** |
 | Avg hold time | **~50 hours** |
 | Starting capital | $1,000 |
-| Final capital | **$1,390** |
-| Total return | **+39%** |
-| Max drawdown | **3.2%** |
+| Final capital | **$1,652.49** |
+| Total return | **+65.2%** |
+| Max drawdown | **3.3%** |
 
-**Outcome breakdown:** TP1: 0 | TP2: 55 | TP3: 14 | SL: 4 | BE: 64 | Timeouts: 7
+**Outcome breakdown:** TP1: 0 | TP2: 87 | TP3: 22 | SL: 9 | BE: 109 | Timeouts: 10
 
 > TP1 shows 0 because the bot now immediately advances SL to breakeven once the TP1 zone is reached, and most runners exit at TP2 or TP3. TP1 is a risk management trigger, not a closing event.
 
@@ -250,25 +255,37 @@ MVS has been backtested against real KuCoin historical data using `backtest.js` 
 
 | Symbol | Trades | Win Rate | Total R |
 |--------|--------|----------|---------|
-| ETH-USDT | 14 | 86% | +5.48R |
+| ETH-USDT | 16 | 81% | +6.46R |
 | SOL-USDT | 9 | 67% | +2.58R |
-| BTC-USDT | 9 | 89% | +3.82R |
-| XRP-USDT | 18 | 83% | +5.04R |
-| ADA-USDT | 9 | **100%** | +4.27R |
+| BTC-USDT | 10 | 90% | +4.02R |
+| XRP-USDT | 19 | 84% | +5.22R |
+| ADA-USDT | 10 | **100%** | +4.59R |
 | DOGE-USDT | 7 | 57% | +2.21R |
 | AVAX-USDT | 10 | 80% | +1.88R |
-| LINK-USDT | 13 | 69% | +2.77R |
+| LINK-USDT | 14 | 71% | +3.04R |
+| BNB-USDT | 10 | 70% | +1.00R |
+| DOT-USDT | 12 | 67% | +2.73R |
+| LTC-USDT | 10 | 80% | +4.44R |
+| TRX-USDT | 9 | 56% | +0.97R |
+| POL-USDT | 14 | 64% | +4.61R |
 
-**Pattern frequency (720-day, 90 trades):**
+**By direction:**
+
+| Direction | Trades | Win Rate | Total R |
+|-----------|--------|----------|---------|
+| SELL | 69 | 83% | +23.03R |
+| BUY | 81 | 69% | +20.72R |
+
+**Pattern frequency (720-day, 151 trades):**
 
 | Pattern | Frequency |
 |---------|-----------|
-| ENGULFING | 68x |
-| PIN_BAR | 56x |
-| CLOSE_REJECTION | 49x |
-| POC_RECLAIM | 22x |
+| ENGULFING | 99x |
+| PIN_BAR | 73x |
+| CLOSE_REJECTION | 75x |
+| POC_RECLAIM | 52x |
 
-> POC_RECLAIM is the rarest but highest-conviction pattern. All POC entries require POC_RECLAIM to fire — this is the key filter that eliminates false signals at the Point of Control.
+> POC_RECLAIM is the rarest single-pattern qualifier but the highest-conviction pattern. With `POC_RECLAIM_SOLO: true` (the current default, matched between `config.js` and `backtest.js`), a single POC_RECLAIM at a confirmed structural level can fire a signal on its own — all other gates (4H bias, zone cross-check, absorption veto) remain fully active.
 
 > **Note:** Backtested win rates will be slightly lower in live trading due to slippage and spread. The strategy does not guarantee future results.
 
@@ -282,12 +299,12 @@ MVS has been backtested against real KuCoin historical data using `backtest.js` 
 4. **Daily-Anchored POC/VAH/VAL** — Frozen at UTC midnight, no drift between scans. Zones are stable reference points, not moving targets.
 5. **ATR-Relative Confluence** — Tolerance scales with current volatility. Wide-ranging days get a wider band; tight consolidation days get tighter. No hard-coded percentages that go stale.
 6. **60–80% Fib Pocket** — Treats the entry zone as a price range, not two lines. Correctly models the institutional absorption zone between 61.8% and 78.6%.
-7. **2-of-4 Rejection Rule (with POC_RECLAIM)** — Requires confirmation, not perfection. POC_RECLAIM — a wick through POC that closes back on the right side — is the strongest of the four patterns and the clearest institutional defense signal.
+7. **2-of-4 Rejection Rule (with POC_RECLAIM_SOLO)** — Requires confirmation, not perfection. POC_RECLAIM — a wick through POC that closes back on the right side — is the strongest of the four patterns; with `POC_RECLAIM_SOLO: true` it can qualify a signal on its own at a confirmed structural level, while all other gates stay active.
 8. **Directional Absorption Veto** — A high-volume bullish candle suppresses SELL signals only (and vice versa), correctly distinguishing trend-following absorption from genuine reversal.
 9. **3-Tier TP Ladder** — TP1 triggers BE move (risk-free runner), TP2 exits at the full value area boundary, TP3 lets the runner ride the full trend extension.
 10. **Zero Lagging Indicators** — No EMA, no moving averages of any kind. Every input is raw price/volume structure — nothing repaints, nothing lags.
 11. **KuCoin for Ghana** — Binance and Bybit are restricted in Ghana. KuCoin Spot API is fully accessible without VPN.
-12. **8 Liquid Pairs** — Broader coverage means more confluence opportunities per week while maintaining structural quality across all pairs.
+12. **13 Liquid Pairs** — Broader coverage means more confluence opportunities per week while maintaining structural quality across all pairs.
 
 ---
 
@@ -373,7 +390,7 @@ mvs-bot/
 | Actions tab shows no runs | Workflows not enabled | Go to repo → Actions tab → enable workflows |
 | Signals firing too rarely on ADA / DOGE | RR filter too strict for tight-range pairs | `PAIR_MIN_TP2_RR` in `config.js` — already set to 0.35R for these two pairs; lower further if needed (floor: 0.25R) |
 | SELL signals underperforming vs market | HTF zone over-filtering short setups | `SELL_HTF_MULT_BOOST` in `config.js` — default 1.10 (10% wider tolerance for SELL only) |
-| Want more signals at POC reclaim zones | 2-of-4 rule blocking high-conviction POC touches | Set `POC_RECLAIM_SOLO: true` in `config.js` — solo POC_RECLAIM fires signal; all other gates remain active |
+| Want stricter POC reclaim filtering | POC_RECLAIM_SOLO defaults to `true` (single POC_RECLAIM can qualify a signal alone) | Set `POC_RECLAIM_SOLO: false` in `config.js`, or run backtest with `POC_RECLAIM_SOLO=false` env var, to require the full 2-of-4 rule everywhere |
 
 ---
 

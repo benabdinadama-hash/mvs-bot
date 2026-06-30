@@ -41,7 +41,7 @@ const call = async (method, params = {}) => {
 
   // 3. Set short description (shown on bot profile page)
   await call('setMyShortDescription', {
-    short_description: '🎯 Institutional crypto signals across 8 liquid KuCoin pairs. POC/VAH/VAL/Fib + 4H bias. 360-day backtested. Built for Ghana.'
+    short_description: '🎯 Institutional crypto signals across 13 liquid KuCoin pairs. POC/VAH/VAL/Fib + 4H bias. 720-day backtested. Built for Ghana.'
   });
 
   // 4. Set full description (shown when user first opens bot)
@@ -52,13 +52,13 @@ By Abdin — KuCoin Edition for Ghana
 
 An institutional-grade signal bot using Volume Profile (POC/VAH/VAL) + Fibonacci confluence, gated by 4H bias, on 1hour entry candles.
 
-📊 Verified Performance (360 days, 8 pairs):
-• Real-money win rate: 90.6% (only 3 real losses of 32 closed trades)
-• Profit factor: 11.2
-• Total R accumulated: +19.79R
-• Avg hold: ~53 hours
+📊 Verified Performance (720 days, 13 pairs):
+• Real-money win rate: 90.7% (only 14 real losses of 150 closed trades)
+• Profit factor: 5.26
+• Total R accumulated: +43.75R
+• Avg hold: ~50 hours
 
-🎯 Pairs: ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK (USDT)
+🎯 Pairs: ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL (USDT)
 📡 Exchange: KuCoin (works in Ghana — no VPN)
 ⚡ Signals fire automatically to this chat
 
