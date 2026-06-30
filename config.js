@@ -47,9 +47,15 @@ module.exports = {
   // safest way to get more signals/week without touching strategy logic —
   // every pair still passes the exact same POC/VAH/VAL/Fib + 4H-bias +
   // rejection + R:R gates. More markets scanned ≠ looser filter.
+  // v9.1: expanded from 8 → 13 liquid pairs to add signal frequency without
+  // touching any gate logic — same POC/VAH/VAL/Fib + 4H-bias + rejection +
+  // R:R rules apply identically to every symbol. More markets scanned ≠
+  // looser filter. New adds chosen for KuCoin spot liquidity/volume depth
+  // comparable to the existing 8: BNB, MATIC (POL), DOT, LTC, TRX.
   SYMBOLS: [
     'ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT',
-    'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT'
+    'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT',
+    'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'MATIC-USDT'
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────
@@ -109,8 +115,15 @@ module.exports = {
 
   // ── Rejection candle (2-of-4 rule) ──────────────────────────────────────
   // Patterns: POC_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION
-  // Signal fires if ≥ REJECTION_MIN_PATTERNS match. UNCHANGED.
-  REJECTION_MIN_PATTERNS: 2,
+  // Signal fires if ≥ REJECTION_MIN_PATTERNS match. Default stays 2
+  // (the validated v9.0 baseline: 79.8% WR / 5.99 PF over 720d/8 pairs).
+  // Frequency test: set REJECTION_MIN_PATTERNS=1 env var to test allowing
+  // any single pattern through (POC_RECLAIM_SOLO already proved one strong
+  // pattern can suffice in isolation — this generalizes it to all 4).
+  // ALL other gates (4H bias, confluence, HTF zone, RR, absorption veto)
+  // stay fully active regardless of this value — only this threshold moves.
+  // Validate via backtest before ever flipping the live default.
+  REJECTION_MIN_PATTERNS: parseInt(process.env.REJECTION_MIN_PATTERNS, 10) || 2,
 
   // ── Absorption veto ─────────────────────────────────────────────────────
   // body/range > this ratio → directional absorption candle.

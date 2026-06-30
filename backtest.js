@@ -33,7 +33,7 @@ const path  = require('path');
 
 // ── Config (mirrors config.js exactly) ─────────────────────────────────────
 const CONFIG = {
-  SYMBOLS:                ['ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT', 'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT'],
+  SYMBOLS:                ['ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT', 'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT', 'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'MATIC-USDT'],
   TIMEFRAME:              '1hour',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      3600,
@@ -808,6 +808,7 @@ const TUNE_GRID = [
   { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.80, HTFZONE_ATR_MULT: 3.5 }, // wider confluence
   { SIGNAL_COOLDOWN_BARS: 3, TP1_RR_FLOOR: 1.0, MIN_TP2_RR: 0.40, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.80, HTFZONE_ATR_MULT: 3.5 }, // widest combo
   { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 3, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // stricter patterns
+  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 1, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // frequency test: 1-of-4
 ];
 
 async function runTune(allData) {
