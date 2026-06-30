@@ -65,6 +65,12 @@ const CONFIG = {
   // TP2 = structural 50%Fib (was TP1). TP3 = VAH/VAL runner (was TP2).
   TP1_RR_FLOOR:           1.2,   // TP1 = max(50%Fib, entry + 1.2×risk)
   MIN_TP2_RR:             0.50,  // TP2 (50%Fib) must be ≥ 0.5R from entry
+  // v9.0 sync fix: these three existed in strategy.js (live bot) but were
+  // missing here entirely, meaning every prior backtest report understated
+  // what the live bot actually does. Now mirrored exactly.
+  SELL_HTF_MULT_BOOST:    1.10,
+  PAIR_MIN_TP2_RR:        { 'ADA-USDT': 0.35, 'DOGE-USDT': 0.35 },
+  POC_RECLAIM_SOLO:       false,
 };
 
 // ── ENV OVERRIDES (tuning knobs only — POC/VAH/VAL/Fib/4H-bias foundation is NEVER touched) ──
@@ -299,7 +305,9 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pocPrice) => {
     if (c.high >= zoneLow && c.close < zoneLow) patterns.push('CLOSE_REJECTION');
   }
   const score = patterns.length;
-  return { valid: !absorptionVeto && score >= CONFIG.REJECTION_MIN_PATTERNS, patterns, absorptionVeto, score };
+  // v9.0 sync fix: POC_RECLAIM_SOLO existed in strategy.js but not here.
+  const pocReclaimSolo = CONFIG.POC_RECLAIM_SOLO && patterns.length === 1 && patterns[0] === 'POC_RECLAIM';
+  return { valid: !absorptionVeto && (score >= CONFIG.REJECTION_MIN_PATTERNS || pocReclaimSolo), patterns, absorptionVeto, score, pocReclaimSolo: !!pocReclaimSolo };
 };
 
 // ── Backtest engine ───────────────────────────────────────────────────────────
@@ -495,7 +503,14 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     if (bestPivot.name === 'POC' && bestScore < CONFIG.MIN_CONFLUENCE_POC) continue;
 
     // ── STEP 9: 4H Zone cross-check ─────────────────────────────────────────
-    const tol4h = atr * CONFIG.HTFZONE_ATR_MULT;
+    // v9.0 sync fix: backtest was missing SELL_HTF_MULT_BOOST entirely —
+    // strategy.js (live bot) widens SELL's HTF tolerance by this factor,
+    // but backtest.js silently used the BUY tolerance for both directions.
+    // That means every prior backtest UNDERSTATED real SELL signal count
+    // relative to what the live bot would actually fire.
+    const tol4h = atr * CONFIG.HTFZONE_ATR_MULT * (
+      direction === 'SELL' ? (CONFIG.SELL_HTF_MULT_BOOST || 1.0) : 1.0
+    );
     const levels4h = [bias4h.poc4h, bias4h.vah4h, bias4h.val4h, bias4h.fibMid4h];
     const htfAligned = levels4h.some(lvl => Math.abs(bestFibLevel - lvl) <= tol4h);
     if (!htfAligned) continue;
@@ -550,11 +565,18 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     const rr3 = parseFloat((Math.abs(tp3Price - entryPrice) / risk).toFixed(2));
 
     // SURGICAL FILTER
-    // Filter 1: TP2(50%Fib) must be ≥ MIN_TP2_RR. TP1 is always ≥ 1.2R by construction.
-    if (rr2 < CONFIG.MIN_TP2_RR) continue;
+    // Filter 1: TP2(50%Fib) must be ≥ MIN_TP2_RR (or PAIR_MIN_TP2_RR override).
+    // v9.0 sync fix: per-pair override was missing here.
+    const minTp2Rr = (CONFIG.PAIR_MIN_TP2_RR && CONFIG.PAIR_MIN_TP2_RR[symbol] !== undefined)
+      ? CONFIG.PAIR_MIN_TP2_RR[symbol]
+      : CONFIG.MIN_TP2_RR;
+    if (rr2 < minTp2Rr) continue;
     funnel.surgF1++;
     funnel.surgF2++;
-    if (rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;  // Filter 2: pattern count
+    // Filter 2: pattern count — exempt when pocReclaimSolo already validated
+    // this trade via detectRejection(); re-checking patterns.length here
+    // would re-block the exact path POC_RECLAIM_SOLO was meant to allow.
+    if (!rejection.pocReclaimSolo && rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;
     funnel.surgF3++;
     funnel.surgF4++;
     funnel.surgicalOk++;
@@ -615,7 +637,12 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
   // above counts BE as a loss (rr<=0), which understates how the strategy
   // actually performed: of 32 closed trades, only 3 (1 SL + 2 TIMEOUT) lost
   // real money — the other 6 "losses" gave money back, not took it.
-  const realLosses  = sls.length + timeouts.length;
+  // FIX: a TIMEOUT exit can still close at a positive RR (price moved
+  // favorably but never tagged a TP before the 200-bar cap) — previously
+  // EVERY timeout was counted as a real loss regardless of its actual rr.
+  // Only count negative-RR timeouts (and any raw SL) as real losses.
+  const losingTimeouts = timeouts.filter(t => t.rr <= 0);
+  const realLosses  = sls.length + losingTimeouts.length;
   const trueWinRate = closed.length ? (((closed.length - realLosses) / closed.length) * 100).toFixed(1) : '0.0';
   const avgWinRR  = wins.length   ? (wins.reduce((s, t) => s + t.rr, 0) / wins.length).toFixed(2) : '0.00';
   const avgLossRR = losses.length ? (losses.reduce((s, t) => s + t.rr, 0) / losses.length).toFixed(2) : '0.00';

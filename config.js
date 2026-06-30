@@ -172,7 +172,7 @@ module.exports = {
   // pattern — institutions reclaiming the most-traded price with body conviction.
   // All other gates (4H bias, confluence, HTF zone, RR, absorption veto)
   // remain fully active. Set false to keep the strict 2-of-4 rule for all.
-  POC_RECLAIM_SOLO: false,
+  POC_RECLAIM_SOLO: true,
 
   // ── v9.0: Per-pair TP2 RR floor overrides ───────────────────────────────
   // Funnel analysis showed ADA and DOGE lose 56–67% of rejection-confirmed
