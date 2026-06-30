@@ -74,7 +74,14 @@ const CONFIG = {
   // has it set to true — every backtest report up to and including the
   // 13-pair/720d run was testing a STRICTER ruleset than what's actually
   // live. Default now matches config.js. Override via env var if needed.
+  // v9.1: now restricted to SELL only inside detectRejection() — see there.
   POC_RECLAIM_SOLO:       true,
+  // v9.1: BUY real-loss rate 14.6% (12/82) vs SELL 2.9% (2/69) — asymmetric
+  // fix mirrors SELL_HTF_MULT_BOOST. BUY entries require confluence score≥2.
+  BUY_CONFLUENCE_MIN:     2,
+  // v9.1: time-stop. Losers took 3.4x longer to resolve than winners (135.7
+  // vs 40.4 bars). Close early if TP2 hasn't been reached by this many bars.
+  EARLY_TIMEOUT_BARS:     70,
 };
 
 // ── ENV OVERRIDES (tuning knobs only — POC/VAH/VAL/Fib/4H-bias foundation is NEVER touched) ──
@@ -90,6 +97,8 @@ CONFIG.ZONE_INVALIDATION_ATR_MULT = envNum('ZONE_INVALIDATION_ATR_MULT', CONFIG.
 CONFIG.RISK_PER_TRADE_PCT         = envNum('RISK_PER_TRADE_PCT', CONFIG.RISK_PER_TRADE_PCT);
 CONFIG.SLIPPAGE_PCT               = envNum('SLIPPAGE_PCT', CONFIG.SLIPPAGE_PCT);
 CONFIG.MIN_CONFLUENCE_POC         = envNum('MIN_CONFLUENCE_POC', CONFIG.MIN_CONFLUENCE_POC);
+CONFIG.BUY_CONFLUENCE_MIN         = envNum('BUY_CONFLUENCE_MIN', CONFIG.BUY_CONFLUENCE_MIN);
+CONFIG.EARLY_TIMEOUT_BARS         = envNum('EARLY_TIMEOUT_BARS', CONFIG.EARLY_TIMEOUT_BARS);
 CONFIG.POC_RECLAIM_SOLO            = process.env.POC_RECLAIM_SOLO !== undefined
   ? process.env.POC_RECLAIM_SOLO === 'true'
   : CONFIG.POC_RECLAIM_SOLO;
@@ -313,7 +322,7 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pocPrice) => {
   }
   const score = patterns.length;
   // v9.0 sync fix: POC_RECLAIM_SOLO existed in strategy.js but not here.
-  const pocReclaimSolo = CONFIG.POC_RECLAIM_SOLO && patterns.length === 1 && patterns[0] === 'POC_RECLAIM';
+  const pocReclaimSolo = CONFIG.POC_RECLAIM_SOLO && direction === 'SELL' && patterns.length === 1 && patterns[0] === 'POC_RECLAIM';
   return { valid: !absorptionVeto && (score >= CONFIG.REJECTION_MIN_PATTERNS || pocReclaimSolo), patterns, absorptionVeto, score, pocReclaimSolo: !!pocReclaimSolo };
 };
 
@@ -421,6 +430,24 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
         continue;
       }
 
+      // v9.1: early time-stop. Losers took 3.4x longer to resolve than
+      // winners (135.7 vs 40.4 bars avg) — 5/14 real losses never decisively
+      // failed, they drifted to the 200-bar cap. If TP2 hasn't been reached
+      // (not halfExited) within EARLY_TIMEOUT_BARS, close at market now
+      // instead of riding it the full 200 bars. Does not touch SL/TP levels.
+      if (!openTrade.halfExited && (i - openTrade.entryBarIdx > CONFIG.EARLY_TIMEOUT_BARS)) {
+        trades.push({
+          ...openTrade,
+          exitTime:  bar.time,
+          exitPrice: price,
+          result:    'EARLY_TIMEOUT',
+          rr:        parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
+          barsHeld:  i - openTrade.entryBarIdx,
+        });
+        openTrade = null;
+        continue;
+      }
+
       // Max hold: 200 bars on 1hour candles = 200 hours (~8.3 days) — close at market if no TP/SL hit
       if (i - openTrade.entryBarIdx > 200) {
         trades.push({
@@ -508,6 +535,10 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     // The reclaim candle pattern was valid but the Fib/POC stack was weak,
     // making it susceptible to a false reclaim. This gate filters that class.
     if (bestPivot.name === 'POC' && bestScore < CONFIG.MIN_CONFLUENCE_POC) continue;
+
+    // v9.1: BUY-side confluence tightening (mirrors strategy.js). BUY had
+    // 14.6% real-loss rate vs 2.9% SELL — require score>=2 on every BUY entry.
+    if (direction === 'BUY' && bestScore < CONFIG.BUY_CONFLUENCE_MIN) continue;
 
     // ── STEP 9: 4H Zone cross-check ─────────────────────────────────────────
     // v9.0 sync fix: backtest was missing SELL_HTF_MULT_BOOST entirely —
@@ -636,7 +667,7 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
   const tp3s   = closed.filter(t => t.result === 'TP3' || t.result === 'TP2+TP3');
   const sls    = closed.filter(t => t.result === 'SL');
   const bes    = closed.filter(t => t.result === 'BE' || t.result === 'TP2+BE');
-  const timeouts = closed.filter(t => t.result === 'TIMEOUT');
+  const timeouts = closed.filter(t => t.result === 'TIMEOUT' || t.result === 'EARLY_TIMEOUT');
 
   const winRate   = closed.length ? (wins.length / closed.length * 100).toFixed(1) : '0.0';
   // True losses = SL + TIMEOUT only. BE (breakeven scratch, 0R) is neither a

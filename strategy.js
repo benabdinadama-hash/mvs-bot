@@ -541,7 +541,10 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pocPrice) => {
   // zone is treated as sufficient on its own when the flag is enabled.
   // All other gates (4H bias, confluence, HTF zone, RR, absorption veto)
   // remain fully active. The 2-of-4 rule still applies for every other pattern.
+  // v9.1: restricted to SELL only — BUY+solo-POC_RECLAIM was the worst loss
+  // bucket in the funnel breakdown (23.1% real-loss rate vs 9.1% SELL+solo).
   const pocReclaimSolo = config.POC_RECLAIM_SOLO &&
+    direction === 'SELL' &&
     patterns.length === 1 &&
     patterns[0] === 'POC_RECLAIM';
 
@@ -605,6 +608,7 @@ const runStrategy = async (symbol) => {
     const data = await getKlines(symbol, config.TIMEFRAME, config.VP_LOOKBACK);
     if (data.length < 50) {
       console.log(`  ⚠️ Insufficient entry-TF data (${data.length} bars). Skipping.`);
+      logDiag({ symbol, fired: false, reason: 'INSUFFICIENT_DATA', bars: data.length, ts: new Date().toISOString() });
       return;
     }
 
@@ -616,6 +620,7 @@ const runStrategy = async (symbol) => {
     const atr = calcATR(data);
     if (!atr) {
       console.log(`  ⚠️ ATR calculation failed. Skipping.`);
+      logDiag({ symbol, fired: false, reason: 'ATR_FAILED', ts: new Date().toISOString() });
       return;
     }
 
@@ -741,6 +746,17 @@ const runStrategy = async (symbol) => {
     // for POC entries. VAH/VAL entries are cleaner boundary levels and exempt.
     if (bestPivot.name === 'POC' && bestScore < (config.MIN_CONFLUENCE_POC || 2)) {
       console.log(`  ⚠️  A1 POC gate: score ${bestScore}/2 — POC entries require score≥2 (tight Fib stack). Skipping.`);
+      return;
+    }
+
+    // v9.1: BUY-side confluence tightening. BUY real-loss rate (14.6%) was
+    // 2x SELL (2.9%) in the funnel breakdown. SELL already gets a separate
+    // boost (SELL_HTF_MULT_BOOST); this is the matching asymmetric fix for
+    // BUY — require the full score≥2 tight-stack confluence on every BUY
+    // entry, not just POC ones. SELL keeps the original score≥1 threshold.
+    if (direction === 'BUY' && bestScore < (config.BUY_CONFLUENCE_MIN || 2)) {
+      console.log(`  ⚠️  A1 BUY gate: score ${bestScore}/2 — BUY entries require score≥${config.BUY_CONFLUENCE_MIN || 2}. Skipping.`);
+      logDiag({ symbol, barTime, price, D4_pass, A1_pass, confluenceScore: bestScore, fired: false, reason: 'BUY_CONFLUENCE_BLOCKED' });
       return;
     }
 
@@ -962,6 +978,14 @@ ${riskNote}
 
   } catch (err) {
     console.error(`  ❌ Error processing ${symbol}:`, err.message);
+    // v9.1: this catch block was previously swallowing every uncaught error
+    // silently — for any symbol that throws on every single run (bad ticker,
+    // API error, rate limit), there was zero persistent trace anywhere except
+    // ephemeral GitHub Actions console output. That made silent per-symbol
+    // failures undiagnosable after the fact. Now logged to diag.log.json so
+    // a symbol going dark shows up as EXCEPTION entries instead of just
+    // vanishing from state.json.
+    logDiag({ symbol, fired: false, reason: 'EXCEPTION', error: err.message, ts: new Date().toISOString() });
   }
 };
 

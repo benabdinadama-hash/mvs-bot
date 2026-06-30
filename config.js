@@ -188,7 +188,29 @@ module.exports = {
   // pattern — institutions reclaiming the most-traded price with body conviction.
   // All other gates (4H bias, confluence, HTF zone, RR, absorption veto)
   // remain fully active. Set false to keep the strict 2-of-4 rule for all.
+  // v9.1: BUY+solo-POC_RECLAIM was the concentrated bad bucket (23.1% real-loss
+  // rate vs 9.1% for SELL+solo). Rather than disabling the flag entirely (which
+  // would also remove the working SELL-side signal volume), POC_RECLAIM_SOLO
+  // now only fires for SELL. BUY direction always needs the full 2-of-4 rule.
+  // Enforced in strategy.js/backtest.js detectRejection() via the `direction`
+  // param already passed in — this flag alone no longer fully describes behavior.
   POC_RECLAIM_SOLO: true,
+
+  // v9.1: BUY-side confluence tightening. BUY real-loss rate was 14.6% (12/82)
+  // vs SELL 2.9% (2/69) — SELL_HTF_MULT_BOOST already favors SELL, so rather
+  // than loosen/tighten the whole system, only BUY gets a stricter confluence
+  // floor. SELL keeps the existing A1_pass >=1 threshold. VAH/VAL and POC
+  // entries on the BUY side must now score >=2 (tight Fib stack), same bar
+  // POC entries already had to clear via MIN_CONFLUENCE_POC.
+  BUY_CONFLUENCE_MIN: 2,
+
+  // v9.1: time-stop. Losing trades took 3.4x longer to resolve than winners
+  // (135.7 vs 40.4 bars avg) and 5/14 real losses were TIMEOUT exits at the
+  // 200-bar cap that never decisively failed, just drifted. A trade that
+  // hasn't reached TP2 (i.e. hasn't gone halfExited) within this many bars is
+  // statistically unlikely to turn into a winner — close it early instead of
+  // riding it to the 200-bar cap. Does not touch SL/TP/entry logic.
+  EARLY_TIMEOUT_BARS: 70,
 
   // ── v9.0: Per-pair TP2 RR floor overrides ───────────────────────────────
   // Funnel analysis showed ADA and DOGE lose 56–67% of rejection-confirmed
