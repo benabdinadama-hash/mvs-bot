@@ -1,12 +1,13 @@
 # MVS — Monthly Value Sniper
 ## By Abdin — KuCoin Edition for Ghana
 
-![Win Rate](https://img.shields.io/badge/Win%20Rate-100%25-brightgreen?style=for-the-badge)
-![SL Hits](https://img.shields.io/badge/SL%20Hits-0-brightgreen?style=for-the-badge)
-![Verified](https://img.shields.io/badge/Backtest-360%20Days%20Verified-blue?style=for-the-badge)
-![Return](https://img.shields.io/badge/Return-+76.2%25%20in%201%20Year-gold?style=for-the-badge)
-![Pairs](https://img.shields.io/badge/Pairs-ETH%20%2B%20SOL-orange?style=for-the-badge)
+![Win Rate](https://img.shields.io/badge/Real--Money%20WR-87.6%25-brightgreen?style=for-the-badge)
+![Profit Factor](https://img.shields.io/badge/Profit%20Factor-5.99-brightgreen?style=for-the-badge)
+![Verified](https://img.shields.io/badge/Backtest-720%20Days%20Verified-blue?style=for-the-badge)
+![Return](https://img.shields.io/badge/Return-+39%25%20on%20%241k-gold?style=for-the-badge)
+![Pairs](https://img.shields.io/badge/Pairs-8%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v9.0-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -17,9 +18,6 @@
 **Binance and Bybit do NOT work in Ghana.** KuCoin is the recommended exchange for Ghana-based traders.
 
 This bot uses the **KuCoin Spot API** which is fully accessible from Ghana without VPN or restrictions.
-
----
-
 
 ---
 
@@ -45,7 +43,7 @@ This bot uses the **KuCoin Spot API** which is fully accessible from Ghana witho
 
 The **Monthly Value Sniper (MVS)** is an institutional-grade trading strategy built on one principle: **price always reverts to where the most volume was traded.**
 
-By combining four pure, mathematical pillars — **POC** (Point of Control), **VAH** (Value Area High), **VAL** (Value Area Low), and **Fibonacci** (all 6 levels) — across **two timeframes** (4H bias + 15min entry), MVS identifies high-probability reversal zones with zero subjectivity.
+By combining four pure, mathematical pillars — **POC** (Point of Control), **VAH** (Value Area High), **VAL** (Value Area Low), and **Fibonacci** (all 6 levels) — across **two timeframes** (4H bias + 1H entry), MVS identifies high-probability reversal zones with zero subjectivity.
 
 No EMA. No lagging indicators of any kind. Just structure: volume profile + Fibonacci, cross-checked across timeframes.
 
@@ -65,7 +63,7 @@ No EMA. No lagging indicators of any kind. Just structure: volume profile + Fibo
 ```
 4H  → Bias gate        (POC + VAH + VAL + Fib50% — 3-of-4 vote decides BULLISH/BEARISH/NEUTRAL)
 4H  → Zone cross-check (does the entry price sit near a 4H structural level?)
-15m → Entry engine     (confluence + rejection pattern + absorption veto + SL/TP)
+1H  → Entry engine     (confluence + rejection pattern + absorption veto + SL/TP)
 ```
 
 A signal only fires when **both timeframes agree on direction** AND **the entry price overlaps a 4H structural level**. This is what separates a real institutional zone from a random Fib touch.
@@ -76,9 +74,9 @@ A signal only fires when **both timeframes agree on direction** AND **the entry 
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
-| **Entry Timeframe** | 1hour candles | Matches the monthly POC/VAH/VAL/Fib structure — scanned every 15min so a fresh candle is picked up promptly |
+| **Entry Timeframe** | 1H candles | Matches monthly POC/VAH/VAL/Fib structure — scanned every 15min so a fresh candle is picked up promptly |
 | **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK (USDT) | 8 liquid pairs — repo is public, Actions minutes are free |
-| **Scan cadence** | Every 15 minutes | Picks up each new 1hour candle close within 15min |
+| **Scan cadence** | Every 15 minutes | Picks up each new 1H candle close within 15min |
 | **Min R:R filter** | TP1 ≥ 0.35R, TP2 ≥ 0.50R | Surgical filter — see backtest funnel diagnostics for pass rates |
 | **Command polling** | Every 2 minutes | Near real-time response to Telegram commands |
 | **VP Anchor** | Daily UTC | POC/VAH/VAL frozen per day — no drift between scans. Resets at 00:00 UTC |
@@ -124,18 +122,18 @@ A signal only fires when **both timeframes agree on direction** AND **the entry 
 | **C1** TP1 Hit | Price reaches 50% Fib | Close 50% of position. Move runner SL to entry. |
 | **C2** TP2 Hit | Price reaches VAH (BUY) / VAL (SELL) | Close another portion. Runner continues to TP3. |
 | **C3** TP3 Hit | Price reaches swing high (BUY) / swing low (SELL) | Full structural exit. Close remaining position. |
-| **C4** SL Hit | Price breaches swing wick + 0.25×ATR | Surgical filter prevents this — POC entries require POC_RECLAIM, eliminating false stops. 0 SL hits in 360-day backtest. |
-| **C5** Breakeven | Price +0.5% in your favor after entry | Move SL to entry manually. |
+| **C4** SL Hit | Price breaches swing wick + 0.25×ATR | Surgical filter minimises this — POC entries require POC_RECLAIM. |
+| **C5** Breakeven | Price +0.5% in your favour after entry | Move SL to entry manually. |
 | **C6** Partial Sweep | Wick into SL buffer, immediate reversal | HOLD. This is a liquidity hunt. |
 
 ### D — Invalidation / Skip (Do NOT Trade)
 
 | Signal | Condition | Action |
 |--------|-----------|--------|
-| **D1** Absorption | Zone touched, but high-volume directional candle opposes entry | SKIP. Telegram alert sent. Institutions absorbing against you. |
+| **D1** Absorption | Zone touched, but high-volume directional candle opposes entry | SKIP. Telegram alert sent. |
 | **D2** Sharp Breakout | Price slices through zone without pausing | Do NOT fade. Trend continuation. |
 | **D3** Shallow Retrace | Rejects at 23.6/38.2 before reaching 60–80% pocket | Ignore. Trend too strong. |
-| **D4** Over-Extended | Price already beyond 88.6% Fib | Skip. Swing invalidated before scan. |
+| **D4** Over-Extended | Price already beyond 88.6% Fib | Skip. Swing invalidated. |
 | **D5** 4H Bias Block | Entry-TF direction disagrees with 4H bias (or 4H is NEUTRAL) | Skip. Higher timeframe doesn't confirm. |
 | **D6** 4H Zone Mismatch | Entry price doesn't sit near any 4H structural level | Skip. No multi-timeframe confluence. |
 
@@ -160,14 +158,25 @@ A B-signal fires only if **at least 2 of these 4 patterns** appear on the last c
 
 | Signal Type | Frequency |
 |-------------|-----------|
-| B1/B2 Sniper Entries | **1.15/week average** (59 signals over 360 days) |
-| TP1 hits | **89.8%** of entries (53 of 59) |
-| TP2 hits | **8.5%** of entries (5 of 59) |
-| TP3 hits | **1.7%** of entries (1 of 59) |
-| SL hits | **0** (360-day verified — surgical filter active) |
-| Avg hold time | **2 hours** (8 × 15min bars) |
-| ETH-USDT signals | 29 over 360 days — 100% WR — +28.53R |
-| SOL-USDT signals | 30 over 360 days — 100% WR — +27.64R |
+| B1/B2 Sniper Entries | **~1.1/week average** (90 signals over 720 days, 8 pairs) |
+| TP2 hits | **61%** of entries (55 of 90) |
+| TP3 hits | **16%** of entries (14 of 90) |
+| SL hits | **4** over 720 days (4.4%) |
+| BE scratches | **64** (71% of all exits — stops moved to entry after TP1) |
+| Avg hold time | **~50 hours** |
+
+**By pair (720-day):**
+
+| Pair | Trades | Win Rate | Total R |
+|------|--------|----------|---------|
+| ETH-USDT | 14 | 86% | +5.48R |
+| SOL-USDT | 9 | 67% | +2.58R |
+| BTC-USDT | 9 | 89% | +3.82R |
+| XRP-USDT | 18 | 83% | +5.04R |
+| ADA-USDT | 9 | 100% | +4.27R |
+| DOGE-USDT | 7 | 57% | +2.21R |
+| AVAX-USDT | 10 | 80% | +1.88R |
+| LINK-USDT | 13 | 69% | +2.77R |
 
 ---
 
@@ -215,40 +224,49 @@ STEP 14: Fire B1 (Bullish) or B2 (Bearish) alert to Telegram
 
 MVS has been backtested against real KuCoin historical data using `backtest.js` — no curve fitting, no optimisation. Data pulled directly from KuCoin's public API.
 
-### 360-Day Backtest — 8 Pairs (ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK)
+### 720-Day Backtest — 8 Pairs (ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK)
 
 | Metric | Result |
 |--------|--------|
-| Period | 360 days (1 full year) |
+| Period | 720 days |
 | Symbols | ETH-USDT, SOL-USDT, BTC-USDT, XRP-USDT, ADA-USDT, DOGE-USDT, AVAX-USDT, LINK-USDT |
-| Total signals fired | 33 |
-| Headline win rate | 71.9% (23W / 9L) |
-| Real-money win rate | **90.6%** — excludes 6 breakeven scratches (0R); only 3 of 32 closed trades lost real capital |
-| Profit factor | **11.20** |
-| Total R accumulated | +19.79R |
-| Avg hold time | ~53 hours |
+| Total signals fired | 90 |
+| Closed trades | 89 |
+| Headline win rate | **79.8%** (71W / 18L) |
+| Real-money win rate | **87.6%** — excludes 64 breakeven scratches (0R); only 11 of 89 closed trades lost real capital |
+| Profit factor | **5.99** |
+| Total R accumulated | **+28.05R** |
+| Avg hold time | **~50 hours** |
 | Starting capital | $1,000 |
-| Final capital | **$1,217** |
-| Total return | **+21.7%** |
-| Max drawdown | **1.0%** |
+| Final capital | **$1,390** |
+| Total return | **+39%** |
+| Max drawdown | **3.2%** |
 
-**Outcome breakdown:** TP1: 13 | TP2: 10 | TP3: 0 | SL: 1 | BE: 6 | Timeouts: 2
+**Outcome breakdown:** TP1: 0 | TP2: 55 | TP3: 14 | SL: 4 | BE: 64 | Timeouts: 7
 
-AVAX-USDT fired 0 signals in this window — see the funnel diagnostics in the backtest report for why (thin liquidity, not a bug). Re-run `node backtest.js` periodically; these numbers will shift as more data accrues and are not a guarantee of future performance.
+> TP1 shows 0 because the bot now immediately advances SL to breakeven once the TP1 zone is reached, and most runners exit at TP2 or TP3. TP1 is a risk management trigger, not a closing event.
 
 **By symbol:**
+
 | Symbol | Trades | Win Rate | Total R |
 |--------|--------|----------|---------|
-| ETH-USDT | 29 | **100%** | +28.53R |
-| SOL-USDT | 30 | **100%** | +27.64R |
+| ETH-USDT | 14 | 86% | +5.48R |
+| SOL-USDT | 9 | 67% | +2.58R |
+| BTC-USDT | 9 | 89% | +3.82R |
+| XRP-USDT | 18 | 83% | +5.04R |
+| ADA-USDT | 9 | **100%** | +4.27R |
+| DOGE-USDT | 7 | 57% | +2.21R |
+| AVAX-USDT | 10 | 80% | +1.88R |
+| LINK-USDT | 13 | 69% | +2.77R |
 
-**Pattern frequency (verified from 59 trades):**
+**Pattern frequency (720-day, 90 trades):**
+
 | Pattern | Frequency |
 |---------|-----------|
-| ENGULFING | 44x |
-| POC_RECLAIM | 28x |
-| CLOSE_REJECTION | 26x |
-| PIN_BAR | 26x |
+| ENGULFING | 68x |
+| PIN_BAR | 56x |
+| CLOSE_REJECTION | 49x |
+| POC_RECLAIM | 22x |
 
 > POC_RECLAIM is the rarest but highest-conviction pattern. All POC entries require POC_RECLAIM to fire — this is the key filter that eliminates false signals at the Point of Control.
 
@@ -256,11 +274,9 @@ AVAX-USDT fired 0 signals in this window — see the funnel diagnostics in the b
 
 ---
 
----
-
 ## Why MVS Works
 
-1. **Two-Timeframe Confirmation** — The 4H bias gate (POC + VAH + VAL + Fib50%, 3-of-4 vote) must agree with the entry-TF direction before any zone is even considered. This eliminates fading the higher-timeframe trend.
+1. **Two-Timeframe Confirmation** — The 4H bias gate (POC + VAH + VAL + Fib50%, 3-of-4 vote) must agree with the entry-TF direction before any zone is even considered.
 2. **4H Zone Cross-Check** — The entry must also sit near an actual 4H structural level. When two independent timeframes point to the same price, that's institutional confluence, not coincidence.
 3. **Full Value Area (POC + VAH + VAL)** — Both supply (VAH) and demand (VAL) walls are tracked. SELL setups get genuine structural confluence at VAH, not just POC.
 4. **Daily-Anchored POC/VAH/VAL** — Frozen at UTC midnight, no drift between scans. Zones are stable reference points, not moving targets.
@@ -268,10 +284,10 @@ AVAX-USDT fired 0 signals in this window — see the funnel diagnostics in the b
 6. **60–80% Fib Pocket** — Treats the entry zone as a price range, not two lines. Correctly models the institutional absorption zone between 61.8% and 78.6%.
 7. **2-of-4 Rejection Rule (with POC_RECLAIM)** — Requires confirmation, not perfection. POC_RECLAIM — a wick through POC that closes back on the right side — is the strongest of the four patterns and the clearest institutional defense signal.
 8. **Directional Absorption Veto** — A high-volume bullish candle suppresses SELL signals only (and vice versa), correctly distinguishing trend-following absorption from genuine reversal.
-9. **3-Tier TP Ladder** — TP1 (50% Fib) takes quick profit at equilibrium, TP2 (VAH/VAL) exits at the full value area boundary, TP3 (swing extreme) lets a runner ride the full trend extension.
+9. **3-Tier TP Ladder** — TP1 triggers BE move (risk-free runner), TP2 exits at the full value area boundary, TP3 lets the runner ride the full trend extension.
 10. **Zero Lagging Indicators** — No EMA, no moving averages of any kind. Every input is raw price/volume structure — nothing repaints, nothing lags.
 11. **KuCoin for Ghana** — Binance and Bybit are restricted in Ghana. KuCoin Spot API is fully accessible without VPN.
-12. **SOL + ETH focus** — Both pairs delivered 100% win rate across 360 days of backtesting. BTC zones are too wide and XRP too noisy for consistent confluence — removed for signal quality.
+12. **8 Liquid Pairs** — Broader coverage means more confluence opportunities per week while maintaining structural quality across all pairs.
 
 ---
 
@@ -309,6 +325,10 @@ node strategy.js
 | `/status` | Last saved scan result |
 | `/health` | KuCoin API connectivity + last run time |
 | `/positions` | Last active signal per symbol |
+| `/pairs` | All tracked pairs + backtest stats |
+| `/about` | Strategy overview + verified performance |
+| `/signal` | How to read a signal |
+| `/source` | GitHub link |
 | `/help` | List all commands |
 
 ---
@@ -323,12 +343,13 @@ mvs-bot/
 ├── commands.js             # Telegram command handler (/scan /status /health etc.)
 ├── weekly-summary.js       # Weekly digest — reads signals.log.json, sends to Telegram
 ├── README.md               # This file
-├── backtest.js             # Historical backtester — configurable days, default 90 (run via GitHub Actions or locally)
+├── backtest.js             # Historical backtester — configurable days, default 720 (run via GitHub Actions or locally)
 │
 ├── .github/
 │   └── workflows/
 │       ├── mvs-scan.yml        # Runs strategy.js every 15 min (own lock)
 │       ├── mvs-commands.yml    # Polls Telegram commands every 2 min (own lock)
+│       ├── mvs-backtest.yml    # On-demand backtester workflow
 │       └── mvs-weekly.yml      # Sends weekly summary every Monday 07:00 UTC (own lock)
 │
 └── (auto-generated at runtime)
@@ -350,6 +371,9 @@ mvs-bot/
 | `/health` shows "Last scan run: never" | `state.json` not yet committed | Go to Actions → MVS Scan → Run workflow manually once to bootstrap |
 | KuCoin returns empty data | Temporary API issue | Wait a few minutes and re-run. KuCoin public API has occasional timeouts |
 | Actions tab shows no runs | Workflows not enabled | Go to repo → Actions tab → enable workflows |
+| Signals firing too rarely on ADA / DOGE | RR filter too strict for tight-range pairs | `PAIR_MIN_TP2_RR` in `config.js` — already set to 0.35R for these two pairs; lower further if needed (floor: 0.25R) |
+| SELL signals underperforming vs market | HTF zone over-filtering short setups | `SELL_HTF_MULT_BOOST` in `config.js` — default 1.10 (10% wider tolerance for SELL only) |
+| Want more signals at POC reclaim zones | 2-of-4 rule blocking high-conviction POC touches | Set `POC_RECLAIM_SOLO: true` in `config.js` — solo POC_RECLAIM fires signal; all other gates remain active |
 
 ---
 

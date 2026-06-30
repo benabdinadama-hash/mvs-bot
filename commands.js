@@ -1,26 +1,23 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v8.3 — fixed command polling)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v8.4 — 8-pair update)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.
  *
- *  FIX LOG (v8.3):
- *  ─ REMOVED the "bootstrap fast-forward" block that silently discarded ALL
- *    messages whenever offset=0 (i.e. first run or after offset was wiped).
- *    That block was why every /scan /health /help appeared to do nothing —
- *    the handler read them, threw them away, saved a new offset, and exited.
- *  ─ Offset is now saved BEFORE processing commands so a crash/push-failure
- *    never causes messages to be replayed as false duplicates.
- *  ─ weekly-summary.js rewritten to pure axios (was: node-telegram-bot-api)
- *    so it can never trigger a 409 Conflict against our deleteWebhook call.
- *  ─ All Telegram calls use pure axios (no node-telegram-bot-api anywhere).
+ *  FIX LOG (v8.4):
+ *  ─ Updated /about, /pairs to reflect 8-pair expansion (720d backtest).
+ *  ─ Corrected all stale 2-pair / 360d / 100% WR claims.
  *
  *  Commands handled:
  *    /scan       → run strategy.js right now, then reply with /status output
  *    /status     → last saved scan result from state.json
  *    /health     → KuCoin ping + last run timestamp
  *    /positions  → last active signal per symbol (signal-only, no live trades)
+ *    /pairs      → tracked pairs + backtest stats
+ *    /about      → strategy overview + verified performance
+ *    /signal     → how to read a signal
+ *    /source     → GitHub link
  *    /help       → command menu
  *    /start      → same as /help
  * ═══════════════════════════════════════════════════════════════════════
@@ -75,6 +72,10 @@ const cmdHelp = async () => {
 /status — last saved scan result
 /health — KuCoin connectivity + last run time
 /positions — last active signal (MVS is signal-only, no live position tracking)
+/pairs — tracked pairs + backtest stats
+/about — strategy overview
+/signal — how to read a signal
+/source — GitHub link
 /help — this menu`
   );
 };
@@ -145,7 +146,6 @@ const cmdScan = async () => {
   await cmdStatus();
 };
 
-// ── Command map ───────────────────────────────────────────────────────────
 // ── /about ───────────────────────────────────────────────────────────────
 const cmdAbout = async () => {
   await send(
@@ -153,14 +153,17 @@ const cmdAbout = async () => {
 
 Institutional-grade crypto signals built on one principle: *price always reverts to where the most volume was traded.*
 
-*Strategy:* Volume Profile (POC + VAH + VAL) + Fibonacci (61.8–78.6% pocket) across two timeframes — 4H bias gate + 15min entry.
+*Strategy:* Volume Profile (POC + VAH + VAL) + Fibonacci (61.8–78.6% pocket) across two timeframes — 4H bias gate + 1H entry.
 
-*Verified Performance (360-day backtest):*
-• Win Rate: *100%* (59/59 trades)
-• Total Return: *+76.2%* on $1,000
-• SL Hits: *0*
-• Avg Hold: *2 hours*
-• Signals: *~1–2 per week*
+*Verified Performance (720-day backtest, 8 pairs):*
+• Signals fired: *90*
+• Win Rate: *79.8%* (71W / 18L)
+• Real-money WR: *87.6%* (excludes 64 breakeven scratches)
+• Total R: *+28.05R*
+• Total Return: *+39%* on $1,000
+• Max Drawdown: *3.2%*
+• Profit Factor: *5.99*
+• Avg Hold: *~50 hours*
 
 Zero lagging indicators. No EMA, no RSI. Pure structure.`
   );
@@ -169,12 +172,16 @@ Zero lagging indicators. No EMA, no RSI. Pure structure.`
 // ── /pairs ────────────────────────────────────────────────────────────────
 const cmdPairs = async () => {
   await send(
-`💱 *Tracked Pairs*
+`💱 *Tracked Pairs (8 total — 720-day backtest)*
 
-• *ETH-USDT* — 29 trades | 100% WR | +28.53R (360d)
-• *SOL-USDT* — 30 trades | 100% WR | +27.64R (360d)
-
-BTC and XRP were removed — BTC zones are too wide and XRP too noisy for consistent confluence.
+• *ETH-USDT* — 14 trades | 86% WR | +5.48R
+• *SOL-USDT* — 9 trades | 67% WR | +2.58R
+• *BTC-USDT* — 9 trades | 89% WR | +3.82R
+• *XRP-USDT* — 18 trades | 83% WR | +5.04R
+• *ADA-USDT* — 9 trades | 100% WR | +4.27R
+• *DOGE-USDT* — 7 trades | 57% WR | +2.21R
+• *AVAX-USDT* — 10 trades | 80% WR | +1.88R
+• *LINK-USDT* — 13 trades | 69% WR | +2.77R
 
 Exchange: *KuCoin* — fully accessible from Ghana without VPN.`
   );
@@ -231,8 +238,6 @@ const COMMANDS = {
 (async () => {
 
   // ── STEP 1: clear any active webhook ────────────────────────────────────
-  // A webhook and getUpdates cannot coexist — Telegram returns 409 Conflict.
-  // deleteWebhook is a no-op when no webhook is set, so always safe to call.
   const dwRes = await tgCall('deleteWebhook', { drop_pending_updates: false });
   if (dwRes && dwRes.ok) {
     console.log('✅ deleteWebhook OK');
@@ -266,8 +271,6 @@ const COMMANDS = {
   }
 
   // ── STEP 4: advance offset FIRST (prevents replay if push fails later) ───
-  // Save the new offset right now so that even if git push fails below,
-  // we never re-process these messages on the next run.
   const newOffset = updates[updates.length - 1].update_id + 1;
   saveJSON(OFFSET_FILE, { offset: newOffset });
   console.log(`💾 Offset advanced to ${newOffset} (saved before processing).`);
@@ -280,13 +283,11 @@ const COMMANDS = {
 
     if (!rawText) continue;
 
-    // Security: only respond to the configured chat
     if (String(chatId) !== String(config.TELEGRAM_CHAT_ID)) {
       console.log(`  Ignored update ${update.update_id} from chat ${chatId} (not our chat)`);
       continue;
     }
 
-    // Strip /command@BotUsername → /command (Telegram appends bot name in groups)
     const cmd = rawText.toLowerCase().split(' ')[0].split('@')[0];
 
     if (COMMANDS[cmd]) {

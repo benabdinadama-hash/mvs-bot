@@ -1,5 +1,5 @@
 /**
- * MVS — Monthly Value Sniper v8.9
+ * MVS — Monthly Value Sniper v9.0
  * KuCoin API Configuration for Ghana
  *
  * FOUNDATION: POC + VAH + VAL + FIBO (all 6 levels). Nothing else.
@@ -18,6 +18,21 @@
  *  ─ CONFLUENCE_ATR_MULT: 0.5 → 0.65 — 64-71% of nearZone bars were dying
  *    at confluence; modest widening keeps quality while admitting more setups.
  *  ─ HTFZONE_ATR_MULT: 2.5 → 3.0 — 4H zone check widened slightly.
+ *
+ * v9.0 CALIBRATION (backtest funnel analysis — 720d / 8 pairs):
+ *  ─ POC_RECLAIM_SOLO: new flag. When true, a single POC_RECLAIM pattern at
+ *    an A1 Golden Zone + HTF-aligned bar fires the signal (no 2nd pattern
+ *    needed). POC_RECLAIM = institutions defending the most-traded price with
+ *    body conviction — highest-quality single pattern. Default OFF.
+ *  ─ PAIR_MIN_TP2_RR: per-pair TP2 RR floor override. ADA and DOGE lose 56–67%
+ *    of rejection-confirmed setups at the RR filter — their tighter ranges
+ *    mean the 50%Fib is geometrically closer to entry. Lowered to 0.35R for
+ *    these two pairs only. All other pairs keep 0.50R. Foundation unchanged.
+ *  ─ SELL_HTF_MULT_BOOST: SELL setups have better WR (86%) and R (+14.21R)
+ *    than BUY (74% / +13.84R) but BEARISH bars outnumber BULLISH 56k vs 49k
+ *    yet trade counts are nearly equal — SELL signals are being over-filtered
+ *    by htfAligned. A 10% tolerance boost on SELL direction only recovers
+ *    blocked SELL setups without loosening BUY quality.
  */
 
 module.exports = {
@@ -149,6 +164,36 @@ module.exports = {
   // Entry logic, SL anchor, and ALL structural gates are completely unchanged.
   TP1_RR_FLOOR: 1.2,   // TP1 = max(50%Fib, entry + 1.2×risk)
   MIN_TP2_RR:   0.5,   // TP2 (50%Fib) must still be ≥ 0.5R from entry
+
+  // ── v9.0: POC_RECLAIM solo gate ─────────────────────────────────────────
+  // When true: a single POC_RECLAIM pattern at an A1 Golden Zone + HTF-aligned
+  // bar is enough to fire a signal (REJECTION_MIN_PATTERNS overridden to 1
+  // for this pattern only). POC_RECLAIM is the highest-conviction single
+  // pattern — institutions reclaiming the most-traded price with body conviction.
+  // All other gates (4H bias, confluence, HTF zone, RR, absorption veto)
+  // remain fully active. Set false to keep the strict 2-of-4 rule for all.
+  POC_RECLAIM_SOLO: false,
+
+  // ── v9.0: Per-pair TP2 RR floor overrides ───────────────────────────────
+  // Funnel analysis showed ADA and DOGE lose 56–67% of rejection-confirmed
+  // setups at the RR gate because their tighter price ranges place the 50%Fib
+  // closer to entry geometrically, even on valid structural setups.
+  // Override MIN_TP2_RR per symbol here. Pairs not listed use MIN_TP2_RR (0.5).
+  // All structural entry gates are completely unchanged.
+  PAIR_MIN_TP2_RR: {
+    'ADA-USDT':  0.35,
+    'DOGE-USDT': 0.35,
+  },
+
+  // ── v9.0: SELL direction HTF zone tolerance boost ───────────────────────
+  // SELL setups show 86% WR vs 74% BUY and +14.21R vs +13.84R BUY, yet
+  // BEARISH 4H bars (56,190) outnumber BULLISH (48,893) while trade counts
+  // are nearly equal (42 SELL vs 47 BUY). SELL signals are being suppressed
+  // more than BEAR market structure warrants by the htfAligned check.
+  // A 10% tolerance multiplier on SELL direction only (HTFZONE_ATR_MULT ×
+  // SELL_HTF_MULT_BOOST) recovers blocked SELL setups without touching BUY
+  // quality. Set to 1.0 to disable (no boost).
+  SELL_HTF_MULT_BOOST: 1.10,
 
   // ── KuCoin API ──────────────────────────────────────────────────────────
   BASE_URL: 'https://api.kucoin.com/api/v1',

@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v8.4
+ *  MVS — MONTHLY VALUE SNIPER v9.0
  *  "Structure is everything. If price isn't at a pillar, it's not a trade."
  *  By Abdin
  *
@@ -406,7 +406,9 @@ const get4HBias = async (symbol) => {
 const check4HZoneAlignment = (entryPrice, bias4h, atr1h) => {
   if (!bias4h) return { aligned: true, nearestLevel: 'N/A', distance: 0 }; // no data = don't block
 
-  const tol = atr1h * config.HTFZONE_ATR_MULT;
+  const tol = atr1h * config.HTFZONE_ATR_MULT * (
+    direction === 'SELL' ? (config.SELL_HTF_MULT_BOOST || 1.0) : 1.0
+  );
 
   // All 4H structural levels that matter at the entry price
   const levels = [
@@ -534,9 +536,18 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pocPrice) => {
   }
 
   const score = patterns.length;
-  const valid = !absorptionVeto && score >= config.REJECTION_MIN_PATTERNS;
 
-  return { valid, patterns, absorptionVeto, score };
+  // v9.0: POC_RECLAIM_SOLO — a single POC_RECLAIM at a confirmed structural
+  // zone is treated as sufficient on its own when the flag is enabled.
+  // All other gates (4H bias, confluence, HTF zone, RR, absorption veto)
+  // remain fully active. The 2-of-4 rule still applies for every other pattern.
+  const pocReclaimSolo = config.POC_RECLAIM_SOLO &&
+    patterns.length === 1 &&
+    patterns[0] === 'POC_RECLAIM';
+
+  const valid = !absorptionVeto && (score >= config.REJECTION_MIN_PATTERNS || pocReclaimSolo);
+
+  return { valid, patterns, absorptionVeto, score, pocReclaimSolo: !!pocReclaimSolo };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -569,7 +580,7 @@ const isCoolingDown = (symbol, direction, currentBarTime) => {
 
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v8.2 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v9.0 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -851,15 +862,23 @@ const runStrategy = async (symbol) => {
 
     // ── SURGICAL FILTER ──────────────────────────────────────────────────
     // Filter 1: TP2 (structural 50%Fib) must be ≥ MIN_TP2_RR from entry.
+    // v9.0: per-pair override via PAIR_MIN_TP2_RR — ADA and DOGE use 0.35R
+    // (tighter ranges mean 50%Fib is geometrically closer to entry).
     // TP1 is guaranteed ≥ 1.2R by construction — no separate TP1 gate needed.
-    const minTp2Rr = config.MIN_TP2_RR || 0.5;
+    const pairRrOverrides = config.PAIR_MIN_TP2_RR || {};
+    const minTp2Rr = pairRrOverrides[symbol] !== undefined
+      ? pairRrOverrides[symbol]
+      : (config.MIN_TP2_RR || 0.5);
     if (risk > 0 && (reward2 / risk) < minTp2Rr) {
       console.log(`  ⏭️  TP2(50%Fib) TOO CLOSE — only ${(reward2/risk).toFixed(2)}R (min ${minTp2Rr}R). Signal suppressed.`);
       return;
     }
     // Filter 2: Require REJECTION_MIN_PATTERNS minimum (set in config.js)
     // Default is 2-of-4. Set to 3 in config if you want ultra-strict filtering.
-    if (rejection.patterns.length < config.REJECTION_MIN_PATTERNS) {
+    // v9.0: exempted when pocReclaimSolo is active — rejection.valid already
+    // accounts for the solo-POC_RECLAIM path; double-checking patterns.length
+    // here would re-block what detectRejection() deliberately allowed through.
+    if (!rejection.pocReclaimSolo && rejection.patterns.length < config.REJECTION_MIN_PATTERNS) {
       console.log(`  ⏭️  ONLY ${rejection.patterns.length} PATTERNS — need ${config.REJECTION_MIN_PATTERNS}-of-4. Got: ${rejection.patterns.join('+')}. Signal suppressed.`);
       return;
     }
@@ -911,12 +930,12 @@ ${htfLine}
    POC: $${vp.pocPrice.toFixed(4)} | VAH: $${vp.vahPrice.toFixed(4)} | VAL: $${vp.valPrice.toFixed(4)}
    Confluence: ${confBadge} | Pivot: ${bestPivot.name}
 
-🕯 *Rejection patterns (${rejection.score}/${config.REJECTION_MIN_PATTERNS}):* ${patternStr}
+🕯 *Rejection patterns (${rejection.pocReclaimSolo ? "SOLO POC_RECLAIM" : rejection.score + "/" + config.REJECTION_MIN_PATTERNS}):* ${patternStr}
 📐 *ATR(14):* $${atr.toFixed(4)}
 ${riskNote}
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v8.10 — Structure is everything.*
+⚡ *MVS v9.0 — Structure is everything.*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
