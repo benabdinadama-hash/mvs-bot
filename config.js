@@ -51,11 +51,13 @@ module.exports = {
   // touching any gate logic — same POC/VAH/VAL/Fib + 4H-bias + rejection +
   // R:R rules apply identically to every symbol. More markets scanned ≠
   // looser filter. New adds chosen for KuCoin spot liquidity/volume depth
-  // comparable to the existing 8: BNB, MATIC (POL), DOT, LTC, TRX.
+  // comparable to the existing 8: BNB, POL (formerly MATIC), DOT, LTC, TRX.
+  // NOTE: KuCoin closed MATIC-USDT trading Sept 6 2024 (migrated to POL at
+  // 1:1). Using POL-USDT — MATIC-USDT will return zero data on KuCoin.
   SYMBOLS: [
     'ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT',
     'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT',
-    'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'MATIC-USDT'
+    'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'POL-USDT'
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────

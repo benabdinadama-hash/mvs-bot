@@ -33,7 +33,7 @@ const path  = require('path');
 
 // ── Config (mirrors config.js exactly) ─────────────────────────────────────
 const CONFIG = {
-  SYMBOLS:                ['ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT', 'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT', 'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'MATIC-USDT'],
+  SYMBOLS:                ['ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT', 'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT', 'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'POL-USDT'],
   TIMEFRAME:              '1hour',
   BIAS_TIMEFRAME:         '4hour',
   ENTRY_BAR_SECONDS:      3600,
@@ -70,7 +70,11 @@ const CONFIG = {
   // what the live bot actually does. Now mirrored exactly.
   SELL_HTF_MULT_BOOST:    1.10,
   PAIR_MIN_TP2_RR:        { 'ADA-USDT': 0.35, 'DOGE-USDT': 0.35 },
-  POC_RECLAIM_SOLO:       false,
+  // v9.1 sync fix: this was hardcoded false here while config.js (live bot)
+  // has it set to true — every backtest report up to and including the
+  // 13-pair/720d run was testing a STRICTER ruleset than what's actually
+  // live. Default now matches config.js. Override via env var if needed.
+  POC_RECLAIM_SOLO:       true,
 };
 
 // ── ENV OVERRIDES (tuning knobs only — POC/VAH/VAL/Fib/4H-bias foundation is NEVER touched) ──
@@ -86,6 +90,9 @@ CONFIG.ZONE_INVALIDATION_ATR_MULT = envNum('ZONE_INVALIDATION_ATR_MULT', CONFIG.
 CONFIG.RISK_PER_TRADE_PCT         = envNum('RISK_PER_TRADE_PCT', CONFIG.RISK_PER_TRADE_PCT);
 CONFIG.SLIPPAGE_PCT               = envNum('SLIPPAGE_PCT', CONFIG.SLIPPAGE_PCT);
 CONFIG.MIN_CONFLUENCE_POC         = envNum('MIN_CONFLUENCE_POC', CONFIG.MIN_CONFLUENCE_POC);
+CONFIG.POC_RECLAIM_SOLO            = process.env.POC_RECLAIM_SOLO !== undefined
+  ? process.env.POC_RECLAIM_SOLO === 'true'
+  : CONFIG.POC_RECLAIM_SOLO;
 
 // ── CLI args ─────────────────────────────────────────────────────────────────
 // node backtest.js                          -> all CONFIG.SYMBOLS, 360 days
