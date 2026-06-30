@@ -57,5 +57,12 @@ jobs:
           fi
 
           git commit -m "MVS scan $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          # Pull rebase before push to survive concurrent file updates on main
+          # (e.g. manual file replacements via GitHub web UI mid-run).
+          # --rebase keeps the commit history linear; --autostash protects any
+          # local working-tree changes that haven't been staged yet.
+          git pull --rebase --autostash origin main
+
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
           echo "✅ Pushed successfully"
