@@ -338,7 +338,7 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
   const funnel = {
     scanned: 0, bias4hOk: 0, bullBias4h: 0, bearBias4h: 0, atrOk: 0, swingInRange: 0, biasAligned: 0,
     notOverExtended: 0, nearZone: 0, vpOk: 0, confluenceOk: 0, htfAligned: 0,
-    notInvalidated: 0, cooldownOk: 0, rejectionOk: 0,
+    notInvalidated: 0, cooldownOk: 0, rejectionOk: 0, tp3RangeOk: 0,
     surgF1: 0, surgF2: 0, surgF3: 0, surgF4: 0, surgicalOk: 0, opened: 0,
   };
 
@@ -593,10 +593,23 @@ const backtestSymbol = async (symbol, data15m, data4h) => {
     const tp1Price = direction === 'BUY'
       ? Math.max(tp1Structural, tp1Dynamic)
       : Math.min(tp1Structural, tp1Dynamic);
-    // TP2 = structural 50%Fib (was TP1 pre-v8.9)
-    const tp2Price   = tp1Structural;
+    // TP2: structural 50%Fib midpoint between TP1 and TP3 (was TP1 pre-v8.9)
     // TP3 = VAH/VAL runner (was TP2 pre-v8.9)
     const tp3Price   = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+
+    // v9.1 fix: TP2 must sit strictly BETWEEN TP1 and TP3, never reuse
+    // tp1Structural directly. The old `tp2Price = tp1Structural` line collapsed
+    // TP1 and TP2 onto the identical price whenever the 1.2R dynamic floor
+    // didn't push TP1 past the structural 50%Fib level (~53% of trades in the
+    // v9.0 backtest report), and in the remaining cases put TP2 NEARER than
+    // TP1 — backwards ordering that made TP1 functionally unreachable
+    // (TP1 hits = 0). Fix: require TP3 to actually extend beyond TP1 in the
+    // trade direction, then place TP2 at the true midpoint of TP1→TP3 so all
+    // three legs are strictly ordered (TP1 < TP2 < TP3 for BUY, reverse for SELL).
+    const tp3BeyondTp1 = direction === 'BUY' ? tp3Price > tp1Price : tp3Price < tp1Price;
+    if (!tp3BeyondTp1) continue;
+    funnel.tp3RangeOk++;
+    const tp2Price = tp1Price + (tp3Price - tp1Price) * 0.5;
 
     const rr1 = parseFloat((Math.abs(tp1Price - entryPrice) / risk).toFixed(2));
     const rr2 = parseFloat((Math.abs(tp2Price - entryPrice) / risk).toFixed(2));

@@ -863,11 +863,24 @@ const runStrategy = async (symbol) => {
       ? Math.max(tp1Structural, tp1Dynamic)
       : Math.min(tp1Structural, tp1Dynamic);
 
-    // TP2: structural 50%Fib — equilibrium (was TP1 pre-v8.9)
-    const tp2Price = tp1Structural;
-
     // TP3: VAH (BUY) / VAL (SELL) — full value area runner (was TP2 pre-v8.9)
     const tp3Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+
+    // v9.1 fix: TP2 must sit strictly BETWEEN TP1 and TP3, never reuse
+    // tp1Structural directly. The old `tp2Price = tp1Structural` line collapsed
+    // TP1 and TP2 onto the identical price whenever the 1.2R dynamic floor
+    // didn't push TP1 past the structural 50%Fib level (~53% of trades in the
+    // v9.0 backtest), and in the remaining cases put TP2 NEARER than TP1 —
+    // backwards ordering that made TP1 functionally unreachable (TP1 hits = 0).
+    // Fix: require TP3 to actually extend beyond TP1 in the trade direction,
+    // then place TP2 at the true midpoint of TP1→TP3 so all three legs are
+    // strictly ordered (TP1 < TP2 < TP3 for BUY, TP1 > TP2 > TP3 for SELL).
+    const tp3BeyondTp1 = direction === 'BUY' ? tp3Price > tp1Price : tp3Price < tp1Price;
+    if (!tp3BeyondTp1) {
+      console.log(`  ⏭️  TP3 doesn't extend beyond TP1 — invalid 3-stage setup. Signal suppressed.`);
+      return;
+    }
+    const tp2Price = tp1Price + (tp3Price - tp1Price) * 0.5;
 
     const reward1 = Math.abs(tp1Price - entryPrice);
     const reward2 = Math.abs(tp2Price - entryPrice);
