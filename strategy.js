@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.2  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.3  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -115,7 +115,7 @@ const isDuplicateRun = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v10.2 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v10.3 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -323,6 +323,14 @@ const runStrategy = async (symbol) => {
     const voteLine = `🗳️ *TF Vote (${resolved.tally}):* ${resolved.agreeing.join(' + ')} agree ${direction === 'BUY' ? 'BULLISH' : 'BEARISH'}` +
       (bias4h ? ` | 4H:${bias4h.bias}` : '') + ` 1H:${bias1h.bias}` + (bias15m ? ` 15m:${bias15m.bias}` : '');
 
+    // v10.3: risk-tiered sizing — see core.js computeRiskMultiplier() for
+    // the backtest evidence behind this. Not a filter: this signal fires
+    // regardless of tier, only the suggested size changes.
+    const riskMult = core.computeRiskMultiplier(bestPivot.name, resolved.agreeing, config.RISK_TIER_MATRIX, config.RISK_TIER_DEFAULT);
+    const sizeLine = riskMult < 1
+      ? `⚖️ *Suggested size:* ${Math.round(riskMult * 100)}% of normal (${bestPivot.name} pivot${resolved.agreeing.includes('1H') ? '' : ', 1H not in the confirming vote'} — historically weaker segment, see README)`
+      : `⚖️ *Suggested size:* 100% of normal (${bestPivot.name} pivot, 1H confirms — historically strongest segment)`;
+
     const message = `
 ${emoji} *${symbol} — MVS Signal*
 
@@ -338,6 +346,7 @@ ${voteLine}
 🏁 *TP2:* \`$${levels.tp2Price.toFixed(4)}\`  R:R ${levels.rr2.toFixed(2)}:1
 🏆 *TP3* (${direction === 'BUY' ? 'VAH' : 'VAL'} runner): \`$${levels.tp3Price.toFixed(4)}\`  R:R ${levels.rr3.toFixed(2)}:1
 ━━━━━━━━━━━━━━━━━━━━
+${sizeLine}
 🕯 *15m trigger (${rejection.solo ? 'SOLO' : rejection.score + '/' + config.REJECTION_MIN_PATTERNS}):* ${patternStr}
 📐 *ATR(1H):* $${atr1h.toFixed(4)}
 
@@ -346,7 +355,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v10.2*
+⚡ *MVS v10.3*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -355,7 +364,7 @@ risk capital you can't afford to lose on a single position.
     saveState(symbol, {
       signal: 'FIRED', direction,
       entryPrice: bestFibLevel, ...levels,
-      patterns: rejection.patterns,
+      patterns: rejection.patterns, riskMult,
       lastSignalBar: barTime, lastSignalDir: direction,
     });
 
@@ -363,7 +372,7 @@ risk capital you can't afford to lose on a single position.
       signal: 'FIRED', direction,
       entryPrice: bestFibLevel, ...levels,
       confluencePivot: bestPivot.name, fibPct, patterns: rejection.patterns,
-      voteTally: resolved.tally, agreeing: resolved.agreeing,
+      voteTally: resolved.tally, agreeing: resolved.agreeing, riskMult,
       bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias,
     });
 
@@ -378,7 +387,7 @@ risk capital you can't afford to lose on a single position.
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v10.2                          ║');
+console.log('║   MVS — Monthly Value Sniper v10.3                          ║');
 console.log('║   4H bias + 1H structure + 15m trigger — 2-of-3 vote         ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);

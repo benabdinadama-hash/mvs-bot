@@ -53,7 +53,22 @@
  *  ─ No win-probability logic changed — every gate below still runs the
  *    same math on every symbol/direction. Only the THRESHOLDS moved (see
  *    config.js v10.2 notes). This file's job (identical live/backtest
- *    logic) is unaffected by that — thresholds live in config either way.
+ *    logic is unaffected by that — thresholds live in config either way.
+ *
+ *  v10.3 RISK-TIERING PASS (2026-07-02, requested by user — analyzed the
+ *  v10.2 backtest-report.json to find the actual source of every SL):
+ *  ─ Added computeRiskMultiplier(). NOT a new entry gate — no trade that
+ *    used to fire is now blocked, and frequency is unchanged. It only
+ *    scales position size down for two segments the trade log shows are
+ *    structurally weaker (see function comment for the exact numbers).
+ *  ─ User asked whether excluding 4H would help, on the theory that 4H's
+ *    far/slow levels fight against 1H/15m chop. The trade log says the
+ *    opposite: 1H+4H is the single best-performing combo (88.9% WR, 0
+ *    SL/18). The actual weak segment is trades where 1H does NOT agree
+ *    with the direction (agreeing == 15m+4H only) — that combo owns 83%
+ *    of all SLs. 4H isn't the problem; 1H disagreement is. Handled via
+ *    sizing here rather than excluding 4H or blocking that combo outright,
+ *    since blocking it would cut ~78% of signal volume.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -352,6 +367,34 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorpti
 //  TRADE LEVELS — SL / TP1 / TP2 / TP3, unchanged math from prior version
 //  (this part was not overfit — it's a straightforward R:R structure).
 // ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+//  RISK MULTIPLIER — evidence-based position-size tiering (v10.3, not a
+//  new entry gate). Backing data (backtest-report.json, 246 closed trades,
+//  v10.2 ruleset), split by pivot AND by whether 1H confirms direction:
+//    POC + 1H confirms    : 46 trades | 73.9% WR | 3 SL  — fine, no cut
+//    POC + 1H NOT confirm : 168 trades| 58.3% WR | 15 SL — the real bucket
+//    VAH + 1H confirms    : 2 trades  | 50.0% WR | 0 SL  — too small, no cut
+//    VAH + 1H NOT confirm : 16 trades | 81.2% WR | 0 SL  — no cut
+//    VAL + 1H confirms    : 5 trades  | 80.0% WR | 0 SL  — no cut
+//    VAL + 1H NOT confirm : 9 trades  | 77.8% WR | 0 SL  — no cut
+//  First cut of this discounted POC everywhere and no-1H-confirm
+//  everywhere, multiplied together — that also discounted the 46
+//  POC+1H-confirms trades, which have no SL problem (73.9% WR) and are
+//  33R of the backtest's total profit. Fixed to target ONLY the one cell
+//  the data actually flags: POC pivot AND 1H not in the confirming vote.
+//  Every other cell stays full size — not enough SL evidence anywhere
+//  else to justify a cut (VAH/VAL: 0 SL across all 32 trades in every
+//  split). Deliberately narrow: sizing changes only where the trade log
+//  shows a real, dataset-wide reason to, same anti-overfitting stance as
+//  the rest of this file.
+// ─────────────────────────────────────────────────────────────────────────
+const computeRiskMultiplier = (pivotName, agreeing, riskTierMatrix, defaultMult = 1.0) => {
+  const confirmKey = (Array.isArray(agreeing) && agreeing.includes('1H')) ? '1H' : 'NO1H';
+  const key = `${pivotName}_${confirmKey}`;
+  const mult = (riskTierMatrix && riskTierMatrix[key] != null) ? riskTierMatrix[key] : defaultMult;
+  return Math.max(0.1, Math.min(1.0, mult));
+};
+
 const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, tp1RrFloor, fibLevel500 }) => {
   const swingWick = direction === 'BUY' ? swing.low : swing.high;
   const slPrice = direction === 'BUY'
@@ -386,5 +429,5 @@ const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, 
 module.exports = {
   calcATR, calcFib, calcVolumeProfile, tfBiasVote, isNearZone, resolveDirection,
   confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
-  detectRejection, computeTradeLevels,
+  detectRejection, computeTradeLevels, computeRiskMultiplier,
 };
