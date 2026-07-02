@@ -1,77 +1,28 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v9.0
- *  "Structure is everything. If price isn't at a pillar, it's not a trade."
- *  By Abdin
+ *  MVS — MONTHLY VALUE SNIPER v10.0  (strategy.js — LIVE RUNNER)
  *
- *  KUCOIN API EDITION — FOR GHANA
+ *  All decision logic now lives in core.js (shared with backtest.js).
+ *  This file only: fetches KuCoin data, calls core.js, sends Telegram
+ *  alerts, and persists state/logs. See core.js header for the full
+ *  architecture explanation and what changed from v9.x.
  *
- *  FOUNDATION (no lagging indicators — ever):
- *  ┌─────────────────────────────────────────────────────────────────────┐
- *  │  POC  → Point of Control  (highest-volume price — institutional)   │
- *  │  VAH  → Value Area High   (top of 70% volume zone — supply wall)   │
- *  │  VAL  → Value Area Low    (bottom of 70% volume zone — demand wall)│
- *  │  FIBO → All 6 levels: 23.6 / 38.2 / 50 / 61.8 / 78.6 / 88.6      │
- *  └─────────────────────────────────────────────────────────────────────┘
- *
- *  TWO-TIMEFRAME ARCHITECTURE:
- *  ┌─────────────────────────────────────────────────────────────────────┐
- *  │  4H  → Bias gate (structural direction — POC/VAH/VAL/Fib vote)     │
- *  │  4H  → Zone cross-check (entry must align with 4H structure)         │
- *  │  ENTRY → Entry engine (15min candles, scanned every 45min) (confluence + rejection + absorption + SL/TP)  │
- *  └─────────────────────────────────────────────────────────────────────┘
- *
- *  v8.2 CHANGES FROM v8.1 (fit GitHub Actions free tier on a PRIVATE repo):
- *  ✅ Symbols: 8 → 4 (BTC/ETH/SOL/XRP kept — most liquid, tightest spread)
- *  ✅ Scan cadence: every 15min → every 45min (entry candles still 15min —
- *     only how often we check them changed; see mvs-scan.yml for the math)
- *  ✅ mvs-scan.yml + mvs-commands.yml merged into ONE workflow/job — halves
- *     the fixed per-run overhead (checkout + Node setup + npm install) that
- *     was being paid twice as often as necessary
- *  ✅ npm dependency caching added to setup-node — cuts install time further
- *  ⚠️  WHY: GitHub Actions free minutes for private repos are capped at
- *     2000/month, billed in whole minutes per run. The v8.1 setup (8 symbols
- *     x 2 timeframes, scan every 15min + commands every 5min) needed
- *     roughly 8,000-14,000 min/month — 4-7x over quota. This is a structural
- *     run-count problem, not something fixable by making the code faster.
- *     v8.2 fits safely under quota even in a pessimistic 2-min-billed-per-run
- *     scenario. Going back to 8 symbols / 15min cadence requires making the
- *     repo PUBLIC (GitHub Actions minutes are free & unlimited for public
- *     repos) or accepting GitHub billing the overage on the private plan.
- *
- *  v8.1 CHANGES FROM v8.0 (scale for daily signal frequency — same gates):
- *  ✅ Entry timeframe 1H → 15min (4H bias gate UNCHANGED — same strictness)
- *  ✅ Symbols: 1 → 8 liquid pairs (more opportunities, not looser rules)
- *  ✅ Lookbacks scaled to preserve identical real-world calendar windows
- *  ✅ Cooldown bar-math fixed to use config.ENTRY_BAR_SECONDS (was hardcoded
- *     to 3600s/1H — would have silently broken on a 15min timeframe)
- *  ✅ Signal cooldown: 5 bars(1H) → 20 bars(15min) — same 5-hour real window
- *
- *  v8.0 CHANGES FROM v7.2:
- *  ✅ EMA removed entirely — zero lagging indicators
- *  ✅ VAH added — full value area now: POC + VAH + VAL
- *  ✅ 4H zone cross-check — entry price must sit near a 4H structural level
- *  ✅ 4H bias uses dedicated FIB lookback (BIAS_FIB_LOOKBACK) for correct swing
- *  ✅ POC_RECLAIM added as 4th rejection pattern — strongest institutional signal
- *  ✅ Zone invalidation raised 0.5×ATR → 1.0×ATR (stops false voids on volatile bars)
- *  ✅ Signal cooldown raised 3 → 5 bars (safer re-test window)
- *  ✅ TP3 added — VAH (BUY) / VAL (SELL) as full structural exit
- *  ✅ 4H bias is now 3-of-4 vote: POC + VAH + VAL + Fib50%
- *  ✅ Telegram alert shows all levels, both TF structures, and HTF cross-check
+ *  HONESTY NOTE: this bot does not target or achieve a 100% win rate.
+ *  No trading system does, live or backtested. Treat every alert as a
+ *  probability-favored setup with a defined stop-loss — not a guarantee.
+ *  Size positions so that a string of 3-4 consecutive losses (normal,
+ *  expected variance) does not meaningfully damage your account.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
-const axios       = require('axios');
-const fs          = require('fs');
-const path        = require('path');
-const config      = require('./config');
+const axios  = require('axios');
+const fs     = require('fs');
+const path   = require('path');
+const config = require('./config');
+const core   = require('./core');
 
-// ── Telegram send — pure axios, no node-telegram-bot-api ────────────────────
-// node-telegram-bot-api (even with polling:false) can conflict with the
-// deleteWebhook call in commands.js, causing a 409 Conflict that silently
-// kills this process before any signal is sent. Pure axios has no such issue.
+// ── Telegram send — pure axios, 10s timeout ─────────────────────────────────
 const TG = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
-
 const sendSafe = (chatId, text, opts = {}, ms = 10000) =>
   Promise.race([
     axios.post(`${TG}/sendMessage`, { chat_id: chatId, text, ...opts }),
@@ -83,8 +34,8 @@ const sendSafe = (chatId, text, opts = {}, ms = 10000) =>
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 const STATE_FILE = path.join(__dirname, 'state.json');
-const LOG_FILE   = path.join(__dirname, 'signals.log.json');
-const DIAG_FILE  = path.join(__dirname, 'diag.log.json');
+const LOG_FILE    = path.join(__dirname, 'signals.log.json');
+const DIAG_FILE   = path.join(__dirname, 'diag.log.json');
 
 const loadJSON = (file, fallback) => {
   try {
@@ -112,478 +63,43 @@ const logDiag = (entry) => {
   fs.writeFileSync(DIAG_FILE, JSON.stringify(log.slice(-2000), null, 2));
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 1: DATA FETCH
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ── KuCoin data fetch ────────────────────────────────────────────────────────
 const getKlines = async (symbol, interval, limit) => {
-  // KuCoin default is 100 bars — must pass limit explicitly (max 1500)
-  const safeLimit = Math.min(limit + 10, 1500); // +10 buffer for ATR warmup
+  const safeLimit = Math.min(limit + 20, 1500); // buffer for ATR/VP warmup
   const url = `${config.BASE_URL}/market/candles?symbol=${symbol}&type=${interval}&limit=${safeLimit}`;
   try {
-    const res = await axios.get(url, {
-      timeout: 15000,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    const res = await axios.get(url, { timeout: 15000, headers: { 'Content-Type': 'application/json' } });
     if (res.data.code !== '200000') {
-      console.error(`  ❌ KuCoin API error: ${res.data.code} — ${res.data.msg || 'Unknown'}`);
+      console.error(`  ❌ KuCoin API error (${interval}): ${res.data.code} — ${res.data.msg || 'Unknown'}`);
       return [];
     }
     const sorted = (res.data.data || []).reverse();
     return sorted.slice(-limit).map(k => ({
-      time:   parseInt(k[0]),
-      open:   parseFloat(k[1]),
-      close:  parseFloat(k[2]),
-      high:   parseFloat(k[3]),
-      low:    parseFloat(k[4]),
-      volume: parseFloat(k[5])
+      time: parseInt(k[0]), open: parseFloat(k[1]), close: parseFloat(k[2]),
+      high: parseFloat(k[3]), low: parseFloat(k[4]), volume: parseFloat(k[5]),
     }));
   } catch (e) {
-    console.error(`  ❌ KuCoin fetch error for ${symbol}:`, e.message);
+    console.error(`  ❌ KuCoin fetch error for ${symbol} (${interval}):`, e.message);
     return [];
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 2: ATR — Average True Range (Wilder smoothing)
-//  The only technical calculation used — purely for scaling tolerances and SL.
-//  It measures current volatility in price terms, not direction.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const calcATR = (data, period = config.ATR_PERIOD) => {
-  if (data.length < period + 1) return null;
-  const trs = [];
-  for (let i = 1; i < data.length; i++) {
-    const c = data[i], p = data[i - 1];
-    trs.push(Math.max(
-      c.high - c.low,
-      Math.abs(c.high - p.close),
-      Math.abs(c.low  - p.close)
-    ));
-  }
-  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < trs.length; i++) {
-    atr = (atr * (period - 1) + trs[i]) / period;
-  }
-  return atr;
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 3: FIBONACCI — All 6 Levels
-//
-//  23.6% & 38.2% → Momentum gauge (logged, not entry gates)
-//  50.0%         → TP1 (primary take-profit — mid-swing equilibrium)
-//  61.8% – 78.6% → Entry pocket (golden zone)
-//  88.6%         → Structural extreme (beyond this = remap territory)
-// ─────────────────────────────────────────────────────────────────────────────
-
-// v8.8 FIX: calcFib is now direction-aware. Previously the pocket was ALWAYS
-// anchored from the high, measuring retracement downward (high - diff*pct).
-// That places the 60–80% golden pocket near the BOTTOM of the swing range —
-// correct for BUY (pullback-in-uptrend), but for SELL the pocket was still
-// being checked near the bottom of the range while price (by definition,
-// price > midpoint) sat in the upper half. The SELL path could structurally
-// never reach "near zone," regardless of how much real BEARISH bias existed.
-// Fix: for SELL, mirror the same 60–80% retracement, anchored from the low
-// and measured upward, so the pocket sits near the TOP of the range.
-const calcFib = (high, low, direction = 'BUY') => {
-  const diff = high - low;
-
-  if (direction === 'SELL') {
-    return {
-      level236: low + diff * 0.236,
-      level382: low + diff * 0.382,
-      level500: low + diff * 0.500,   // TP1 (symmetric — same value either way)
-      level618: low + diff * 0.618,   // entry zone bottom (nearer mid)
-      level786: low + diff * 0.786,   // entry zone top (nearer high)
-      level886: low + diff * 0.886,   // structural extreme (near high)
-      zoneLow:  low + diff * config.FIB_ZONE_LOW,    // 60% — pocket lower
-      zoneHigh: low + diff * config.FIB_ZONE_HIGH,   // 80% — pocket upper
-      swingHigh: high,
-      swingLow:  low,
-    };
-  }
-
-  return {
-    level236: high - diff * 0.236,
-    level382: high - diff * 0.382,
-    level500: high - diff * 0.500,   // TP1
-    level618: high - diff * 0.618,   // entry zone top
-    level786: high - diff * 0.786,   // entry zone bottom
-    level886: high - diff * 0.886,   // structural extreme
-    zoneHigh: high - diff * config.FIB_ZONE_LOW,   // 60% — pocket upper
-    zoneLow:  high - diff * config.FIB_ZONE_HIGH,  // 80% — pocket lower
-    swingHigh: high,
-    swingLow:  low,
-  };
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 4: VOLUME PROFILE — POC + VAH + VAL (daily-anchored)
-//
-//  Anchored to current UTC day. Falls back to last 48 bars if session is young.
-//
-//  POC → price bucket with highest traded volume = institutional magnet
-//  VAL → bottom boundary of the 70% value area = demand defense line
-//  VAH → top boundary of the 70% value area = supply defense line
-//
-//  Returns { pocPrice, vahPrice, valPrice, maxVol, totalVol, barCount }
-// ─────────────────────────────────────────────────────────────────────────────
-
-const calcVolumeProfile = (data, rows = config.VP_ROWS) => {
-  // Rolling window uses config.VP_LOOKBACK — set to 500 bars (125h / ~5 days)
-  // to match the TradingView Volume Profile Auto 500-bar setting exactly.
-  // This ensures the bot's POC/VAH/VAL match what you see on chart.
-  const workingBars = data.slice(-config.VP_LOOKBACK);
-
-  if (workingBars.length < 4) return null;
-
-  const high  = Math.max(...workingBars.map(d => d.high));
-  const low   = Math.min(...workingBars.map(d => d.low));
-  const range = high - low;
-  if (range === 0 || !isFinite(range)) return null;
-
-  const rowSize = range / rows;
-  const bins    = {};
-
-  workingBars.forEach(d => {
-    const price = (d.high + d.low) / 2;
-    const idx   = Math.min(Math.floor((price - low) / rowSize), rows - 1);
-    bins[idx]   = (bins[idx] || 0) + d.volume;
-  });
-
-  // Build volume array and find POC
-  let maxVol = 0, pocIdx = 0, totalVol = 0;
-  const volArr = [];
-  for (let i = 0; i < rows; i++) {
-    const v = bins[i] || 0;
-    volArr.push(v);
-    totalVol += v;
-    if (v > maxVol) { maxVol = v; pocIdx = i; }
-  }
-
-  const pocPrice = low + (pocIdx + 0.5) * rowSize;
-
-  // Value Area: expand from POC outward until 70% of total volume is captured.
-  //
-  // BUGFIX (v8.2): the loop used to compare addLow/addHigh with >= even once
-  // an edge was exhausted (addHigh or addLow forced to 0 at the boundary).
-  // On sparse/low-volume data, once BOTH neighbors were 0, `0 >= 0` kept
-  // picking the "expand high" branch — incrementing hiIdx PAST rows-1
-  // forever, since cumVol stopped growing (adding 0 each time) so the
-  // while-condition's volume target was never satisfied. This caused a
-  // genuine infinite loop (confirmed by direct reproduction), which is the
-  // most likely real explanation for the bot going silent: a hung run burns
-  // its full timeout every time it hits this data shape, with no signal, no
-  // state update, and no Telegram alert ever sent.
-  //
-  // Fix: track whether each side still HAS room to expand (not just whether
-  // its volume contribution would win the comparison), and stop expanding a
-  // side the moment it's exhausted. The loop now strictly shrinks the
-  // remaining search space every iteration, so it always terminates.
-  const targetVol = totalVol * config.VALUE_AREA_PCT;
-  let cumVol = volArr[pocIdx];
-  let loIdx  = pocIdx;
-  let hiIdx  = pocIdx;
-
-  while (cumVol < targetVol && (loIdx > 0 || hiIdx < rows - 1)) {
-    const lowOpen  = loIdx > 0;
-    const highOpen = hiIdx < rows - 1;
-    const addLow   = lowOpen  ? volArr[loIdx - 1] : -Infinity;
-    const addHigh  = highOpen ? volArr[hiIdx + 1] : -Infinity;
-
-    if (!lowOpen && !highOpen) break; // both edges exhausted — nothing left to expand
-
-    if (highOpen && (!lowOpen || addHigh >= addLow)) {
-      hiIdx++;
-      cumVol += volArr[hiIdx];
-    } else {
-      loIdx--;
-      cumVol += volArr[loIdx];
-    }
-  }
-
-  const valPrice = low + (loIdx + 0.5) * rowSize;
-  const vahPrice = low + (hiIdx + 0.5) * rowSize;
-
-  return { pocPrice, vahPrice, valPrice, maxVol, totalVol, barCount: workingBars.length };
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 5: 4H BIAS ENGINE
-//
-//  Determines higher-timeframe structural direction using a 3-of-4 vote
-//  across all four pillars on the 4H chart.
-//
-//  VOTE TABLE:
-//  ┌─────────────────┬──────────────────────────┬──────────────────────────┐
-//  │ Pillar          │ Bullish vote              │ Bearish vote             │
-//  ├─────────────────┼──────────────────────────┼──────────────────────────┤
-//  │ POC position    │ price > 4H POC            │ price < 4H POC           │
-//  │ VAH position    │ price > 4H VAH            │ price < 4H VAH           │
-//  │ VAL position    │ price > 4H VAL            │ price < 4H VAL           │
-//  │ Fib 50% level   │ price > 4H swing midpoint │ price < 4H swing midpoint│
-//  └─────────────────┴──────────────────────────┴──────────────────────────┘
-//
-//  3+ bullish → BULLISH bias → only BUY entries pass
-//  3+ bearish → BEARISH bias → only SELL entries pass
-//  2-2 tie    → NEUTRAL → no entries (ambiguous — skip)
-//
-//  Returns { bias, bullVotes, poc4h, vah4h, val4h, fibMid4h, price4h, votes }
-//  or null if insufficient data.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const get4HBias = async (symbol) => {
-  const data4h = await getKlines(symbol, config.BIAS_TIMEFRAME, config.BIAS_LOOKBACK);
-  if (data4h.length < 50) {
-    console.log(`  ⚠️ 4H BIAS: Insufficient data (${data4h.length} bars). Skipping bias gate.`);
-    return null;
-  }
-
-  const price4h = data4h[data4h.length - 1].close;
-
-  // Volume profile on 4H
-  const vp4h = calcVolumeProfile(data4h);
-  if (!vp4h) {
-    console.log(`  ⚠️ 4H BIAS: Volume profile failed. Skipping.`);
-    return null;
-  }
-
-  // Fib 50% on 4H using dedicated lookback (BIAS_FIB_LOOKBACK bars = same calendar window as entry TF)
-  const fibData4h = data4h.slice(-config.BIAS_FIB_LOOKBACK);
-  const swing4h = {
-    high: Math.max(...fibData4h.map(d => d.high)),
-    low:  Math.min(...fibData4h.map(d => d.low))
-  };
-  const fibMid4h = (swing4h.high + swing4h.low) / 2;
-
-  // 3-of-4 vote
-  const votes = {
-    poc: price4h >= vp4h.pocPrice ? 'BULL' : 'BEAR',
-    vah: price4h >= vp4h.vahPrice ? 'BULL' : 'BEAR',
-    val: price4h >= vp4h.valPrice ? 'BULL' : 'BEAR',
-    fib: price4h >= fibMid4h      ? 'BULL' : 'BEAR',
-  };
-  const bullVotes = Object.values(votes).filter(v => v === 'BULL').length;
-
-  let bias;
-  if      (bullVotes >= 3) bias = 'BULLISH';
-  else if (bullVotes <= 1) bias = 'BEARISH';
-  else                     bias = 'NEUTRAL';
-
-  console.log(
-    `  📡 4H BIAS: $${price4h.toFixed(4)} | ` +
-    `POC $${vp4h.pocPrice.toFixed(4)} [${votes.poc}] | ` +
-    `VAH $${vp4h.vahPrice.toFixed(4)} [${votes.vah}] | ` +
-    `VAL $${vp4h.valPrice.toFixed(4)} [${votes.val}] | ` +
-    `Fib50% $${fibMid4h.toFixed(4)} [${votes.fib}] → ${bias} (${bullVotes}/4)`
-  );
-
-  return {
-    bias, bullVotes,
-    poc4h:    vp4h.pocPrice,
-    vah4h:    vp4h.vahPrice,
-    val4h:    vp4h.valPrice,
-    fibMid4h, price4h, votes
-  };
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 6: 4H ZONE CROSS-CHECK
-//
-//  After the bias confirms direction, this checks whether the entry price
-//  actually sits near a 4H structural level (POC, VAH, VAL, or Fib 61.8/78.6).
-//
-//  This is the multi-timeframe confluence layer: when the entry zone
-//  overlaps with a 4H structural level, both timeframes are pointing to the
-//  same price — the highest-conviction setup possible.
-//
-//  Tolerance: entry-TF ATR × HTFZONE_ATR_MULT (scales with entry volatility).
-//
-//  Returns { aligned: bool, nearestLevel: string, distance: number }
-// ─────────────────────────────────────────────────────────────────────────────
-
-const check4HZoneAlignment = (entryPrice, bias4h, atr1h) => {
-  if (!bias4h) return { aligned: true, nearestLevel: 'N/A', distance: 0 }; // no data = don't block
-
-  const tol = atr1h * config.HTFZONE_ATR_MULT * (
-    direction === 'SELL' ? (config.SELL_HTF_MULT_BOOST || 1.0) : 1.0
-  );
-
-  // All 4H structural levels that matter at the entry price
-  const levels = [
-    { name: '4H POC',    price: bias4h.poc4h    },
-    { name: '4H VAH',    price: bias4h.vah4h    },
-    { name: '4H VAL',    price: bias4h.val4h    },
-    { name: '4H Fib50%', price: bias4h.fibMid4h },
-  ];
-
-  let nearest = null;
-  let minDist = Infinity;
-
-  for (const lvl of levels) {
-    const dist = Math.abs(entryPrice - lvl.price);
-    if (dist < minDist) {
-      minDist = dist;
-      nearest = lvl;
-    }
-  }
-
-  const aligned = minDist <= tol;
-
-  console.log(
-    `  🔗 4H ZONE CHECK: entry $${entryPrice.toFixed(4)} | ` +
-    `nearest ${nearest.name} $${nearest.price.toFixed(4)} | ` +
-    `dist $${minDist.toFixed(4)} vs tol $${tol.toFixed(4)} → ${aligned ? '✅ ALIGNED' : '❌ NOT ALIGNED'}`
-  );
-
-  return { aligned, nearestLevel: nearest.name, nearestPrice: nearest.price, distance: minDist };
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 7: CONFLUENCE ENGINE — ATR-Relative Tolerance
-//
-//  Scores how tightly a Fib level overlaps with a volume pivot (POC, VAH, VAL).
-//  Score 2 = tight (within 0.5× tol) — very high probability
-//  Score 1 = acceptable (within 1× tol)
-//  Score 0 = no confluence
-// ─────────────────────────────────────────────────────────────────────────────
-
-const confluenceScore = (fibLevel, pivot, atr) => {
-  if (!pivot || !fibLevel || !atr || !isFinite(pivot) || !isFinite(fibLevel)) return 0;
-  const tol  = atr * config.CONFLUENCE_ATR_MULT;
-  const dist = Math.abs(fibLevel - pivot);
-  if (dist <= tol * 0.5) return 2;
-  if (dist <= tol)       return 1;
-  return 0;
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 8: REJECTION DETECTOR — 2-of-4 Pattern Rule
-//
-//  Four patterns — signal fires if ≥ REJECTION_MIN_PATTERNS (2) match.
-//
-//  1. POC_RECLAIM (NEW — strongest institutional signal):
-//     Candle wicked through POC but CLOSED back above it (BUY) or below (SELL).
-//     This is institutions defending the Point of Control with body conviction.
-//
-//  2. PIN_BAR:
-//     Long wick (> 1.5× body) into the zone — rejection at the level.
-//
-//  3. ENGULFING:
-//     Body fully engulfs prior candle in the direction of the trade.
-//
-//  4. CLOSE_REJECTION:
-//     Candle entered the Fib zone but closed cleanly outside it.
-//
-//  ABSORPTION VETO (directional):
-//     High-volume directional close (body > 60% of range) in the opposing
-//     direction vetoes the signal — institutions absorbing against you.
-//
-//  Returns { valid, patterns[], absorptionVeto, score }
-// ─────────────────────────────────────────────────────────────────────────────
-
-const detectRejection = (candles, zoneLow, zoneHigh, direction, pocPrice) => {
-  if (candles.length < 2) return { valid: false, patterns: [], absorptionVeto: false, score: 0 };
-
-  const c = candles[candles.length - 1];
-  const p = candles[candles.length - 2];
-
-  // Must have touched the zone
-  const touchedZone = c.low <= zoneHigh && c.high >= zoneLow;
-  if (!touchedZone) return { valid: false, patterns: [], absorptionVeto: false, score: 0 };
-
-  const body      = Math.abs(c.close - c.open);
-  const fullRange = c.high - c.low;
-  const bodyRatio = fullRange > 0 ? body / fullRange : 0;
-
-  // ── Directional absorption veto ──
-  let absorptionVeto = false;
-  if (bodyRatio > config.ABSORPTION_BODY_RATIO) {
-    if (direction === 'SELL' && c.close > c.open)  absorptionVeto = true;
-    if (direction === 'BUY'  && c.close < c.open)  absorptionVeto = true;
-  }
-
-  const patterns = [];
-
-  if (direction === 'BUY') {
-    // 1. POC reclaim: wicked below POC, closed above it
-    if (pocPrice && c.low < pocPrice && c.close > pocPrice) patterns.push('POC_RECLAIM');
-
-    // 2. Pin bar: lower wick > 1.5× body
-    const lowerWick = Math.min(c.open, c.close) - c.low;
-    if (lowerWick > body * 1.5 && body > 0) patterns.push('PIN_BAR');
-
-    // 3. Bullish body-engulfing
-    if (c.close > c.open && c.close > p.close && c.open < p.open) patterns.push('ENGULFING');
-
-    // 4. Close rejection: wick into zone, closed above zone
-    if (c.low <= zoneHigh && c.close > zoneHigh) patterns.push('CLOSE_REJECTION');
-
-  } else {
-    // 1. POC reclaim: wicked above POC, closed below it
-    if (pocPrice && c.high > pocPrice && c.close < pocPrice) patterns.push('POC_RECLAIM');
-
-    // 2. Pin bar: upper wick > 1.5× body
-    const upperWick = c.high - Math.max(c.open, c.close);
-    if (upperWick > body * 1.5 && body > 0) patterns.push('PIN_BAR');
-
-    // 3. Bearish body-engulfing
-    if (c.close < c.open && c.close < p.close && c.open > p.open) patterns.push('ENGULFING');
-
-    // 4. Close rejection: wick into zone, closed below zone
-    if (c.high >= zoneLow && c.close < zoneLow) patterns.push('CLOSE_REJECTION');
-  }
-
-  const score = patterns.length;
-
-  // v9.0: POC_RECLAIM_SOLO — a single POC_RECLAIM at a confirmed structural
-  // zone is treated as sufficient on its own when the flag is enabled.
-  // All other gates (4H bias, confluence, HTF zone, RR, absorption veto)
-  // remain fully active. The 2-of-4 rule still applies for every other pattern.
-  // v9.1: restricted to SELL only — BUY+solo-POC_RECLAIM was the worst loss
-  // bucket in the funnel breakdown (23.1% real-loss rate vs 9.1% SELL+solo).
-  const pocReclaimSolo = config.POC_RECLAIM_SOLO &&
-    direction === 'SELL' &&
-    patterns.length === 1 &&
-    patterns[0] === 'POC_RECLAIM';
-
-  const valid = !absorptionVeto && (score >= config.REJECTION_MIN_PATTERNS || pocReclaimSolo);
-
-  return { valid, patterns, absorptionVeto, score, pocReclaimSolo: !!pocReclaimSolo };
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 9: ZONE INVALIDATION CHECK
-// ─────────────────────────────────────────────────────────────────────────────
-
-const isZoneInvalidated = (closePrice, zoneRef, atr, direction) => {
-  const margin = atr * config.ZONE_INVALIDATION_ATR_MULT;
-  if (direction === 'BUY'  && closePrice < zoneRef - margin) return true;
-  if (direction === 'SELL' && closePrice > zoneRef + margin) return true;
-  return false;
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 10: SIGNAL COOLDOWN
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ── Signal cooldown ──────────────────────────────────────────────────────────
 const isCoolingDown = (symbol, direction, currentBarTime) => {
   const state = loadJSON(STATE_FILE, {});
   const s = state[symbol];
   if (!s || !s.lastSignalBar || !s.lastSignalDir) return false;
   if (s.lastSignalDir !== direction) return false;
-  const barsSince = Math.round((currentBarTime - s.lastSignalBar) / config.ENTRY_BAR_SECONDS);
+  const barsSince = Math.round((currentBarTime - s.lastSignalBar) / config.STRUCT_BAR_SECONDS);
   return barsSince < config.SIGNAL_COOLDOWN_BARS;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  SECTION 11: MAIN STRATEGY ENGINE
+//  MAIN STRATEGY ENGINE
 // ─────────────────────────────────────────────────────────────────────────────
-
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v9.0 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v10.0 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -592,432 +108,265 @@ const runStrategy = async (symbol) => {
   }
 
   try {
+    // ── STEP 1: FETCH ALL THREE TIMEFRAMES ──────────────────────────────
+    const [data4h, data1h, data15m] = await Promise.all([
+      getKlines(symbol, config.BIAS_TIMEFRAME,    config.BIAS_VP_LOOKBACK),
+      getKlines(symbol, config.STRUCT_TIMEFRAME,  config.STRUCT_VP_LOOKBACK),
+      getKlines(symbol, config.TRIGGER_TIMEFRAME, config.TRIGGER_VP_LOOKBACK),
+    ]);
 
-    // ── STEP 0: 4H BIAS ─────────────────────────────────────────────────
-    // First gate. Determines structural direction on the higher timeframe.
-    // NEUTRAL bias (2-2 tie) blocks all entries — market is undecided.
-    const bias4h = await get4HBias(symbol);
-
-    if (bias4h && bias4h.bias === 'NEUTRAL') {
-      console.log(`  ⛔ 4H BIAS NEUTRAL (${bias4h.bullVotes}/4 bull votes) — market structure undecided. No entry.`);
-      logDiag({ symbol, bias4h: 'NEUTRAL', bullVotes: bias4h.bullVotes, fired: false, reason: '4H_NEUTRAL' });
+    if (data1h.length < 50) {
+      console.log(`  ⚠️ Insufficient 1H data (${data1h.length} bars). Skipping.`);
+      logDiag({ symbol, fired: false, reason: 'INSUFFICIENT_1H_DATA', bars: data1h.length });
+      return;
+    }
+    if (data15m.length < 50) {
+      console.log(`  ⚠️ Insufficient 15m data (${data15m.length} bars). Skipping.`);
+      logDiag({ symbol, fired: false, reason: 'INSUFFICIENT_15M_DATA', bars: data15m.length });
       return;
     }
 
-    // ── STEP 1: FETCH ENTRY-TF DATA ────────────────────────────────────────────
-    const data = await getKlines(symbol, config.TIMEFRAME, config.VP_LOOKBACK);
-    if (data.length < 50) {
-      console.log(`  ⚠️ Insufficient entry-TF data (${data.length} bars). Skipping.`);
-      logDiag({ symbol, fired: false, reason: 'INSUFFICIENT_DATA', bars: data.length, ts: new Date().toISOString() });
+    // ── STEP 2: THREE-TIMEFRAME BIAS VOTE ───────────────────────────────
+    const bias4h  = data4h.length >= 50
+      ? core.tfBiasVote(data4h, config.BIAS_VP_LOOKBACK, config.BIAS_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT)
+      : null;
+    const bias1h  = core.tfBiasVote(data1h, config.STRUCT_VP_LOOKBACK, config.STRUCT_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
+    const bias15m = core.tfBiasVote(data15m, config.TRIGGER_VP_LOOKBACK, config.TRIGGER_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
+
+    if (!bias1h) {
+      console.log(`  ⚠️ 1H bias vote failed (volume profile). Skipping.`);
+      logDiag({ symbol, fired: false, reason: '1H_BIAS_FAILED' });
       return;
     }
 
-    const current = data[data.length - 1];
-    const price   = current.close;
-    const barTime = current.time;
+    const resolved = core.resolveDirection([
+      { tf: '4H',  result: bias4h },
+      { tf: '1H',  result: bias1h },
+      { tf: '15m', result: bias15m },
+    ]);
 
-    // ── STEP 2: ATR ──────────────────────────────────────────────────────
-    const atr = calcATR(data);
-    if (!atr) {
-      console.log(`  ⚠️ ATR calculation failed. Skipping.`);
-      logDiag({ symbol, fired: false, reason: 'ATR_FAILED', ts: new Date().toISOString() });
-      return;
-    }
-
-    // ── STEP 3: ENTRY-TF FIBONACCI (FIB_LOOKBACK-bar swing) ────────────────────────────
-    const fibData = data.slice(-config.FIB_LOOKBACK);
-    const swing = {
-      high: Math.max(...fibData.map(d => d.high)),
-      low:  Math.min(...fibData.map(d => d.low))
-    };
-
-    // A2: Structural remap — price broke the entry-TF FIB_LOOKBACK-bar swing
-    if (price > swing.high || price < swing.low) {
-      console.log(`  🔄 A2 STRUCTURAL REMAP: ${symbol} broke 200-bar swing.`);
-      saveState(symbol, { signal: 'A2_REMAP', price, swingHigh: swing.high, swingLow: swing.low });
-      logSignal(symbol, { signal: 'A2_REMAP', price });
-      await sendSafe(config.TELEGRAM_CHAT_ID,
-        `🔄 *[${symbol}] A2 — Structural Remap*\n\nPrice broke the 200-bar swing.\nAll previous zones are VOID.\nRecalculating next scan.\n⏰ ${new Date().toUTCString()}`,
-        { parse_mode: 'Markdown' }
-      );
-      return;
-    }
-
-    const midPoint  = (swing.high + swing.low) / 2;
-    const direction = price < midPoint ? 'BUY' : 'SELL';
-    const fib       = calcFib(swing.high, swing.low, direction);
-
-    // ── STEP 4: 4H DIRECTION GATE ────────────────────────────────────────
-    // 4H bias must agree with entry-TF direction.
-    if (bias4h) {
-      const biasAligned =
-        (direction === 'BUY'  && bias4h.bias === 'BULLISH') ||
-        (direction === 'SELL' && bias4h.bias === 'BEARISH');
-
-      if (!biasAligned) {
-        console.log(`  ⛔ 4H BIAS BLOCK: ${direction} rejected — 4H is ${bias4h.bias} (${bias4h.bullVotes}/4 bull | POC ${bias4h.votes.poc} VAH ${bias4h.votes.vah} VAL ${bias4h.votes.val} Fib ${bias4h.votes.fib})`);
-        logDiag({
-          symbol, barTime, price,
-          bias4h: bias4h.bias, bullVotes: bias4h.bullVotes,
-          direction, biasAligned: false,
-          fired: false, reason: '4H_BIAS_BLOCKED'
-        });
-        return;
-      }
-      console.log(`  ✅ 4H BIAS: ${bias4h.bias} (${bias4h.bullVotes}/4) — aligned with ${direction}`);
-    }
-
-    // ── STEP 5: D4 OVER-EXTENSION CHECK ─────────────────────────────────
-    // Beyond 88.6% = structural extreme. The swing is likely invalid.
-    const D4_pass = !(
-      (direction === 'BUY'  && price < fib.level886) ||
-      (direction === 'SELL' && price > fib.level886)
+    console.log(
+      `  📡 VOTE: 4H=${bias4h ? bias4h.bias : 'N/A'} | 1H=${bias1h.bias} | 15m=${bias15m ? bias15m.bias : 'N/A'}` +
+      (resolved ? ` → ${resolved.direction} (${resolved.tally}: ${resolved.agreeing.join('+')})` : ' → NO 2-OF-3 AGREEMENT')
     );
-    if (!D4_pass) {
-      console.log(`  ⏭️ D4 OVER-EXTENDED: Price beyond 88.6% structural extreme.`);
-      logDiag({ symbol, barTime, price, atr: atr.toFixed(4), D4_pass, fired: false, reason: 'D4_OVER_EXTENDED' });
+
+    if (!resolved) {
+      logDiag({ symbol, bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias, fired: false, reason: 'NO_2OF3_AGREEMENT' });
       return;
     }
 
-    // ── STEP 6: EARLY ZONE-PROXIMITY SKIP ───────────────────────────────
-    // Save compute — don't run VP/confluence if price isn't anywhere near zone.
-    {
-      const earlyZoneLow  = fib.zoneLow  - atr * 0.1;
-      const earlyZoneHigh = fib.zoneHigh + atr * 0.1;
-      if (price < earlyZoneLow - atr || price > earlyZoneHigh + atr) {
-        console.log(`  ⏳ Price not near zone ($${fib.zoneLow.toFixed(2)}–$${fib.zoneHigh.toFixed(2)}). Waiting.`);
-        return;
-      }
-    }
+    const direction = resolved.direction;
 
-    // ── STEP 7: ENTRY-TF VOLUME PROFILE — POC + VAH + VAL ─────────────────────
-    const vp = calcVolumeProfile(data);
-    if (!vp) {
-      console.log(`  ⚠️ Volume Profile failed. Skipping.`);
+    // ── STEP 3: 1H STRUCTURE — SWING / FIB POCKET ───────────────────────
+    const swing1h = bias1h.swing;
+    const price   = data1h[data1h.length - 1].close;
+    const barTime = data1h[data1h.length - 1].time;
+
+    const atr1h = core.calcATR(data1h, config.ATR_PERIOD);
+    if (!atr1h) {
+      console.log(`  ⚠️ 1H ATR calculation failed. Skipping.`);
+      logDiag({ symbol, fired: false, reason: 'ATR_FAILED' });
       return;
     }
-    console.log(`  📊 POC $${vp.pocPrice.toFixed(2)} | VAH $${vp.vahPrice.toFixed(2)} | VAL $${vp.valPrice.toFixed(2)} | Bars: ${vp.barCount}`);
-    console.log(`  📐 ATR(14): $${atr.toFixed(2)} | Direction: ${direction}`);
-    console.log(`  🎯 Entry-TF Fib zone: $${fib.zoneLow.toFixed(2)} – $${fib.zoneHigh.toFixed(2)} (60–80% pocket)`);
+
+    // Structural remap — price broke the 1H swing entirely
+    if (price > swing1h.high || price < swing1h.low) {
+      console.log(`  🔄 STRUCTURAL REMAP: ${symbol} broke 1H swing. Zones void, recalculating next scan.`);
+      saveState(symbol, { signal: 'REMAP', price, swingHigh: swing1h.high, swingLow: swing1h.low });
+      logSignal(symbol, { signal: 'REMAP', price });
+      return;
+    }
+
+    const fib = core.calcFib(swing1h.high, swing1h.low, direction, config.FIB_ZONE_LOW, config.FIB_ZONE_HIGH);
+
+    // Over-extension: beyond 88.6% = structural extreme, swing likely invalid
+    const overExtended = (direction === 'BUY' && price < fib.level886) || (direction === 'SELL' && price > fib.level886);
+    if (overExtended) {
+      console.log(`  ⏭️ OVER-EXTENDED: price beyond 88.6% structural extreme.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'OVER_EXTENDED' });
+      return;
+    }
+
+    // Early zone-proximity skip
+    const earlyLow  = fib.zoneLow  - atr1h * 0.1;
+    const earlyHigh = fib.zoneHigh + atr1h * 0.1;
+    if (price < earlyLow - atr1h || price > earlyHigh + atr1h) {
+      console.log(`  ⏳ Price not near 1H zone ($${fib.zoneLow.toFixed(2)}–$${fib.zoneHigh.toFixed(2)}). Waiting.`);
+      return;
+    }
+
+    const vp1h = bias1h.vp;
+    console.log(`  📊 1H POC $${vp1h.pocPrice.toFixed(2)} | VAH $${vp1h.vahPrice.toFixed(2)} | VAL $${vp1h.valPrice.toFixed(2)}`);
 
     saveState(symbol, {
-      signal: 'SCANNED', price,
-      poc: vp.pocPrice, vah: vp.vahPrice, val: vp.valPrice,
-      swingHigh: swing.high, swingLow: swing.low, atr, direction
+      signal: 'SCANNED', price, direction,
+      voteTally: resolved.tally, agreeing: resolved.agreeing,
+      poc: vp1h.pocPrice, vah: vp1h.vahPrice, val: vp1h.valPrice,
+      swingHigh: swing1h.high, swingLow: swing1h.low, atr1h,
     });
 
-    // ── STEP 8: ENTRY-TF CONFLUENCE CHECK (Fib × POC / VAH / VAL) ─────────────
-    // Check 61.8%, 78.6%, and zone midpoint against POC, VAH, and VAL.
-    // Best scoring combination wins.
-    const fibMid      = (fib.zoneHigh + fib.zoneLow) / 2;
+    // ── STEP 4: CONFLUENCE CHECK (Fib × POC/VAH/VAL on 1H) ───────────────
+    const fibMid = (fib.zoneHigh + fib.zoneLow) / 2;
     const checkLevels = [fib.level618, fib.level786, fibMid];
     const checkPivots = [
-      { name: 'POC', price: vp.pocPrice },
-      { name: 'VAH', price: vp.vahPrice },
-      { name: 'VAL', price: vp.valPrice },
+      { name: 'POC', price: vp1h.pocPrice },
+      { name: 'VAH', price: vp1h.vahPrice },
+      { name: 'VAL', price: vp1h.valPrice },
     ];
 
     let bestScore = 0, bestFibLevel = null, bestPivot = null;
-
     for (const lvl of checkLevels) {
       for (const pivot of checkPivots) {
-        const sc = confluenceScore(lvl, pivot.price, atr);
-        if (sc > bestScore) {
-          bestScore    = sc;
-          bestFibLevel = lvl;
-          bestPivot    = pivot;
-        }
+        const sc = core.confluenceScore(lvl, pivot.price, atr1h, config.CONFLUENCE_ATR_MULT);
+        if (sc > bestScore) { bestScore = sc; bestFibLevel = lvl; bestPivot = pivot; }
       }
     }
 
-    const A1_pass = bestScore >= 1;
-    if (!A1_pass) {
-      console.log(`  ❌ A1: No Fib/POC/VAH/VAL confluence at current price. Waiting.`);
-      logDiag({
-        symbol, barTime, price, atr: atr.toFixed(4),
-        poc: vp.pocPrice, vah: vp.vahPrice, val: vp.valPrice,
-        fibZoneLow: fib.zoneLow, fibZoneHigh: fib.zoneHigh,
-        D4_pass, A1_pass, fired: false, reason: 'A3_NO_CONFLUENCE'
-      });
+    if (bestScore < 1) {
+      console.log(`  ❌ No Fib/POC/VAH/VAL confluence at current price. Waiting.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'NO_CONFLUENCE' });
+      return;
+    }
+    if (bestPivot.name === 'POC' && bestScore < config.MIN_CONFLUENCE_POC) {
+      console.log(`  ⚠️ POC confluence too loose (score ${bestScore}, need ${config.MIN_CONFLUENCE_POC}). Skipping.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'POC_CONFLUENCE_TOO_LOOSE' });
       return;
     }
 
-    // v8.10: POC confluence gate — require tight Fib/POC alignment (score≥2)
-    // for POC entries. VAH/VAL entries are cleaner boundary levels and exempt.
-    if (bestPivot.name === 'POC' && bestScore < (config.MIN_CONFLUENCE_POC || 2)) {
-      console.log(`  ⚠️  A1 POC gate: score ${bestScore}/2 — POC entries require score≥2 (tight Fib stack). Skipping.`);
-      return;
-    }
+    const fibPct = bestFibLevel === fib.level618 ? '61.8%' : bestFibLevel === fib.level786 ? '78.6%' : '70% mid-pocket';
+    console.log(`  ✅ CONFLUENCE (score ${bestScore}): Fib ${fibPct} ($${bestFibLevel.toFixed(2)}) ↔ ${bestPivot.name} ($${bestPivot.price.toFixed(2)})`);
 
-    // v9.1: BUY-side confluence tightening. BUY real-loss rate (14.6%) was
-    // 2x SELL (2.9%) in the funnel breakdown. SELL already gets a separate
-    // boost (SELL_HTF_MULT_BOOST); this is the matching asymmetric fix for
-    // BUY — require the full score≥2 tight-stack confluence on every BUY
-    // entry, not just POC ones. SELL keeps the original score≥1 threshold.
-    if (direction === 'BUY' && bestScore < (config.BUY_CONFLUENCE_MIN || 2)) {
-      console.log(`  ⚠️  A1 BUY gate: score ${bestScore}/2 — BUY entries require score≥${config.BUY_CONFLUENCE_MIN || 2}. Skipping.`);
-      logDiag({ symbol, barTime, price, D4_pass, A1_pass, confluenceScore: bestScore, fired: false, reason: 'BUY_CONFLUENCE_BLOCKED' });
-      return;
-    }
-
-    const fibPct = bestFibLevel === fib.level618 ? '61.8%'
-                 : bestFibLevel === fib.level786 ? '78.6%'
-                 : '70% mid-pocket';
-
-    console.log(`  ✅ A1 CONFLUENCE (score ${bestScore}/2): Fib ${fibPct} ($${bestFibLevel.toFixed(2)}) ↔ ${bestPivot.name} ($${bestPivot.price.toFixed(2)})`);
-
-    // ── STEP 9: 4H ZONE CROSS-CHECK ─────────────────────────────────────
-    // Is the entry price near a 4H structural level?
-    // This is the highest-conviction filter in the entire bot.
-    const htfCheck = check4HZoneAlignment(bestFibLevel, bias4h, atr);
+    // ── STEP 5: 4H ZONE CROSS-CHECK ──────────────────────────────────────
+    const htfCheck = core.checkHTFZoneAlignment(bestFibLevel, bias4h, atr1h, direction, config.HTFZONE_ATR_MULT);
     if (!htfCheck.aligned) {
-      console.log(`  ⛔ 4H ZONE MISMATCH: entry $${bestFibLevel.toFixed(2)} not near any 4H structural level (nearest: ${htfCheck.nearestLevel} $${htfCheck.nearestPrice.toFixed(2)}, dist $${htfCheck.distance.toFixed(2)}). Waiting.`);
-      logDiag({
-        symbol, barTime, price, atr: atr.toFixed(4),
-        bestFibLevel, htfNearest: htfCheck.nearestLevel,
-        htfDist: htfCheck.distance, D4_pass, A1_pass,
-        fired: false, reason: 'HTF_ZONE_MISMATCH'
-      });
+      console.log(`  ⛔ 4H ZONE MISMATCH: nearest ${htfCheck.nearestLevel} dist $${htfCheck.distance.toFixed(2)}. Waiting.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'HTF_ZONE_MISMATCH' });
       return;
     }
-    console.log(`  ✅ 4H ZONE ALIGNED: entry near ${htfCheck.nearestLevel} ($${htfCheck.nearestPrice.toFixed(2)})`);
+    console.log(`  ✅ 4H ZONE ALIGNED: near ${htfCheck.nearestLevel} ($${(htfCheck.nearestPrice || 0).toFixed(2)})`);
 
-    // ── STEP 10: ZONE INVALIDATION CHECK ────────────────────────────────
-    if (isZoneInvalidated(price, bestFibLevel, atr, direction)) {
-      console.log(`  ❌ ZONE INVALIDATED: Price closed through Fib zone by > ATR×${config.ZONE_INVALIDATION_ATR_MULT}.`);
-      logDiag({ symbol, barTime, price, D4_pass, A1_pass, fired: false, reason: 'ZONE_INVALIDATED' });
+    // ── STEP 6: ZONE INVALIDATION ─────────────────────────────────────────
+    if (core.isZoneInvalidated(price, bestFibLevel, atr1h, direction, config.ZONE_INVALIDATION_ATR_MULT)) {
+      console.log(`  ❌ ZONE INVALIDATED: 1H close beyond zone by > ATR×${config.ZONE_INVALIDATION_ATR_MULT}.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'ZONE_INVALIDATED' });
       return;
     }
 
-    // ── STEP 11: SIGNAL COOLDOWN ─────────────────────────────────────────
+    // ── STEP 7: SIGNAL COOLDOWN ───────────────────────────────────────────
     if (isCoolingDown(symbol, direction, barTime)) {
-      console.log(`  ⏸️ COOLDOWN: ${direction} on ${symbol} suppressed (< ${config.SIGNAL_COOLDOWN_BARS} bars since last).`);
-      logDiag({ symbol, barTime, price, D4_pass, A1_pass, fired: false, reason: 'COOLDOWN' });
+      console.log(`  ⏸️ COOLDOWN: ${direction} suppressed (< ${config.SIGNAL_COOLDOWN_BARS} 1H bars since last).`);
       return;
     }
 
-    // ── STEP 12: REJECTION CANDLE (2-of-4 rule) ─────────────────────────
-    const entryZoneLow  = fib.zoneLow  - atr * 0.1;
-    const entryZoneHigh = fib.zoneHigh + atr * 0.1;
+    // ── STEP 8: 15m TRIGGER CANDLE ────────────────────────────────────────
+    // The 1H structure defines WHERE the zone is. The 15m candle decides
+    // WHEN to actually fire — tighter timing than waiting a full 1H close.
+    const entryZoneLow  = fib.zoneLow  - atr1h * 0.1;
+    const entryZoneHigh = fib.zoneHigh + atr1h * 0.1;
 
-    const rejection = detectRejection(data, entryZoneLow, entryZoneHigh, direction, vp.pocPrice);
+    const rejection = core.detectRejection(
+      data15m, entryZoneLow, entryZoneHigh, direction,
+      { poc: vp1h.pocPrice, vah: vp1h.vahPrice, val: vp1h.valPrice },
+      config.ABSORPTION_BODY_RATIO, config.REJECTION_MIN_PATTERNS, config.ALLOW_SOLO_TRIGGER
+    );
 
     logDiag({
       symbol, barTime, price,
-      atr:             atr.toFixed(4),
-      bias4h:          bias4h ? bias4h.bias : 'N/A',
-      bullVotes4h:     bias4h ? bias4h.bullVotes : 'N/A',
-      htfAligned:      htfCheck.aligned,
-      htfNearest:      htfCheck.nearestLevel,
-      poc:             vp.pocPrice, vah: vp.vahPrice, val: vp.valPrice,
-      fibZoneLow:      fib.zoneLow, fibZoneHigh: fib.zoneHigh,
-      D4_pass, A1_pass,
-      confluenceScore: bestScore,
-      confluenceLevel: fibPct,
-      confluencePivot: bestPivot.name,
-      patterns:        rejection.patterns,
-      absorptionVeto:  rejection.absorptionVeto,
-      rejectionScore:  rejection.score,
-      fired:           rejection.valid,
-      reason: rejection.valid           ? 'B_SIGNAL_FIRED'
-             : rejection.absorptionVeto ? 'D1_ABSORPTION_VETO'
-             : `PATTERNS_${rejection.score}_OF_${config.REJECTION_MIN_PATTERNS}`
+      bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias,
+      voteTally: resolved.tally, agreeing: resolved.agreeing,
+      htfAligned: htfCheck.aligned, confluenceScore: bestScore, confluenceLevel: fibPct, confluencePivot: bestPivot.name,
+      patterns: rejection.patterns, absorptionVeto: rejection.absorptionVeto,
+      fired: rejection.valid,
+      reason: rejection.valid ? 'SIGNAL_FIRED' : rejection.absorptionVeto ? 'ABSORPTION_VETO' : `PATTERNS_${rejection.score}_OF_${config.REJECTION_MIN_PATTERNS}`,
     });
 
     if (!rejection.valid) {
       if (rejection.absorptionVeto) {
-        console.log(`  ⏳ D1 ABSORPTION VETO: ${direction} suppressed — opposing institutional absorption candle.`);
-        const skipMsg =
-          `⏳ *[${symbol}] D1 — Directional Absorption*\n\n` +
-          `Zone touched at ${bestPivot.name} ($${bestFibLevel.toFixed(2)}) ` +
-          `but a ${direction === 'BUY' ? 'bearish' : 'bullish'} absorption candle appeared.\n` +
-          `Institutions absorbing against your direction. Skip.\n\n` +
-          `⏰ ${new Date().toUTCString()}`;
-        await sendSafe(config.TELEGRAM_CHAT_ID, skipMsg, { parse_mode: 'Markdown' });
+        console.log(`  ⏳ ABSORPTION VETO: opposing institutional candle at zone. Skip.`);
       } else {
-        console.log(`  ⏳ WEAK REJECTION: ${rejection.score}/${config.REJECTION_MIN_PATTERNS} patterns. Waiting for stronger signal.`);
+        console.log(`  ⏳ WEAK TRIGGER: ${rejection.score}/${config.REJECTION_MIN_PATTERNS} patterns on 15m. Waiting.`);
       }
       return;
     }
 
-    // ── STEP 13: SL / TP CALCULATION ────────────────────────────────────
-    // SL: beyond swing wick ± 0.25×ATR
-    const swingWick = direction === 'BUY' ? swing.low  : swing.high;
-    const slPrice   = direction === 'BUY'
-      ? swingWick - atr * config.SL_ATR_MULT
-      : swingWick + atr * config.SL_ATR_MULT;
-
-    const entryPrice = bestFibLevel;
-    const risk       = Math.abs(entryPrice - slPrice);
-
-    // v8.9: Dynamic TP1 = max(50%Fib, entry + TP1_RR_FLOOR × risk)
-    // Previous TP1=fixed 50%Fib caused MIN_RR1=1.0 to block 80% of valid setups
-    // because at 61.8%Fib entries TP1 is only ~0.31R away. Dynamic TP1 guarantees
-    // at least 1.2R on the first target regardless of entry depth.
-    const tp1RrFloor    = config.TP1_RR_FLOOR || 1.2;
-    const tp1Structural = fib.level500;   // 50%Fib equilibrium level
-    const tp1Dynamic    = direction === 'BUY'
-      ? entryPrice + risk * tp1RrFloor
-      : entryPrice - risk * tp1RrFloor;
-    const tp1Price = direction === 'BUY'
-      ? Math.max(tp1Structural, tp1Dynamic)
-      : Math.min(tp1Structural, tp1Dynamic);
-
-    // TP3: VAH (BUY) / VAL (SELL) — full value area runner (was TP2 pre-v8.9)
-    const tp3Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
-
-    // v9.1 fix: TP2 must sit strictly BETWEEN TP1 and TP3, never reuse
-    // tp1Structural directly. The old `tp2Price = tp1Structural` line collapsed
-    // TP1 and TP2 onto the identical price whenever the 1.2R dynamic floor
-    // didn't push TP1 past the structural 50%Fib level (~53% of trades in the
-    // v9.0 backtest), and in the remaining cases put TP2 NEARER than TP1 —
-    // backwards ordering that made TP1 functionally unreachable (TP1 hits = 0).
-    // Fix: require TP3 to actually extend beyond TP1 in the trade direction,
-    // then place TP2 at the true midpoint of TP1→TP3 so all three legs are
-    // strictly ordered (TP1 < TP2 < TP3 for BUY, TP1 > TP2 > TP3 for SELL).
-    const tp3BeyondTp1 = direction === 'BUY' ? tp3Price > tp1Price : tp3Price < tp1Price;
-    if (!tp3BeyondTp1) {
-      console.log(`  ⏭️  TP3 doesn't extend beyond TP1 — invalid 3-stage setup. Signal suppressed.`);
+    // ── STEP 9: SL / TP CALCULATION ───────────────────────────────────────
+    const levels = core.computeTradeLevels({
+      direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
+      slAtrMult: config.SL_ATR_MULT, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
+    });
+    if (!levels) {
+      console.log(`  ⏭️ Invalid TP structure (TP3 doesn't extend beyond TP1). Suppressed.`);
       return;
     }
-    const tp2Price = tp1Price + (tp3Price - tp1Price) * 0.5;
 
-    const reward1 = Math.abs(tp1Price - entryPrice);
-    const reward2 = Math.abs(tp2Price - entryPrice);
-    const reward3 = Math.abs(tp3Price - entryPrice);
-    const rr1 = risk > 0 ? (reward1 / risk).toFixed(2) : 'N/A';
-    const rr2 = risk > 0 ? (reward2 / risk).toFixed(2) : 'N/A';
-    const rr3 = risk > 0 ? (reward3 / risk).toFixed(2) : 'N/A';
-
-    // ── SURGICAL FILTER ──────────────────────────────────────────────────
-    // Filter 1: TP2 (structural 50%Fib) must be ≥ MIN_TP2_RR from entry.
-    // v9.0: per-pair override via PAIR_MIN_TP2_RR — ADA and DOGE use 0.35R
-    // (tighter ranges mean 50%Fib is geometrically closer to entry).
-    // TP1 is guaranteed ≥ 1.2R by construction — no separate TP1 gate needed.
-    const pairRrOverrides = config.PAIR_MIN_TP2_RR || {};
-    const minTp2Rr = pairRrOverrides[symbol] !== undefined
-      ? pairRrOverrides[symbol]
-      : (config.MIN_TP2_RR || 0.5);
-    if (risk > 0 && (reward2 / risk) < minTp2Rr) {
-      console.log(`  ⏭️  TP2(50%Fib) TOO CLOSE — only ${(reward2/risk).toFixed(2)}R (min ${minTp2Rr}R). Signal suppressed.`);
-      return;
-    }
-    // Filter 2: Require REJECTION_MIN_PATTERNS minimum (set in config.js)
-    // Default is 2-of-4. Set to 3 in config if you want ultra-strict filtering.
-    // v9.0: exempted when pocReclaimSolo is active — rejection.valid already
-    // accounts for the solo-POC_RECLAIM path; double-checking patterns.length
-    // here would re-block what detectRejection() deliberately allowed through.
-    if (!rejection.pocReclaimSolo && rejection.patterns.length < config.REJECTION_MIN_PATTERNS) {
-      console.log(`  ⏭️  ONLY ${rejection.patterns.length} PATTERNS — need ${config.REJECTION_MIN_PATTERNS}-of-4. Got: ${rejection.patterns.join('+')}. Signal suppressed.`);
-      return;
-    }
-    // v8.7: removed "Filter 4: POC entries also require POC_RECLAIM".
-    // This was a 5th, undocumented gate stacked on top of the stated
-    // foundation (POC+VAH+VAL+Fib+4H bias) — it demanded one *specific*
-    // named pattern instead of trusting the REJECTION_MIN_PATTERNS 2-of-4
-    // vote just above. A setup with PIN_BAR+ENGULFING at a POC pivot is
-    // exactly as confirmed as one with POC_RECLAIM+ENGULFING; there was no
-    // structural reason to single POC out. This was the exact filter that
-    // discarded every qualifying SOL-USDT setup in the v8.6 backtest
-    // (surgF4: 4 candidates → 0 opened). Foundation gates above (4H bias,
-    // D4 over-extension, zone proximity, A1 confluence, R:R, 2-of-4
-    // rejection) are all unchanged.
-
-    // ── STEP 14: TELEGRAM ALERT ──────────────────────────────────────────
-    const emoji     = direction === 'BUY' ? '🟢' : '🔴';
-    const signalTag = direction === 'BUY' ? 'B1 — Bullish Sniper' : 'B2 — Bearish Sniper';
+    // ── STEP 10: TELEGRAM ALERT ───────────────────────────────────────────
+    const emoji = direction === 'BUY' ? '🟢' : '🔴';
     const patternStr = rejection.patterns.join(' + ');
-
-    const bias4hLine = bias4h
-      ? `🧭 *4H Bias:* ${bias4h.bias} (${bias4h.bullVotes}/4 — POC ${bias4h.votes.poc} | VAH ${bias4h.votes.vah} | VAL ${bias4h.votes.val} | Fib ${bias4h.votes.fib})`
-      : `🧭 *4H Bias:* N/A`;
-
-    const htfLine = `🔗 *4H Zone:* Entry near ${htfCheck.nearestLevel} ($${htfCheck.nearestPrice.toFixed(2)}) ✅`;
-
-    // Confluence quality badge (v8.10)
-    const confBadge = bestScore >= 2 ? '🔒 TIGHT (2/2)' : '⚡ LOOSE (1/2)';
-
-    // Risk sizing note (v8.10: 1.5% risk + 0.1% slippage)
-    const riskNote = `⚖️ *Risk:* 1.5% capital | 0.1% slippage assumed`;
+    const voteLine = `🗳️ *TF Vote (${resolved.tally}):* ${resolved.agreeing.join(' + ')} agree ${direction === 'BUY' ? 'BULLISH' : 'BEARISH'}` +
+      (bias4h ? ` | 4H:${bias4h.bias}` : '') + ` 1H:${bias1h.bias}` + (bias15m ? ` 15m:${bias15m.bias}` : '');
 
     const message = `
-${emoji} *${symbol} — MVS ${signalTag}*
+${emoji} *${symbol} — MVS Signal*
 
 📊 *Direction:* ${direction}
-${bias4hLine}
-${htfLine}
+${voteLine}
+🔗 *4H Zone:* near ${htfCheck.nearestLevel} ✅
 
 ━━━━━━━━━━━━━━━━━━━━
-💵 *Entry:* \`$${entryPrice.toFixed(4)}\` (Fib ${fibPct} ↔ ${bestPivot.name})
-🛑 *SL:* \`$${slPrice.toFixed(4)}\` (swing wick + 0.25×ATR)
+💵 *Entry:* \`$${bestFibLevel.toFixed(4)}\` (1H Fib ${fibPct} ↔ ${bestPivot.name})
+🛑 *SL:* \`$${levels.slPrice.toFixed(4)}\` (1H swing wick ± 0.25×ATR)
 ━━━━━━━━━━━━━━━━━━━━
-🎯 *TP1* — 1.2R floor:     \`$${tp1Price.toFixed(4)}\`  R:R ${rr1}:1
-🏁 *TP2* — 50% Fib (½ exit): \`$${tp2Price.toFixed(4)}\`  R:R ${rr2}:1
-🏆 *TP3* — ${direction === 'BUY' ? 'VAH' : 'VAL'} runner (½ exit):  \`$${tp3Price.toFixed(4)}\`  R:R ${rr3}:1
+🎯 *TP1:* \`$${levels.tp1Price.toFixed(4)}\`  R:R ${levels.rr1.toFixed(2)}:1
+🏁 *TP2:* \`$${levels.tp2Price.toFixed(4)}\`  R:R ${levels.rr2.toFixed(2)}:1
+🏆 *TP3* (${direction === 'BUY' ? 'VAH' : 'VAL'} runner): \`$${levels.tp3Price.toFixed(4)}\`  R:R ${levels.rr3.toFixed(2)}:1
 ━━━━━━━━━━━━━━━━━━━━
-📈 *Monthly Structure (1H VP):*
-   POC: $${vp.pocPrice.toFixed(4)} | VAH: $${vp.vahPrice.toFixed(4)} | VAL: $${vp.valPrice.toFixed(4)}
-   Confluence: ${confBadge} | Pivot: ${bestPivot.name}
+🕯 *15m trigger (${rejection.solo ? 'SOLO' : rejection.score + '/' + config.REJECTION_MIN_PATTERNS}):* ${patternStr}
+📐 *ATR(1H):* $${atr1h.toFixed(4)}
 
-🕯 *Rejection patterns (${rejection.pocReclaimSolo ? "SOLO POC_RECLAIM" : rejection.score + "/" + config.REJECTION_MIN_PATTERNS}):* ${patternStr}
-📐 *ATR(14):* $${atr.toFixed(4)}
-${riskNote}
+⚠️ Probability-favored setup, not a guarantee. Size so 3-4 consecutive
+losses (normal variance) don't meaningfully hurt your account. Never
+risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v9.0 — Structure is everything.*
+⚡ *MVS v10.0*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
-    console.log(`  ✅ B-SIGNAL FIRED: ${symbol} | ${direction} @ $${entryPrice.toFixed(2)} | Patterns: ${patternStr}`);
+    console.log(`  ✅ SIGNAL FIRED: ${symbol} | ${direction} @ $${bestFibLevel.toFixed(2)} | ${patternStr}`);
 
     saveState(symbol, {
-      signal: signalTag, direction,
-      entryPrice, tp1Price, tp2Price, tp3Price, slPrice,
-      rr1, rr2, rr3,
+      signal: 'FIRED', direction,
+      entryPrice: bestFibLevel, ...levels,
       patterns: rejection.patterns,
-      lastSignalBar: barTime,
-      lastSignalDir: direction
+      lastSignalBar: barTime, lastSignalDir: direction,
     });
 
     logSignal(symbol, {
-      signal: signalTag, direction,
-      entryPrice, tp1Price, tp2Price, tp3Price, slPrice,
-      rr1, rr2, rr3,
-      confluencePivot: bestPivot.name,
-      fibPct, patterns: rejection.patterns,
-      bias4h: bias4h ? bias4h.bias : 'N/A',
-      htfNearest: htfCheck.nearestLevel
+      signal: 'FIRED', direction,
+      entryPrice: bestFibLevel, ...levels,
+      confluencePivot: bestPivot.name, fibPct, patterns: rejection.patterns,
+      voteTally: resolved.tally, agreeing: resolved.agreeing,
+      bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias,
     });
 
   } catch (err) {
     console.error(`  ❌ Error processing ${symbol}:`, err.message);
-    // v9.1: this catch block was previously swallowing every uncaught error
-    // silently — for any symbol that throws on every single run (bad ticker,
-    // API error, rate limit), there was zero persistent trace anywhere except
-    // ephemeral GitHub Actions console output. That made silent per-symbol
-    // failures undiagnosable after the fact. Now logged to diag.log.json so
-    // a symbol going dark shows up as EXCEPTION entries instead of just
-    // vanishing from state.json.
-    logDiag({ symbol, fired: false, reason: 'EXCEPTION', error: err.message, ts: new Date().toISOString() });
+    logDiag({ symbol, fired: false, reason: 'EXCEPTION', error: err.message, stack: err.stack?.split('\n').slice(0, 3).join(' | ') });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  BOOT
 // ─────────────────────────────────────────────────────────────────────────────
-
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v8.10  by Abdin               ║');
-console.log('║   Foundation: POC + VAH + VAL + FIBO  |  No lagging data   ║');
+console.log('║   MVS — Monthly Value Sniper v10.0                          ║');
+console.log('║   4H bias + 1H structure + 15m trigger — 2-of-3 vote         ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);
-console.log(`   Entry   : ${config.TIMEFRAME}  →  Bias: ${config.BIAS_TIMEFRAME} (3-of-4 pillar vote)`);
-console.log(`   VP bars : ${config.VP_LOOKBACK} (entry-TF) | ${config.BIAS_LOOKBACK} (4H)`);
-console.log(`   Fib bars: ${config.FIB_LOOKBACK} (entry-TF) | ${config.BIAS_FIB_LOOKBACK} (4H)`);
-console.log(`   Confluence: ATR×${config.CONFLUENCE_ATR_MULT} | HTF zone: ATR×${config.HTFZONE_ATR_MULT}`);
-console.log(`   Rejection : ${config.REJECTION_MIN_PATTERNS}-of-4 patterns min (POC_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION)`);
-console.log(`   Cooldown  : ${config.SIGNAL_COOLDOWN_BARS} bars | Zone void: ATR×${config.ZONE_INVALIDATION_ATR_MULT}`);
+console.log(`   TFs     : 4H(${config.BIAS_VP_LOOKBACK}) / 1H(${config.STRUCT_VP_LOOKBACK}) / 15m(${config.TRIGGER_VP_LOOKBACK})`);
+console.log(`   Trigger : ${config.REJECTION_MIN_PATTERNS}-of-5 patterns min | solo=${config.ALLOW_SOLO_TRIGGER}`);
+console.log(`   Cooldown: ${config.SIGNAL_COOLDOWN_BARS} × 1H bars`);
 console.log('');
 
 (async () => {
@@ -1027,12 +376,11 @@ console.log('');
       await new Promise(r => setTimeout(r, 2000));
     }
   }
-  // Always write state.json so git can commit it and /health shows last run time
   try {
     const finalState = loadJSON(STATE_FILE, {});
     finalState._lastRunAt = new Date().toISOString();
     fs.writeFileSync(STATE_FILE, JSON.stringify(finalState, null, 2));
-  } catch(e) { /* non-fatal */ }
+  } catch (e) { /* non-fatal */ }
   console.log('\n✅ Scan complete. Exiting.');
   process.exit(0);
 })();

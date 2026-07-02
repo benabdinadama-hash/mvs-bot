@@ -1,0 +1,353 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ *  MVS — CORE STRATEGY LOGIC (core.js)  v10.0
+ *
+ *  Every pure function used to decide BUY/SELL/NO-TRADE lives here, and
+ *  ONLY here. strategy.js (live/Telegram) and backtest.js (simulation)
+ *  both require() this file instead of keeping their own copies.
+ *
+ *  WHY THIS FILE EXISTS:
+ *  Every prior version kept two independent copies of the same logic —
+ *  one in strategy.js, one in backtest.js. They drifted apart repeatedly
+ *  (confirmed: strategy.js's check4HZoneAlignment() referenced a
+ *  `direction` variable that was never passed in, so it threw on every
+ *  call once a setup reached it — while backtest.js's copy of the same
+ *  function had the parameter and worked fine). That single bug is the
+ *  most likely reason live signals stayed at zero while backtests fired.
+ *  A shared module makes that entire class of bug impossible: fix it
+ *  once, it's fixed everywhere.
+ *
+ *  THREE-TIMEFRAME ARCHITECTURE (v10.0):
+ *  ┌─────────────────────────────────────────────────────────────────────┐
+ *  │  4H   → macro bias vote  (POC/VAH/VAL/Fib50 — same as before)       │
+ *  │  1H   → structure TF: swing, Fib golden pocket, POC/VAH/VAL zone    │
+ *  │  15m  → trigger TF: the actual rejection candle that fires entry    │
+ *  │                                                                     │
+ *  │  Direction requires 2-of-3 timeframes to agree (4H/1H/15m each      │
+ *  │  cast one BULLISH/BEARISH/NEUTRAL vote using the same POC/VAH/VAL/  │
+ *  │  Fib50 structural vote). This is what "1H + 15m combo, confirmed    │
+ *  │  by 4H" means mechanically: no single timeframe can force a trade   │
+ *  │  on its own.                                                        │
+ *  └─────────────────────────────────────────────────────────────────────┘
+ *
+ *  HONESTY NOTE: nothing in here targets or claims a specific win rate.
+ *  Per-symbol / per-direction filter overrides that existed in prior
+ *  versions (tuned against one 85-trade backtest) have been removed.
+ *  Every symbol and every direction runs through the identical rule set.
+ *  That is a deliberate choice to reduce overfitting, not an oversight.
+ * ═══════════════════════════════════════════════════════════════════════
+ */
+
+// ─────────────────────────────────────────────────────────────────────────
+//  ATR — Average True Range (Wilder smoothing)
+// ─────────────────────────────────────────────────────────────────────────
+const calcATR = (data, period = 14) => {
+  if (data.length < period + 1) return null;
+  const trs = [];
+  for (let i = 1; i < data.length; i++) {
+    const c = data[i], p = data[i - 1];
+    trs.push(Math.max(
+      c.high - c.low,
+      Math.abs(c.high - p.close),
+      Math.abs(c.low - p.close)
+    ));
+  }
+  if (trs.length < period) return null;
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trs.length; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period;
+  }
+  return atr;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  FIBONACCI — direction-aware, all 6 levels
+// ─────────────────────────────────────────────────────────────────────────
+const calcFib = (high, low, direction, zoneLowPct = 0.60, zoneHighPct = 0.80) => {
+  const diff = high - low;
+  if (direction === 'SELL') {
+    return {
+      level236: low + diff * 0.236,
+      level382: low + diff * 0.382,
+      level500: low + diff * 0.500,
+      level618: low + diff * 0.618,
+      level786: low + diff * 0.786,
+      level886: low + diff * 0.886,
+      zoneLow:  low + diff * zoneLowPct,
+      zoneHigh: low + diff * zoneHighPct,
+      swingHigh: high, swingLow: low,
+    };
+  }
+  return {
+    level236: high - diff * 0.236,
+    level382: high - diff * 0.382,
+    level500: high - diff * 0.500,
+    level618: high - diff * 0.618,
+    level786: high - diff * 0.786,
+    level886: high - diff * 0.886,
+    zoneHigh: high - diff * zoneLowPct,
+    zoneLow:  high - diff * zoneHighPct,
+    swingHigh: high, swingLow: low,
+  };
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  VOLUME PROFILE — POC + VAH + VAL
+//  `lookback` and `rows` are passed explicitly so 4H/1H/15m can each use
+//  their own window instead of sharing one global setting.
+// ─────────────────────────────────────────────────────────────────────────
+const calcVolumeProfile = (data, lookback, rows = 100, valueAreaPct = 0.70) => {
+  const workingBars = data.slice(-lookback);
+  if (workingBars.length < 4) return null;
+
+  const high  = Math.max(...workingBars.map(d => d.high));
+  const low   = Math.min(...workingBars.map(d => d.low));
+  const range = high - low;
+  if (range === 0 || !isFinite(range)) return null;
+
+  const rowSize = range / rows;
+  const bins = {};
+  workingBars.forEach(d => {
+    const price = (d.high + d.low) / 2;
+    const idx   = Math.min(Math.floor((price - low) / rowSize), rows - 1);
+    bins[idx]   = (bins[idx] || 0) + d.volume;
+  });
+
+  let maxVol = 0, pocIdx = 0, totalVol = 0;
+  const volArr = [];
+  for (let i = 0; i < rows; i++) {
+    const v = bins[i] || 0;
+    volArr.push(v);
+    totalVol += v;
+    if (v > maxVol) { maxVol = v; pocIdx = i; }
+  }
+
+  const pocPrice = low + (pocIdx + 0.5) * rowSize;
+
+  // Expand from POC until valueAreaPct of volume is captured. Each side is
+  // marked exhausted the moment it hits an edge so this always terminates.
+  const targetVol = totalVol * valueAreaPct;
+  let cumVol = volArr[pocIdx];
+  let loIdx = pocIdx, hiIdx = pocIdx;
+
+  while (cumVol < targetVol && (loIdx > 0 || hiIdx < rows - 1)) {
+    const lowOpen  = loIdx > 0;
+    const highOpen = hiIdx < rows - 1;
+    if (!lowOpen && !highOpen) break;
+    const addLow  = lowOpen  ? volArr[loIdx - 1] : -Infinity;
+    const addHigh = highOpen ? volArr[hiIdx + 1] : -Infinity;
+    if (highOpen && (!lowOpen || addHigh >= addLow)) {
+      hiIdx++; cumVol += volArr[hiIdx];
+    } else {
+      loIdx--; cumVol += volArr[loIdx];
+    }
+  }
+
+  const valPrice = low + (loIdx + 0.5) * rowSize;
+  const vahPrice = low + (hiIdx + 0.5) * rowSize;
+
+  return { pocPrice, vahPrice, valPrice, maxVol, totalVol, barCount: workingBars.length };
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  TIMEFRAME BIAS VOTE
+//  Same 4-pillar vote (POC / VAH / VAL / Fib50) applied generically to
+//  whichever timeframe's data you pass in. Used for 4H, 1H, and 15m.
+//  3-4 bull votes → BULLISH | 3-4 bear votes → BEARISH | else NEUTRAL.
+// ─────────────────────────────────────────────────────────────────────────
+const tfBiasVote = (data, vpLookback, fibLookback, rows = 100, valueAreaPct = 0.70) => {
+  if (data.length < Math.min(vpLookback, fibLookback, 30)) return null;
+
+  const price = data[data.length - 1].close;
+  const vp = calcVolumeProfile(data, vpLookback, rows, valueAreaPct);
+  if (!vp) return null;
+
+  const fibData = data.slice(-fibLookback);
+  const swing = {
+    high: Math.max(...fibData.map(d => d.high)),
+    low:  Math.min(...fibData.map(d => d.low)),
+  };
+  const fibMid = (swing.high + swing.low) / 2;
+
+  const votes = {
+    poc: price >= vp.pocPrice ? 'BULL' : 'BEAR',
+    vah: price >= vp.vahPrice ? 'BULL' : 'BEAR',
+    val: price >= vp.valPrice ? 'BULL' : 'BEAR',
+    fib: price >= fibMid      ? 'BULL' : 'BEAR',
+  };
+  const bullVotes = Object.values(votes).filter(v => v === 'BULL').length;
+
+  let bias;
+  if      (bullVotes >= 3) bias = 'BULLISH';
+  else if (bullVotes <= 1) bias = 'BEARISH';
+  else                     bias = 'NEUTRAL';
+
+  return { bias, bullVotes, price, poc: vp.pocPrice, vah: vp.vahPrice, val: vp.valPrice, fibMid, votes, swing, vp };
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  2-OF-3 TIMEFRAME DIRECTION RESOLUTION
+//  votes: [{ tf: '4H', result: <tfBiasVote output or null> }, ...]
+//  Returns { direction, agreeing: [tf,...], tally } or null if no 2-of-3.
+// ─────────────────────────────────────────────────────────────────────────
+const resolveDirection = (votes) => {
+  const usable = votes.filter(v => v.result && v.result.bias !== 'NEUTRAL');
+  const bulls  = usable.filter(v => v.result.bias === 'BULLISH').map(v => v.tf);
+  const bears  = usable.filter(v => v.result.bias === 'BEARISH').map(v => v.tf);
+
+  if (bulls.length >= 2) return { direction: 'BUY',  agreeing: bulls, tally: `${bulls.length}/3` };
+  if (bears.length >= 2) return { direction: 'SELL', agreeing: bears, tally: `${bears.length}/3` };
+  return null;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  CONFLUENCE ENGINE — how tightly a Fib level overlaps a volume pivot
+//  Score 2 = tight (within 0.5×tol) | Score 1 = loose (within 1×tol)
+// ─────────────────────────────────────────────────────────────────────────
+const confluenceScore = (fibLevel, pivot, atr, atrMult) => {
+  if (!pivot || !fibLevel || !atr || !isFinite(pivot) || !isFinite(fibLevel)) return 0;
+  const tol  = atr * atrMult;
+  const dist = Math.abs(fibLevel - pivot);
+  if (dist <= tol * 0.5) return 2;
+  if (dist <= tol) return 1;
+  return 0;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  4H ZONE CROSS-CHECK  (bug fix: direction is now a real parameter —
+//  the old version read a `direction` that didn't exist in scope and
+//  threw a ReferenceError on every call once a setup got this far)
+// ─────────────────────────────────────────────────────────────────────────
+const checkHTFZoneAlignment = (entryPrice, htfBias, atr, direction, atrMult) => {
+  if (!htfBias) return { aligned: true, nearestLevel: 'N/A', nearestPrice: null, distance: 0 };
+
+  const tol = atr * atrMult; // symmetric — no per-direction boost multiplier
+
+  const levels = [
+    { name: '4H POC',    price: htfBias.poc },
+    { name: '4H VAH',    price: htfBias.vah },
+    { name: '4H VAL',    price: htfBias.val },
+    { name: '4H Fib50%', price: htfBias.fibMid },
+  ];
+
+  let nearest = null, minDist = Infinity;
+  for (const lvl of levels) {
+    const dist = Math.abs(entryPrice - lvl.price);
+    if (dist < minDist) { minDist = dist; nearest = lvl; }
+  }
+
+  return { aligned: minDist <= tol, nearestLevel: nearest.name, nearestPrice: nearest.price, distance: minDist };
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  ZONE INVALIDATION
+// ─────────────────────────────────────────────────────────────────────────
+const isZoneInvalidated = (closePrice, zoneRef, atr, direction, atrMult) => {
+  const margin = atr * atrMult;
+  if (direction === 'BUY'  && closePrice < zoneRef - margin) return true;
+  if (direction === 'SELL' && closePrice > zoneRef + margin) return true;
+  return false;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  REJECTION / TRIGGER DETECTOR — 5 patterns, symmetric BUY/SELL
+//
+//  1. POC_RECLAIM     — wicked through 1H POC, closed back on the trade side
+//  2. VAH_VAL_RECLAIM — wicked through the defended boundary (VAL for BUY,
+//                       VAH for SELL), closed back inside — same idea as
+//                       POC_RECLAIM applied to the value-area edge
+//  3. PIN_BAR         — wick > 1.5× body into the zone
+//  4. ENGULFING       — body fully engulfs prior candle, trade direction
+//  5. CLOSE_REJECTION — wicked into zone, closed cleanly outside it
+//
+//  Fires if patterns.length >= minPatterns (default 2-of-5), UNLESS
+//  soloPatterns is enabled and exactly one qualifying "high-conviction"
+//  pattern (POC_RECLAIM or VAH_VAL_RECLAIM) appears alone — applies
+//  identically to BUY and SELL, no direction-specific carve-out.
+// ─────────────────────────────────────────────────────────────────────────
+const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorptionBodyRatio, minPatterns = 2, allowSolo = false) => {
+  if (candles.length < 2) return { valid: false, patterns: [], absorptionVeto: false, score: 0, solo: false };
+
+  const c = candles[candles.length - 1];
+  const p = candles[candles.length - 2];
+
+  const touchedZone = c.low <= zoneHigh && c.high >= zoneLow;
+  if (!touchedZone) return { valid: false, patterns: [], absorptionVeto: false, score: 0, solo: false };
+
+  const body = Math.abs(c.close - c.open);
+  const fullRange = c.high - c.low;
+  const bodyRatio = fullRange > 0 ? body / fullRange : 0;
+
+  let absorptionVeto = false;
+  if (bodyRatio > absorptionBodyRatio) {
+    if (direction === 'SELL' && c.close > c.open) absorptionVeto = true;
+    if (direction === 'BUY'  && c.close < c.open) absorptionVeto = true;
+  }
+
+  const patterns = [];
+  const { poc, vah, val } = pivots;
+
+  if (direction === 'BUY') {
+    if (poc && c.low < poc && c.close > poc) patterns.push('POC_RECLAIM');
+    if (val && c.low < val && c.close > val) patterns.push('VAH_VAL_RECLAIM');
+    const lowerWick = Math.min(c.open, c.close) - c.low;
+    if (lowerWick > body * 1.5 && body > 0) patterns.push('PIN_BAR');
+    if (c.close > c.open && c.close > p.close && c.open < p.open) patterns.push('ENGULFING');
+    if (c.low <= zoneHigh && c.close > zoneHigh) patterns.push('CLOSE_REJECTION');
+  } else {
+    if (poc && c.high > poc && c.close < poc) patterns.push('POC_RECLAIM');
+    if (vah && c.high > vah && c.close < vah) patterns.push('VAH_VAL_RECLAIM');
+    const upperWick = c.high - Math.max(c.open, c.close);
+    if (upperWick > body * 1.5 && body > 0) patterns.push('PIN_BAR');
+    if (c.close < c.open && c.close < p.close && c.open > p.open) patterns.push('ENGULFING');
+    if (c.high >= zoneLow && c.close < zoneLow) patterns.push('CLOSE_REJECTION');
+  }
+
+  const score = patterns.length;
+  const highConviction = ['POC_RECLAIM', 'VAH_VAL_RECLAIM'];
+  const solo = allowSolo && score === 1 && highConviction.includes(patterns[0]);
+  const valid = !absorptionVeto && (score >= minPatterns || solo);
+
+  return { valid, patterns, absorptionVeto, score, solo };
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  TRADE LEVELS — SL / TP1 / TP2 / TP3, unchanged math from prior version
+//  (this part was not overfit — it's a straightforward R:R structure).
+// ─────────────────────────────────────────────────────────────────────────
+const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, tp1RrFloor, fibLevel500 }) => {
+  const swingWick = direction === 'BUY' ? swing.low : swing.high;
+  const slPrice = direction === 'BUY'
+    ? swingWick - atr * slAtrMult
+    : swingWick + atr * slAtrMult;
+
+  const risk = Math.abs(entryPrice - slPrice);
+  if (risk <= 0) return null;
+
+  const tp1Structural = fibLevel500;
+  const tp1Dynamic = direction === 'BUY'
+    ? entryPrice + risk * tp1RrFloor
+    : entryPrice - risk * tp1RrFloor;
+  const tp1Price = direction === 'BUY'
+    ? Math.max(tp1Structural, tp1Dynamic)
+    : Math.min(tp1Structural, tp1Dynamic);
+
+  const tp3Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+  const tp3BeyondTp1 = direction === 'BUY' ? tp3Price > tp1Price : tp3Price < tp1Price;
+  if (!tp3BeyondTp1) return null;
+
+  const tp2Price = tp1Price + (tp3Price - tp1Price) * 0.5;
+
+  return {
+    slPrice, tp1Price, tp2Price, tp3Price, risk,
+    rr1: risk > 0 ? Math.abs(tp1Price - entryPrice) / risk : 0,
+    rr2: risk > 0 ? Math.abs(tp2Price - entryPrice) / risk : 0,
+    rr3: risk > 0 ? Math.abs(tp3Price - entryPrice) / risk : 0,
+  };
+};
+
+module.exports = {
+  calcATR, calcFib, calcVolumeProfile, tfBiasVote, resolveDirection,
+  confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
+  detectRejection, computeTradeLevels,
+};
