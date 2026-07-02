@@ -137,9 +137,11 @@ const updateEquityCurve = (log) => {
     msg += `\n• ${signal}: ${count}`;
   }
 
-  const entries = recent.filter(e =>
-    e.signal && (e.signal.startsWith('B1') || e.signal.startsWith('B2'))
-  );
+  // v10.0: strategy.js now logs signal: 'FIRED' (was 'B1 — Bullish Sniper' /
+  // 'B2 — Bearish Sniper'). Updated to match — otherwise this filter would
+  // silently match zero entries forever and the weekly digest would always
+  // report no trades even while the bot was firing signals live.
+  const entries = recent.filter(e => e.signal === 'FIRED');
   if (entries.length) {
     msg += `\n\n🎯 *Entries (${entries.length}):*`;
     for (const e of entries.slice(-10)) {

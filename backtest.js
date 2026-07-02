@@ -1,140 +1,56 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — 90-DAY BACKTESTER  (backtest.js)  v3 — 1hour entry timeframe
+ *  MVS — BACKTESTER (backtest.js)  v10.0
  *
- *  Fetches real historical KuCoin data (1hour + 4H) for the last 90 days,
- *  replays every 1-hour bar through the exact same MVS strategy logic
- *  used in strategy.js, and produces a full performance report.
+ *  Uses core.js — the EXACT same decision logic as strategy.js (live).
+ *  No more hand-copied CONFIG or duplicated pure functions: this file
+ *  previously kept its own independent copy of everything, which is why
+ *  it drifted out of sync with strategy.js repeatedly (SELL_HTF_MULT_BOOST,
+ *  POC_RECLAIM_SOLO, and PAIR_MIN_TP2_RR each existed in one file months
+ *  before the other — every backtest report before v10.0 was testing a
+ *  ruleset that wasn't quite what the live bot actually ran).
  *
- *  HOW IT WORKS:
- *  ─ Fetches up to 1500 bars per KuCoin request (KuCoin's max per call)
- *  ─ Pages backward in time to cover 90 days (2160 × 1hour bars)
- *  ─ Replays each bar as if it were "live" — the strategy sees only data
- *    up to and including that bar (no lookahead bias)
- *  ─ Simulates entries, SL hits, and TP hits on subsequent bars
- *  ─ Prints a full report: win rate, avg R:R, profit factor, max drawdown
+ *  Replays 4H bias + 1H structure + 15m trigger candles tick-by-tick on
+ *  the 15m clock (no lookahead — every check only sees bars up to "now").
  *
  *  USAGE:
- *    node backtest.js                        ← all 4 symbols, 90 days
- *    node backtest.js ETH-USDT              ← single symbol
- *    node backtest.js ETH-USDT 30           ← single symbol, 30 days
+ *    node backtest.js                       ← all symbols, config.BACKTEST_DAYS
+ *    node backtest.js SOL-USDT              ← single symbol
+ *    node backtest.js SOL-USDT 180          ← single symbol, 180 days
+ *    node backtest.js SOL-USDT,BTC-USDT 360 ← explicit multi-symbol
  *
- *  OUTPUT:
- *    backtest-report.json   ← full trade log (machine-readable)
- *    backtest-report.txt    ← human-readable summary
- *
- *  NOTE: This uses only PUBLIC KuCoin endpoints — no API key required.
+ *  HONESTY NOTE: nothing in this report should be read as a promise about
+ *  live performance. Backtests are always somewhat optimistic (no real
+ *  slippage variance, no exchange downtime, no fat-finger fills) — treat
+ *  these numbers as "does the logic behave sanely," not as a win-rate
+ *  guarantee.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
-const axios = require('axios');
-const fs    = require('fs');
-const path  = require('path');
+const axios  = require('axios');
+const fs     = require('fs');
+const path   = require('path');
+const config = require('./config');
+const core   = require('./core');
 
-// ── Config (mirrors config.js exactly) ─────────────────────────────────────
-const CONFIG = {
-  SYMBOLS:                ['ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT', 'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT', 'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'POL-USDT'],
-  TIMEFRAME:              '1hour',
-  BIAS_TIMEFRAME:         '4hour',
-  ENTRY_BAR_SECONDS:      3600,
-  VP_LOOKBACK:            720,      // 720 bars = 720h (30 days) — true monthly value area
-  BIAS_LOOKBACK:          200,      // 4H bars for bias module (≈ 33 days)
-  FIB_LOOKBACK:           720,      // 1hour bars for swing detection (30 days)
-  BIAS_FIB_LOOKBACK:      90,       // 4H bars for bias swing (~15 days)
-  VP_ROWS:                100,
-  VALUE_AREA_PCT:         0.70,
-  FIB_ZONE_LOW:           0.60,
-  FIB_ZONE_HIGH:          0.80,
-  // v8.9: widened 0.5 → 0.65. nearZone→confluenceOk was losing 64-71% of candidates.
-  CONFLUENCE_ATR_MULT:    0.65,
-  // v8.9: widened 2.5 → 3.0 for same reason.
-  HTFZONE_ATR_MULT:       3.0,
-  REJECTION_MIN_PATTERNS: 2,
-  ABSORPTION_BODY_RATIO:  0.60,
-  ZONE_INVALIDATION_ATR_MULT: 1.0,
-  SIGNAL_COOLDOWN_BARS:   5,
-  ATR_PERIOD:             14,
-  SL_ATR_MULT:            0.25,
-  BASE_URL:               'https://api.kucoin.com/api/v1',
-  BACKTEST_DAYS:          360,
-  RISK_PER_TRADE_PCT:     1.5,   // v8.10: 1% → 1.5% (max drawdown headroom confirmed)
-  SLIPPAGE_PCT:           0.001, // v8.10: 0.1% slippage/spread per entry+exit
-  MIN_CONFLUENCE_POC:     2,     // v8.10: POC entries require tight Fib alignment (score≥2)
-  STARTING_CAPITAL:       1000,
-  // v8.9: TP1 is now dynamic (entry + 1.2×risk floor) — no MIN_RR1 gate needed.
-  // TP2 = structural 50%Fib (was TP1). TP3 = VAH/VAL runner (was TP2).
-  TP1_RR_FLOOR:           1.2,   // TP1 = max(50%Fib, entry + 1.2×risk)
-  MIN_TP2_RR:             0.50,  // TP2 (50%Fib) must be ≥ 0.5R from entry
-  // v9.0 sync fix: these three existed in strategy.js (live bot) but were
-  // missing here entirely, meaning every prior backtest report understated
-  // what the live bot actually does. Now mirrored exactly.
-  SELL_HTF_MULT_BOOST:    1.10,
-  PAIR_MIN_TP2_RR:        { 'ADA-USDT': 0.35, 'DOGE-USDT': 0.35 },
-  // v9.1 sync fix: this was hardcoded false here while config.js (live bot)
-  // has it set to true — every backtest report up to and including the
-  // 13-pair/720d run was testing a STRICTER ruleset than what's actually
-  // live. Default now matches config.js. Override via env var if needed.
-  // v9.1: now restricted to SELL only inside detectRejection() — see there.
-  POC_RECLAIM_SOLO:       true,
-  // v9.1: BUY real-loss rate 14.6% (12/82) vs SELL 2.9% (2/69) — asymmetric
-  // fix mirrors SELL_HTF_MULT_BOOST. BUY entries require confluence score≥2.
-  BUY_CONFLUENCE_MIN:     2,
-  // v9.1: time-stop. Losers took 3.4x longer to resolve than winners (135.7
-  // vs 40.4 bars). Close early if TP2 hasn't been reached by this many bars.
-  EARLY_TIMEOUT_BARS:     70,
-};
+// ── CLI args ─────────────────────────────────────────────────────────────
+const rawArgs = process.argv.slice(2);
+const symbols = rawArgs[0] && rawArgs[0].includes('-')
+  ? rawArgs[0].toUpperCase().split(',').map(s => s.trim())
+  : config.SYMBOLS;
+const days = parseInt(rawArgs[1] || rawArgs[0]) || config.BACKTEST_DAYS;
 
-// ── ENV OVERRIDES (tuning knobs only — POC/VAH/VAL/Fib/4H-bias foundation is NEVER touched) ──
-// e.g.  SIGNAL_COOLDOWN_BARS=3 TP1_RR_FLOOR=1.0 node backtest.js SOL-USDT 360
-const envNum = (key, fallback) => (process.env[key] !== undefined ? parseFloat(process.env[key]) : fallback);
-CONFIG.SIGNAL_COOLDOWN_BARS       = envNum('SIGNAL_COOLDOWN_BARS', CONFIG.SIGNAL_COOLDOWN_BARS);
-CONFIG.TP1_RR_FLOOR               = envNum('TP1_RR_FLOOR', CONFIG.TP1_RR_FLOOR);
-CONFIG.MIN_TP2_RR                 = envNum('MIN_TP2_RR', CONFIG.MIN_TP2_RR);
-CONFIG.CONFLUENCE_ATR_MULT        = envNum('CONFLUENCE_ATR_MULT', CONFIG.CONFLUENCE_ATR_MULT);
-CONFIG.HTFZONE_ATR_MULT           = envNum('HTFZONE_ATR_MULT', CONFIG.HTFZONE_ATR_MULT);
-CONFIG.REJECTION_MIN_PATTERNS     = envNum('REJECTION_MIN_PATTERNS', CONFIG.REJECTION_MIN_PATTERNS);
-CONFIG.ZONE_INVALIDATION_ATR_MULT = envNum('ZONE_INVALIDATION_ATR_MULT', CONFIG.ZONE_INVALIDATION_ATR_MULT);
-CONFIG.RISK_PER_TRADE_PCT         = envNum('RISK_PER_TRADE_PCT', CONFIG.RISK_PER_TRADE_PCT);
-CONFIG.SLIPPAGE_PCT               = envNum('SLIPPAGE_PCT', CONFIG.SLIPPAGE_PCT);
-CONFIG.MIN_CONFLUENCE_POC         = envNum('MIN_CONFLUENCE_POC', CONFIG.MIN_CONFLUENCE_POC);
-CONFIG.BUY_CONFLUENCE_MIN         = envNum('BUY_CONFLUENCE_MIN', CONFIG.BUY_CONFLUENCE_MIN);
-CONFIG.EARLY_TIMEOUT_BARS         = envNum('EARLY_TIMEOUT_BARS', CONFIG.EARLY_TIMEOUT_BARS);
-CONFIG.POC_RECLAIM_SOLO            = process.env.POC_RECLAIM_SOLO !== undefined
-  ? process.env.POC_RECLAIM_SOLO === 'true'
-  : CONFIG.POC_RECLAIM_SOLO;
-
-// ── CLI args ─────────────────────────────────────────────────────────────────
-// node backtest.js                          -> all CONFIG.SYMBOLS, 360 days
-// node backtest.js ETH-USDT                 -> single symbol, 360 days
-// node backtest.js ETH-USDT 90              -> single symbol, 90 days
-// node backtest.js ETH-USDT,SOL-USDT 360    -> explicit multi-symbol (comma list)
-// node backtest.js --tune ETH-USDT 360      -> grid-search mode (see TUNE_GRID below)
-const rawArgs  = process.argv.slice(2);
-const tuneMode = rawArgs.includes('--tune');
-const args     = rawArgs.filter(a => a !== '--tune');
-const symbols  = args[0] && args[0].includes('-')
-  ? args[0].toUpperCase().split(',').map(s => s.trim())
-  : CONFIG.SYMBOLS;
-const days     = parseInt(args[1] || args[0]) || CONFIG.BACKTEST_DAYS;
-
-// ── KuCoin fetch helpers ──────────────────────────────────────────────────────
+// ── KuCoin paged history fetch ───────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const BAR_SECONDS = { '15min': 900, '1hour': 3600, '4hour': 14400 };
 
 const fetchKlines = async (symbol, interval, startAt, endAt) => {
-  const url = `${CONFIG.BASE_URL}/market/candles` +
-    `?symbol=${symbol}&type=${interval}&startAt=${startAt}&endAt=${endAt}`;
+  const url = `${config.BASE_URL}/market/candles?symbol=${symbol}&type=${interval}&startAt=${startAt}&endAt=${endAt}`;
   try {
     const res = await axios.get(url, { timeout: 20000 });
     if (res.data.code !== '200000') return [];
     return (res.data.data || [])
-      .map(k => ({
-        time:   parseInt(k[0]),
-        open:   parseFloat(k[1]),
-        close:  parseFloat(k[2]),
-        high:   parseFloat(k[3]),
-        low:    parseFloat(k[4]),
-        volume: parseFloat(k[5]),
-      }))
+      .map(k => ({ time: parseInt(k[0]), open: parseFloat(k[1]), close: parseFloat(k[2]), high: parseFloat(k[3]), low: parseFloat(k[4]), volume: parseFloat(k[5]) }))
       .sort((a, b) => a.time - b.time);
   } catch (e) {
     console.error(`  Fetch error: ${e.message}`);
@@ -142,24 +58,15 @@ const fetchKlines = async (symbol, interval, startAt, endAt) => {
   }
 };
 
-/**
- * Fetch full history for `days` days by paging backward in 1500-bar chunks.
- * KuCoin returns max 1500 bars per call; 90 days × 24 bars/day = 2160 bars
- * for the 1hour entry timeframe, so 2 pages comfortably cover it (and 2
- * pages for 4H, same as before).
- */
-const BAR_SECONDS_BY_INTERVAL = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1hour': 3600, '4hour': 14400 };
-const fetchHistory = async (symbol, interval, days) => {
-  const barSeconds = BAR_SECONDS_BY_INTERVAL[interval] || 3600;
-  const endAt   = Math.floor(Date.now() / 1000);
-  const startAt = endAt - days * 86400;
-
+const fetchHistory = async (symbol, interval, historyDays) => {
+  const barSeconds = BAR_SECONDS[interval] || 3600;
+  const endAt = Math.floor(Date.now() / 1000);
+  const startAt = endAt - historyDays * 86400;
   let allBars = [];
   let chunkEnd = endAt;
   const chunkSize = 1500 * barSeconds;
 
   process.stdout.write(`  Fetching ${interval} history for ${symbol}...`);
-
   while (chunkEnd > startAt) {
     const chunkStart = Math.max(chunkEnd - chunkSize, startAt);
     const bars = await fetchKlines(symbol, interval, chunkStart, chunkEnd);
@@ -167,571 +74,295 @@ const fetchHistory = async (symbol, interval, days) => {
     allBars = [...bars, ...allBars];
     chunkEnd = bars[0].time - 1;
     process.stdout.write('.');
-    await sleep(300); // respect KuCoin rate limit
+    await sleep(250);
   }
-
-  // Deduplicate and sort
   const seen = new Set();
-  allBars = allBars.filter(b => {
-    if (seen.has(b.time)) return false;
-    seen.add(b.time);
-    return true;
-  }).sort((a, b) => a.time - b.time);
-
+  allBars = allBars.filter(b => (seen.has(b.time) ? false : (seen.add(b.time), true))).sort((a, b) => a.time - b.time);
   console.log(` ${allBars.length} bars`);
   return allBars;
 };
 
-// ── Pure strategy functions (mirrors strategy.js exactly) ────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+//  REPLAY ENGINE — walks the 15m clock, two-pointer sync on 1H/4H arrays
+// ─────────────────────────────────────────────────────────────────────────
+const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
+  const trades = [];
+  const cooldownMap = {};
+  let openTrade = null;
 
-const calcATR = (data, period = CONFIG.ATR_PERIOD) => {
-  if (data.length < period + 1) return null;
-  const trs = [];
-  for (let i = 1; i < data.length; i++) {
-    const c = data[i], p = data[i - 1];
-    trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
-  }
-  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < trs.length; i++) atr = (atr * (period - 1) + trs[i]) / period;
-  return atr;
-};
-
-// v8.8 FIX: mirrored for SELL — see strategy.js for full rationale.
-// Previously SELL reused the BUY-anchored (high-down) pocket, which sits
-// near the bottom of the swing range. Since SELL is only chosen when price
-// is in the upper half of the range, the SELL path could structurally never
-// reach "near zone" — explaining the 100% BUY / 0% SELL backtest result.
-const calcFib = (high, low, direction = 'BUY') => {
-  const diff = high - low;
-  if (direction === 'SELL') {
-    return {
-      level500: low + diff * 0.500,
-      level618: low + diff * 0.618,
-      level786: low + diff * 0.786,
-      level886: low + diff * 0.886,
-      zoneLow:  low + diff * CONFIG.FIB_ZONE_LOW,
-      zoneHigh: low + diff * CONFIG.FIB_ZONE_HIGH,
-    };
-  }
-  return {
-    level500: high - diff * 0.500,
-    level618: high - diff * 0.618,
-    level786: high - diff * 0.786,
-    level886: high - diff * 0.886,
-    zoneHigh: high - diff * CONFIG.FIB_ZONE_LOW,
-    zoneLow:  high - diff * CONFIG.FIB_ZONE_HIGH,
-  };
-};
-
-const calcVolumeProfile = (data) => {
-  const rows = CONFIG.VP_ROWS;
-  const high  = Math.max(...data.map(d => d.high));
-  const low   = Math.min(...data.map(d => d.low));
-  const range = high - low;
-  if (range === 0 || !isFinite(range)) return null;
-  const rowSize = range / rows;
-  const bins = {};
-  data.forEach(d => {
-    const price = (d.high + d.low) / 2;
-    const idx   = Math.min(Math.floor((price - low) / rowSize), rows - 1);
-    bins[idx]   = (bins[idx] || 0) + d.volume;
-  });
-  let maxVol = 0, pocIdx = 0, totalVol = 0;
-  const volArr = [];
-  for (let i = 0; i < rows; i++) {
-    const v = bins[i] || 0;
-    volArr.push(v);
-    totalVol += v;
-    if (v > maxVol) { maxVol = v; pocIdx = i; }
-  }
-  const pocPrice   = low + (pocIdx + 0.5) * rowSize;
-  const targetVol  = totalVol * CONFIG.VALUE_AREA_PCT;
-  let cumVol = volArr[pocIdx], loIdx = pocIdx, hiIdx = pocIdx;
-  while (cumVol < targetVol && (loIdx > 0 || hiIdx < rows - 1)) {
-    const lowOpen  = loIdx > 0;
-    const highOpen = hiIdx < rows - 1;
-    const addLow   = lowOpen  ? volArr[loIdx - 1] : -Infinity;
-    const addHigh  = highOpen ? volArr[hiIdx + 1] : -Infinity;
-    if (!lowOpen && !highOpen) break;
-    if (highOpen && (!lowOpen || addHigh >= addLow)) { hiIdx++; cumVol += volArr[hiIdx]; }
-    else { loIdx--; cumVol += volArr[loIdx]; }
-  }
-  return {
-    pocPrice,
-    vahPrice: low + (hiIdx + 0.5) * rowSize,
-    valPrice: low + (loIdx + 0.5) * rowSize,
-  };
-};
-
-const get4HBias = (data4h) => {
-  if (data4h.length < 20) return null;
-  const price4h = data4h[data4h.length - 1].close;
-  const vp4h    = calcVolumeProfile(data4h);
-  if (!vp4h) return null;
-  const fibData4h = data4h.slice(-CONFIG.BIAS_FIB_LOOKBACK);
-  const fibMid4h  = (Math.max(...fibData4h.map(d => d.high)) + Math.min(...fibData4h.map(d => d.low))) / 2;
-  const votes = {
-    poc: price4h >= vp4h.pocPrice ? 'BULL' : 'BEAR',
-    vah: price4h >= vp4h.vahPrice ? 'BULL' : 'BEAR',
-    val: price4h >= vp4h.valPrice ? 'BULL' : 'BEAR',
-    fib: price4h >= fibMid4h      ? 'BULL' : 'BEAR',
-  };
-  const bullVotes = Object.values(votes).filter(v => v === 'BULL').length;
-  let bias;
-  if      (bullVotes >= 3) bias = 'BULLISH';
-  else if (bullVotes <= 1) bias = 'BEARISH';
-  else                     bias = 'NEUTRAL';
-  return { bias, bullVotes, poc4h: vp4h.pocPrice, vah4h: vp4h.vahPrice, val4h: vp4h.valPrice, fibMid4h };
-};
-
-const confluenceScore = (fibLevel, pivot, atr) => {
-  if (!pivot || !fibLevel || !atr) return 0;
-  const tol  = atr * CONFIG.CONFLUENCE_ATR_MULT;
-  const dist = Math.abs(fibLevel - pivot);
-  if (dist <= tol * 0.5) return 2;
-  if (dist <= tol)       return 1;
-  return 0;
-};
-
-const detectRejection = (candles, zoneLow, zoneHigh, direction, pocPrice) => {
-  if (candles.length < 2) return { valid: false, patterns: [], score: 0 };
-  const c = candles[candles.length - 1];
-  const p = candles[candles.length - 2];
-  if (!(c.low <= zoneHigh && c.high >= zoneLow)) return { valid: false, patterns: [], score: 0 };
-  const body      = Math.abs(c.close - c.open);
-  const fullRange = c.high - c.low;
-  const bodyRatio = fullRange > 0 ? body / fullRange : 0;
-  let absorptionVeto = false;
-  if (bodyRatio > CONFIG.ABSORPTION_BODY_RATIO) {
-    if (direction === 'SELL' && c.close > c.open) absorptionVeto = true;
-    if (direction === 'BUY'  && c.close < c.open) absorptionVeto = true;
-  }
-  const patterns = [];
-  if (direction === 'BUY') {
-    if (pocPrice && c.low < pocPrice && c.close > pocPrice) patterns.push('POC_RECLAIM');
-    const lw = Math.min(c.open, c.close) - c.low;
-    if (lw > body * 1.5 && body > 0) patterns.push('PIN_BAR');
-    if (c.close > c.open && c.close > p.close && c.open < p.open) patterns.push('ENGULFING');
-    if (c.low <= zoneHigh && c.close > zoneHigh) patterns.push('CLOSE_REJECTION');
-  } else {
-    if (pocPrice && c.high > pocPrice && c.close < pocPrice) patterns.push('POC_RECLAIM');
-    const uw = c.high - Math.max(c.open, c.close);
-    if (uw > body * 1.5 && body > 0) patterns.push('PIN_BAR');
-    if (c.close < c.open && c.close < p.close && c.open > p.open) patterns.push('ENGULFING');
-    if (c.high >= zoneLow && c.close < zoneLow) patterns.push('CLOSE_REJECTION');
-  }
-  const score = patterns.length;
-  // v9.0 sync fix: POC_RECLAIM_SOLO existed in strategy.js but not here.
-  const pocReclaimSolo = CONFIG.POC_RECLAIM_SOLO && direction === 'SELL' && patterns.length === 1 && patterns[0] === 'POC_RECLAIM';
-  return { valid: !absorptionVeto && (score >= CONFIG.REJECTION_MIN_PATTERNS || pocReclaimSolo), patterns, absorptionVeto, score, pocReclaimSolo: !!pocReclaimSolo };
-};
-
-// ── Backtest engine ───────────────────────────────────────────────────────────
-
-const backtestSymbol = async (symbol, data15m, data4h) => {
-  const trades       = [];
-  const cooldownMap  = {};  // direction → last signal bar time
-  let   openTrade    = null;
-
-  // DIAGNOSTIC FUNNEL — counts how many scanned bars survive each gate.
-  // Purely instrumentation, does not change any trading logic.
   const funnel = {
-    scanned: 0, bias4hOk: 0, bullBias4h: 0, bearBias4h: 0, atrOk: 0, swingInRange: 0, biasAligned: 0,
-    notOverExtended: 0, nearZone: 0, vpOk: 0, confluenceOk: 0, htfAligned: 0,
-    notInvalidated: 0, cooldownOk: 0, rejectionOk: 0, tp3RangeOk: 0,
-    surgF1: 0, surgF2: 0, surgF3: 0, surgF4: 0, surgicalOk: 0, opened: 0,
+    scanned: 0, voteOk: 0, bullVote: 0, bearVote: 0, structureOk: 0, notOverExtended: 0,
+    nearZone: 0, confluenceOk: 0, htfAligned: 0, notInvalidated: 0, cooldownOk: 0,
+    triggerOk: 0, tp3RangeOk: 0, opened: 0,
   };
 
-  // We need enough warmup bars before we start scanning
-  const warmup = Math.max(CONFIG.VP_LOOKBACK, CONFIG.FIB_LOOKBACK) + CONFIG.ATR_PERIOD + 5;
+  const warmup1h = config.STRUCT_VP_LOOKBACK + config.ATR_PERIOD + 5;
+  const warmup4h = config.BIAS_VP_LOOKBACK + 5;
+  const warmup15m = config.TRIGGER_VP_LOOKBACK + 5;
 
-  console.log(`\n  Replaying ${data15m.length - warmup} bars for ${symbol}...`);
+  // Find the first 15m index where all three timeframes have enough warmup data.
+  let ptr1h = 0, ptr4h = 0;
+  while (ptr1h < data1h.length - 1 && data1h[ptr1h + 1].time <= data15m[0].time) ptr1h++;
+  while (ptr4h < data4h.length - 1 && data4h[ptr4h + 1].time <= data15m[0].time) ptr4h++;
 
-  for (let i = warmup; i < data15m.length; i++) {
-    const bar     = data15m[i];
-    const history = data15m.slice(0, i + 1); // only bars up to NOW (no lookahead)
-    const price   = bar.close;
+  let startIdx = warmup15m;
+  while (startIdx < data15m.length) {
+    const t = data15m[startIdx].time;
+    let p1 = 0, p4 = 0;
+    while (p1 < data1h.length - 1 && data1h[p1 + 1].time <= t) p1++;
+    while (p4 < data4h.length - 1 && data4h[p4 + 1].time <= t) p4++;
+    if (p1 >= warmup1h && p4 >= warmup4h) break;
+    startIdx++;
+  }
+  if (startIdx >= data15m.length) {
+    console.log(`  [WARMUP] ${symbol}: insufficient history for warmup — skipping.`);
+    return { trades: [], funnel };
+  }
 
-    // ── If we have an open trade, check if SL or TP was hit this bar ──────
+  console.log(`\n  Replaying ${data15m.length - startIdx} × 15m bars for ${symbol}...`);
+
+  ptr1h = 0; ptr4h = 0;
+  let cached1h = null, cached4h = null;
+
+  for (let i = startIdx; i < data15m.length; i++) {
+    const bar = data15m[i];
+
+    // Advance pointers to the latest CLOSED 1H / 4H bar as of this 15m tick
+    let advanced1h = false, advanced4h = false;
+    while (ptr1h < data1h.length - 1 && data1h[ptr1h + 1].time <= bar.time) { ptr1h++; advanced1h = true; }
+    while (ptr4h < data4h.length - 1 && data4h[ptr4h + 1].time <= bar.time) { ptr4h++; advanced4h = true; }
+
+    // ── OPEN TRADE MANAGEMENT (checked every 15m tick for tighter fills) ──
     if (openTrade) {
-      // v8.7: BREAKEVEN RULE. Once price reaches the halfway point to TP1,
-      // move SL to entry. This is pure exit-side risk management — it does
-      // not touch POC/VAH/VAL/Fib/4H-bias entry logic at all. It exists
-      // because the v8.7 8-symbol backtest showed 5 of 6 losses were
-      // TIMEOUT exits (200-bar max hold force-closed at market), not SL
-      // hits — i.e. trades that moved partway favorable, stalled, then got
-      // closed at whatever price prevailed. Locking in breakeven once a
-      // trade has proven itself (reached 50% of the way to TP1) converts
-      // those stalled trades into worst-case scratches instead of losses.
       if (!openTrade.beMoved) {
         const halfway = openTrade.direction === 'BUY'
           ? openTrade.entryPrice + (openTrade.tp1Price - openTrade.entryPrice) * 0.5
           : openTrade.entryPrice - (openTrade.entryPrice - openTrade.tp1Price) * 0.5;
         const reached = openTrade.direction === 'BUY' ? bar.high >= halfway : bar.low <= halfway;
-        if (reached) {
-          openTrade.slPrice = openTrade.entryPrice;
-          openTrade.beMoved = true;
-        }
+        if (reached) { openTrade.slPrice = openTrade.entryPrice; openTrade.beMoved = true; }
       }
 
-      const { direction, entryPrice, slPrice, tp1Price, tp2Price, tp3Price, origSlPrice } = openTrade;
+      const { direction, entryPrice, slPrice, tp1Price, tp2Price, tp3Price, origSlPrice, rr1, rr2, rr3 } = openTrade;
       const origRisk = Math.abs(entryPrice - origSlPrice);
       const slRR = parseFloat((((slPrice - entryPrice) / origRisk) * (direction === 'BUY' ? 1 : -1)).toFixed(2));
-
       let outcome = null;
 
-      // ── PARTIAL EXIT (v8.10 Improvement 4) ────────────────────────────
-      // First TP2 touch: close 50% of position and move SL to TP2.
-      // The remaining 50% runs free to TP3 with zero downside past TP2.
       if (!openTrade.halfExited) {
         const tp2Hit = direction === 'BUY' ? bar.high >= tp2Price : bar.low <= tp2Price;
-        if (tp2Hit) {
-          openTrade.halfExited = true;
-          openTrade.halfR      = openTrade.rr2;        // locked-in R for first half
-          openTrade.slPrice    = tp2Price;              // SL moves to TP2 — runner is risk-free
-        }
+        if (tp2Hit) { openTrade.halfExited = true; openTrade.halfR = rr2; openTrade.slPrice = tp2Price; }
       }
 
-      // FIX: SL always checked first — if both SL and TP hit same bar, SL wins (conservative)
       if (openTrade.halfExited) {
-        // Runner phase: SL is now at TP2, only TP3 or SL-at-TP2 can exit
         if (direction === 'BUY') {
           if      (bar.low  <= openTrade.slPrice) outcome = { result: 'TP2+BE',  exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * 0.5).toFixed(2)) };
-          else if (bar.high >= tp3Price)          outcome = { result: 'TP2+TP3', exitPrice: tp3Price,          rr: parseFloat(((openTrade.halfR + openTrade.rr3) * 0.5).toFixed(2)) };
+          else if (bar.high >= tp3Price)          outcome = { result: 'TP2+TP3', exitPrice: tp3Price,          rr: parseFloat(((openTrade.halfR + rr3) * 0.5).toFixed(2)) };
         } else {
           if      (bar.high >= openTrade.slPrice) outcome = { result: 'TP2+BE',  exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * 0.5).toFixed(2)) };
-          else if (bar.low  <= tp3Price)          outcome = { result: 'TP2+TP3', exitPrice: tp3Price,          rr: parseFloat(((openTrade.halfR + openTrade.rr3) * 0.5).toFixed(2)) };
+          else if (bar.low  <= tp3Price)          outcome = { result: 'TP2+TP3', exitPrice: tp3Price,          rr: parseFloat(((openTrade.halfR + rr3) * 0.5).toFixed(2)) };
         }
       } else {
-        // Original full-position exit (before first TP2 touch)
         if (direction === 'BUY') {
-          if      (bar.low  <= slPrice)   outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice,   rr: slRR };
-          else if (bar.high >= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price,  rr: openTrade.rr3 };
-          else if (bar.high >= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price,  rr: openTrade.rr2 };
-          else if (bar.high >= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price,  rr: openTrade.rr1 };
+          if      (bar.low  <= slPrice)  outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice,  rr: slRR };
+          else if (bar.high >= tp3Price) outcome = { result: 'TP3', exitPrice: tp3Price, rr: rr3 };
+          else if (bar.high >= tp2Price) outcome = { result: 'TP2', exitPrice: tp2Price, rr: rr2 };
+          else if (bar.high >= tp1Price) outcome = { result: 'TP1', exitPrice: tp1Price, rr: rr1 };
         } else {
-          if      (bar.high >= slPrice)   outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice,   rr: slRR };
-          else if (bar.low  <= tp3Price)  outcome = { result: 'TP3', exitPrice: tp3Price,  rr: openTrade.rr3 };
-          else if (bar.low  <= tp2Price)  outcome = { result: 'TP2', exitPrice: tp2Price,  rr: openTrade.rr2 };
-          else if (bar.low  <= tp1Price)  outcome = { result: 'TP1', exitPrice: tp1Price,  rr: openTrade.rr1 };
+          if      (bar.high >= slPrice)  outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice,  rr: slRR };
+          else if (bar.low  <= tp3Price) outcome = { result: 'TP3', exitPrice: tp3Price, rr: rr3 };
+          else if (bar.low  <= tp2Price) outcome = { result: 'TP2', exitPrice: tp2Price, rr: rr2 };
+          else if (bar.low  <= tp1Price) outcome = { result: 'TP1', exitPrice: tp1Price, rr: rr1 };
         }
       }
 
       if (outcome) {
-        trades.push({
-          ...openTrade,
-          exitTime:  bar.time,
-          exitPrice: outcome.exitPrice,
-          result:    outcome.result,
-          rr:        parseFloat(outcome.rr),
-          barsHeld:  Math.round((bar.time - openTrade.entryTime) / CONFIG.ENTRY_BAR_SECONDS),
-        });
+        trades.push({ ...openTrade, exitTime: bar.time, exitPrice: outcome.exitPrice, result: outcome.result, rr: parseFloat(outcome.rr),
+          hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600) });
         openTrade = null;
         continue;
       }
 
-      // v9.1: early time-stop. Losers took 3.4x longer to resolve than
-      // winners (135.7 vs 40.4 bars avg) — 5/14 real losses never decisively
-      // failed, they drifted to the 200-bar cap. If TP2 hasn't been reached
-      // (not halfExited) within EARLY_TIMEOUT_BARS, close at market now
-      // instead of riding it the full 200 bars. Does not touch SL/TP levels.
-      if (!openTrade.halfExited && (i - openTrade.entryBarIdx > CONFIG.EARLY_TIMEOUT_BARS)) {
-        trades.push({
-          ...openTrade,
-          exitTime:  bar.time,
-          exitPrice: price,
-          result:    'EARLY_TIMEOUT',
-          rr:        parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
-          barsHeld:  i - openTrade.entryBarIdx,
-        });
+      // Early time-stop: TP2 not reached within EARLY_TIMEOUT_BARS hours
+      if (!openTrade.halfExited && (bar.time - openTrade.entryTime) > config.EARLY_TIMEOUT_BARS * config.STRUCT_BAR_SECONDS) {
+        const price = bar.close;
+        trades.push({ ...openTrade, exitTime: bar.time, exitPrice: price, result: 'EARLY_TIMEOUT',
+          rr: parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
+          hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600) });
         openTrade = null;
         continue;
       }
-
-      // Max hold: 200 bars on 1hour candles = 200 hours (~8.3 days) — close at market if no TP/SL hit
-      if (i - openTrade.entryBarIdx > 200) {
-        trades.push({
-          ...openTrade,
-          exitTime:  bar.time,
-          exitPrice: price,
-          result:    'TIMEOUT',
-          rr:        parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
-          barsHeld:  200,
-        });
+      // Max hold: 200 structure(1H) bars ≈ 8.3 days
+      if ((bar.time - openTrade.entryTime) > 200 * config.STRUCT_BAR_SECONDS) {
+        const price = bar.close;
+        trades.push({ ...openTrade, exitTime: bar.time, exitPrice: price, result: 'TIMEOUT',
+          rr: parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
+          hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600) });
         openTrade = null;
       }
-      continue; // while in a trade, don't scan for new entry
+      continue; // in-trade: don't scan for new entries
     }
 
-    // ── STEP 0: 4H Bias ────────────────────────────────────────────────────
-    // Find 4H bars up to current bar time
     funnel.scanned++;
-    const bars4h = data4h.filter(b => b.time <= bar.time).slice(-CONFIG.BIAS_LOOKBACK);
-    if (bars4h.length < 20) continue;
-    const bias4h = get4HBias(bars4h);
-    if (!bias4h || bias4h.bias === 'NEUTRAL') continue;
-    funnel.bias4hOk++;
-    if (bias4h.bias === 'BULLISH') funnel.bullBias4h++;
-    else if (bias4h.bias === 'BEARISH') funnel.bearBias4h++;
 
-    // ── STEP 1-2: Entry TF data + ATR ──────────────────────────────────────
-    const window = history.slice(-CONFIG.VP_LOOKBACK);
-    const atr    = calcATR(window);
-    if (!atr) continue;
-    funnel.atrOk++;
+    // ── Recompute 1H structure only when a new 1H bar closed ────────────
+    // Bounded slice — only fires ~once/hour of backtest time, but no
+    // reason to let it grow unbounded either.
+    if (advanced1h || !cached1h) {
+      const w1Start = Math.max(0, ptr1h + 1 - (config.STRUCT_VP_LOOKBACK + config.ATR_PERIOD + 5));
+      const window1h = data1h.slice(w1Start, ptr1h + 1);
+      const bias1h = core.tfBiasVote(window1h, config.STRUCT_VP_LOOKBACK, config.STRUCT_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
+      const atr1h = core.calcATR(window1h, config.ATR_PERIOD);
+      cached1h = bias1h && atr1h ? { bias1h, atr1h } : null;
+    }
+    // ── Recompute 4H bias only when a new 4H bar closed ──────────────────
+    if (advanced4h || !cached4h) {
+      const w4Start = Math.max(0, ptr4h + 1 - (config.BIAS_VP_LOOKBACK + 5));
+      const window4h = data4h.slice(w4Start, ptr4h + 1);
+      const bias4h = core.tfBiasVote(window4h, config.BIAS_VP_LOOKBACK, config.BIAS_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
+      cached4h = bias4h;
+    }
+    if (!cached1h) continue;
 
-    // ── STEP 3: Fibonacci swing ─────────────────────────────────────────────
-    const fibData  = history.slice(-CONFIG.FIB_LOOKBACK);
-    const swingH   = Math.max(...fibData.map(d => d.high));
-    const swingL   = Math.min(...fibData.map(d => d.low));
-    if (price > swingH || price < swingL) continue; // A2 remap — skip
-    funnel.swingInRange++;
-    const midPoint  = (swingH + swingL) / 2;
-    const direction = price < midPoint ? 'BUY' : 'SELL';
-    const fib       = calcFib(swingH, swingL, direction);
+    // ── 15m bias recomputed every tick (its window slides every bar) ────
+    // Bounded slice (not slice(0, i+1)) — an unbounded slice that grows
+    // every tick is O(n^2) over a 720-day backtest (~69,000 ticks) for no
+    // benefit, since tfBiasVote/detectRejection only ever look at the tail.
+    const win15mStart = Math.max(0, i + 1 - (config.TRIGGER_VP_LOOKBACK + 5));
+    const window15m = data15m.slice(win15mStart, i + 1);
+    const bias15m = core.tfBiasVote(window15m, config.TRIGGER_VP_LOOKBACK, config.TRIGGER_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
 
-    // ── STEP 4: 4H bias alignment ───────────────────────────────────────────
-    const biasAligned =
-      (direction === 'BUY'  && bias4h.bias === 'BULLISH') ||
-      (direction === 'SELL' && bias4h.bias === 'BEARISH');
-    if (!biasAligned) continue;
-    funnel.biasAligned++;
+    const resolved = core.resolveDirection([
+      { tf: '4H', result: cached4h },
+      { tf: '1H', result: cached1h.bias1h },
+      { tf: '15m', result: bias15m },
+    ]);
+    if (!resolved) continue;
+    funnel.voteOk++;
+    if (resolved.direction === 'BUY') funnel.bullVote++; else funnel.bearVote++;
 
-    // ── STEP 5: D4 over-extension ───────────────────────────────────────────
-    if ((direction === 'BUY'  && price < fib.level886) ||
-        (direction === 'SELL' && price > fib.level886)) continue;
+    const direction = resolved.direction;
+    const { bias1h, atr1h } = cached1h;
+    const swing1h = bias1h.swing;
+    const price1h = data1h[ptr1h].close;
+
+    if (price1h > swing1h.high || price1h < swing1h.low) continue; // remap
+    funnel.structureOk++;
+
+    const fib = core.calcFib(swing1h.high, swing1h.low, direction, config.FIB_ZONE_LOW, config.FIB_ZONE_HIGH);
+
+    if ((direction === 'BUY' && price1h < fib.level886) || (direction === 'SELL' && price1h > fib.level886)) continue;
     funnel.notOverExtended++;
 
-    // ── STEP 6: Early proximity skip ───────────────────────────────────────
-    if (price < fib.zoneLow - atr || price > fib.zoneHigh + atr) continue;
+    if (price1h < fib.zoneLow - atr1h || price1h > fib.zoneHigh + atr1h) continue;
     funnel.nearZone++;
 
-    // ── STEP 7: Volume Profile ──────────────────────────────────────────────
-    const vp = calcVolumeProfile(window);
-    if (!vp) continue;
-    funnel.vpOk++;
-
-    // ── STEP 8: Confluence ──────────────────────────────────────────────────
-    const checkLevels = [fib.level618, fib.level786, (fib.zoneHigh + fib.zoneLow) / 2];
-    const checkPivots = [
-      { name: 'POC', price: vp.pocPrice },
-      { name: 'VAH', price: vp.vahPrice },
-      { name: 'VAL', price: vp.valPrice },
-    ];
+    const vp1h = bias1h.vp;
+    const fibMid = (fib.zoneHigh + fib.zoneLow) / 2;
+    const checkLevels = [fib.level618, fib.level786, fibMid];
+    const checkPivots = [{ name: 'POC', price: vp1h.pocPrice }, { name: 'VAH', price: vp1h.vahPrice }, { name: 'VAL', price: vp1h.valPrice }];
     let bestScore = 0, bestFibLevel = null, bestPivot = null;
-    for (const lvl of checkLevels) {
-      for (const pivot of checkPivots) {
-        const sc = confluenceScore(lvl, pivot.price, atr);
-        if (sc > bestScore) { bestScore = sc; bestFibLevel = lvl; bestPivot = pivot; }
-      }
+    for (const lvl of checkLevels) for (const pivot of checkPivots) {
+      const sc = core.confluenceScore(lvl, pivot.price, atr1h, config.CONFLUENCE_ATR_MULT);
+      if (sc > bestScore) { bestScore = sc; bestFibLevel = lvl; bestPivot = pivot; }
     }
     if (bestScore < 1) continue;
+    if (bestPivot.name === 'POC' && bestScore < config.MIN_CONFLUENCE_POC) continue;
     funnel.confluenceOk++;
 
-    // v8.10: POC confluence gate — POC entries require tight Fib alignment
-    // (score≥2). VAH/VAL entries are exempt (cleaner boundary levels).
-    // Root cause of the single SL loss: BTC BUY 2026-06-19 was a POC entry
-    // with confluenceScore=1 (Fib loosely near POC, not tightly stacked).
-    // The reclaim candle pattern was valid but the Fib/POC stack was weak,
-    // making it susceptible to a false reclaim. This gate filters that class.
-    if (bestPivot.name === 'POC' && bestScore < CONFIG.MIN_CONFLUENCE_POC) continue;
-
-    // v9.1: BUY-side confluence tightening (mirrors strategy.js). BUY had
-    // 14.6% real-loss rate vs 2.9% SELL — require score>=2 on every BUY entry.
-    if (direction === 'BUY' && bestScore < CONFIG.BUY_CONFLUENCE_MIN) continue;
-
-    // ── STEP 9: 4H Zone cross-check ─────────────────────────────────────────
-    // v9.0 sync fix: backtest was missing SELL_HTF_MULT_BOOST entirely —
-    // strategy.js (live bot) widens SELL's HTF tolerance by this factor,
-    // but backtest.js silently used the BUY tolerance for both directions.
-    // That means every prior backtest UNDERSTATED real SELL signal count
-    // relative to what the live bot would actually fire.
-    const tol4h = atr * CONFIG.HTFZONE_ATR_MULT * (
-      direction === 'SELL' ? (CONFIG.SELL_HTF_MULT_BOOST || 1.0) : 1.0
-    );
-    const levels4h = [bias4h.poc4h, bias4h.vah4h, bias4h.val4h, bias4h.fibMid4h];
-    const htfAligned = levels4h.some(lvl => Math.abs(bestFibLevel - lvl) <= tol4h);
-    if (!htfAligned) continue;
+    const htfCheck = core.checkHTFZoneAlignment(bestFibLevel, cached4h, atr1h, direction, config.HTFZONE_ATR_MULT);
+    if (!htfCheck.aligned) continue;
     funnel.htfAligned++;
 
-    // ── STEP 10: Zone invalidation ──────────────────────────────────────────
-    const margin = atr * CONFIG.ZONE_INVALIDATION_ATR_MULT;
-    if (direction === 'BUY'  && price < bestFibLevel - margin) continue;
-    if (direction === 'SELL' && price > bestFibLevel + margin) continue;
+    if (core.isZoneInvalidated(price1h, bestFibLevel, atr1h, direction, config.ZONE_INVALIDATION_ATR_MULT)) continue;
     funnel.notInvalidated++;
 
-    // ── STEP 11: Cooldown ───────────────────────────────────────────────────
-    const coolKey = `${direction}`;
-    const lastBar = cooldownMap[coolKey] || 0;
-    const barsSince = Math.round((bar.time - lastBar) / CONFIG.ENTRY_BAR_SECONDS);
-    if (barsSince < CONFIG.SIGNAL_COOLDOWN_BARS) continue;
+    const lastSignalBar = cooldownMap[direction] || 0;
+    const barsSince = Math.round((bar.time - lastSignalBar) / config.STRUCT_BAR_SECONDS);
+    if (barsSince < config.SIGNAL_COOLDOWN_BARS) continue;
     funnel.cooldownOk++;
 
-    // ── STEP 12: Rejection patterns ─────────────────────────────────────────
-    const zoneLow  = fib.zoneLow  - atr * 0.1;
-    const zoneHigh = fib.zoneHigh + atr * 0.1;
-    const rejection = detectRejection(window, zoneLow, zoneHigh, direction, vp.pocPrice);
+    const entryZoneLow  = fib.zoneLow  - atr1h * 0.1;
+    const entryZoneHigh = fib.zoneHigh + atr1h * 0.1;
+    const rejection = core.detectRejection(window15m, entryZoneLow, entryZoneHigh, direction,
+      { poc: vp1h.pocPrice, vah: vp1h.vahPrice, val: vp1h.valPrice },
+      config.ABSORPTION_BODY_RATIO, config.REJECTION_MIN_PATTERNS, config.ALLOW_SOLO_TRIGGER);
     if (!rejection.valid) continue;
-    funnel.rejectionOk++;
+    funnel.triggerOk++;
 
-    // ── STEP 13: SL / TP ────────────────────────────────────────────────────
-    const swingWick  = direction === 'BUY' ? swingL : swingH;
-    const slPrice    = direction === 'BUY'
-      ? swingWick - atr * CONFIG.SL_ATR_MULT
-      : swingWick + atr * CONFIG.SL_ATR_MULT;
-    const entryPrice = bestFibLevel;
-    const risk       = Math.abs(entryPrice - slPrice);
-    if (risk === 0) continue;
-
-    // v8.9: Dynamic TP1 = max(50%Fib, entry + 1.2×risk)
-    // Unlocks 61.8%Fib entries that were blocked by MIN_RR1=1.0 when TP1 was fixed 50%Fib.
-    const tp1RrFloor    = CONFIG.TP1_RR_FLOOR || 1.2;
-    const tp1Structural = fib.level500;
-    const tp1Dynamic    = direction === 'BUY'
-      ? entryPrice + risk * tp1RrFloor
-      : entryPrice - risk * tp1RrFloor;
-    const tp1Price = direction === 'BUY'
-      ? Math.max(tp1Structural, tp1Dynamic)
-      : Math.min(tp1Structural, tp1Dynamic);
-    // TP2: structural 50%Fib midpoint between TP1 and TP3 (was TP1 pre-v8.9)
-    // TP3 = VAH/VAL runner (was TP2 pre-v8.9)
-    const tp3Price   = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
-
-    // v9.1 fix: TP2 must sit strictly BETWEEN TP1 and TP3, never reuse
-    // tp1Structural directly. The old `tp2Price = tp1Structural` line collapsed
-    // TP1 and TP2 onto the identical price whenever the 1.2R dynamic floor
-    // didn't push TP1 past the structural 50%Fib level (~53% of trades in the
-    // v9.0 backtest report), and in the remaining cases put TP2 NEARER than
-    // TP1 — backwards ordering that made TP1 functionally unreachable
-    // (TP1 hits = 0). Fix: require TP3 to actually extend beyond TP1 in the
-    // trade direction, then place TP2 at the true midpoint of TP1→TP3 so all
-    // three legs are strictly ordered (TP1 < TP2 < TP3 for BUY, reverse for SELL).
-    const tp3BeyondTp1 = direction === 'BUY' ? tp3Price > tp1Price : tp3Price < tp1Price;
-    if (!tp3BeyondTp1) continue;
+    const levels = core.computeTradeLevels({
+      direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
+      slAtrMult: config.SL_ATR_MULT, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
+    });
+    if (!levels) continue;
     funnel.tp3RangeOk++;
-    const tp2Price = tp1Price + (tp3Price - tp1Price) * 0.5;
-
-    const rr1 = parseFloat((Math.abs(tp1Price - entryPrice) / risk).toFixed(2));
-    const rr2 = parseFloat((Math.abs(tp2Price - entryPrice) / risk).toFixed(2));
-    const rr3 = parseFloat((Math.abs(tp3Price - entryPrice) / risk).toFixed(2));
-
-    // SURGICAL FILTER
-    // Filter 1: TP2(50%Fib) must be ≥ MIN_TP2_RR (or PAIR_MIN_TP2_RR override).
-    // v9.0 sync fix: per-pair override was missing here.
-    const minTp2Rr = (CONFIG.PAIR_MIN_TP2_RR && CONFIG.PAIR_MIN_TP2_RR[symbol] !== undefined)
-      ? CONFIG.PAIR_MIN_TP2_RR[symbol]
-      : CONFIG.MIN_TP2_RR;
-    if (rr2 < minTp2Rr) continue;
-    funnel.surgF1++;
-    funnel.surgF2++;
-    // Filter 2: pattern count — exempt when pocReclaimSolo already validated
-    // this trade via detectRejection(); re-checking patterns.length here
-    // would re-block the exact path POC_RECLAIM_SOLO was meant to allow.
-    if (!rejection.pocReclaimSolo && rejection.patterns.length < CONFIG.REJECTION_MIN_PATTERNS) continue;
-    funnel.surgF3++;
-    funnel.surgF4++;
-    funnel.surgicalOk++;
     funnel.opened++;
 
-    // ── OPEN TRADE ──────────────────────────────────────────────────────────
-    cooldownMap[coolKey] = bar.time;
+    cooldownMap[direction] = bar.time;
     openTrade = {
       symbol, direction,
-      entryTime:    bar.time,
-      entryBarIdx:  i,
-      entryPrice, slPrice, tp1Price, tp2Price, tp3Price,
-      origSlPrice: slPrice,
-      rr1, rr2, rr3,
-      patterns:    rejection.patterns,
-      pivot:       bestPivot.name,
-      bias4h:      bias4h.bias,
+      entryTime: bar.time,
+      entryPrice: bestFibLevel, slPrice: levels.slPrice, tp1Price: levels.tp1Price, tp2Price: levels.tp2Price, tp3Price: levels.tp3Price,
+      origSlPrice: levels.slPrice,
+      rr1: parseFloat(levels.rr1.toFixed(2)), rr2: parseFloat(levels.rr2.toFixed(2)), rr3: parseFloat(levels.rr3.toFixed(2)),
+      patterns: rejection.patterns, pivot: bestPivot.name,
+      voteTally: resolved.tally, agreeing: resolved.agreeing,
       confluenceScore: bestScore,
     };
   }
 
-  // Close any still-open trade at the last bar
   if (openTrade) {
     const lastBar = data15m[data15m.length - 1];
-    trades.push({
-      ...openTrade,
-      exitTime:  lastBar.time,
-      exitPrice: lastBar.close,
-      result:    'OPEN',
-      rr:        parseFloat(((lastBar.close - openTrade.entryPrice) /
-        Math.abs(openTrade.entryPrice - openTrade.origSlPrice) *
-        (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
-      barsHeld: data15m.length - 1 - openTrade.entryBarIdx,
-    });
+    trades.push({ ...openTrade, exitTime: lastBar.time, exitPrice: lastBar.close, result: 'OPEN',
+      rr: parseFloat(((lastBar.close - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
+      hoursHeld: Math.round((lastBar.time - openTrade.entryTime) / 3600) });
   }
 
-  // Print the gate funnel so we can see exactly where bars get filtered out.
   console.log(`  [FUNNEL] ${symbol}:`, JSON.stringify(funnel));
   return { trades, funnel };
 };
 
-// ── Report generator ──────────────────────────────────────────────────────────
-
-const generateReport = (allTrades, days, funnelsBySymbol) => {
+// ─────────────────────────────────────────────────────────────────────────
+//  REPORT GENERATOR
+// ─────────────────────────────────────────────────────────────────────────
+const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
   const closed = allTrades.filter(t => t.result !== 'OPEN');
   const wins   = closed.filter(t => t.rr > 0);
   const losses = closed.filter(t => t.rr <= 0);
   const tp1s   = closed.filter(t => t.result === 'TP1');
-  const tp2s   = closed.filter(t => t.result === 'TP2' || t.result === 'TP2+BE' || t.result === 'TP2+TP3');
-  const tp3s   = closed.filter(t => t.result === 'TP3' || t.result === 'TP2+TP3');
+  const tp2s   = closed.filter(t => ['TP2', 'TP2+BE', 'TP2+TP3'].includes(t.result));
+  const tp3s   = closed.filter(t => ['TP3', 'TP2+TP3'].includes(t.result));
   const sls    = closed.filter(t => t.result === 'SL');
   const bes    = closed.filter(t => t.result === 'BE' || t.result === 'TP2+BE');
   const timeouts = closed.filter(t => t.result === 'TIMEOUT' || t.result === 'EARLY_TIMEOUT');
 
-  const winRate   = closed.length ? (wins.length / closed.length * 100).toFixed(1) : '0.0';
-  // True losses = SL + TIMEOUT only. BE (breakeven scratch, 0R) is neither a
-  // win nor a real loss — it's capital returned intact. The headline winRate
-  // above counts BE as a loss (rr<=0), which understates how the strategy
-  // actually performed: of 32 closed trades, only 3 (1 SL + 2 TIMEOUT) lost
-  // real money — the other 6 "losses" gave money back, not took it.
-  // FIX: a TIMEOUT exit can still close at a positive RR (price moved
-  // favorably but never tagged a TP before the 200-bar cap) — previously
-  // EVERY timeout was counted as a real loss regardless of its actual rr.
-  // Only count negative-RR timeouts (and any raw SL) as real losses.
+  const winRate = closed.length ? (wins.length / closed.length * 100).toFixed(1) : '0.0';
   const losingTimeouts = timeouts.filter(t => t.rr <= 0);
-  const realLosses  = sls.length + losingTimeouts.length;
-  const trueWinRate = closed.length ? (((closed.length - realLosses) / closed.length) * 100).toFixed(1) : '0.0';
+  const realLosses = sls.length + losingTimeouts.length;
+  const noLossRate = closed.length ? (((closed.length - realLosses) / closed.length) * 100).toFixed(1) : '0.0';
   const avgWinRR  = wins.length   ? (wins.reduce((s, t) => s + t.rr, 0) / wins.length).toFixed(2) : '0.00';
   const avgLossRR = losses.length ? (losses.reduce((s, t) => s + t.rr, 0) / losses.length).toFixed(2) : '0.00';
   const totalRR   = closed.reduce((s, t) => s + t.rr, 0);
-
-  // Profit factor = gross wins / gross losses
   const grossWin  = wins.reduce((s, t) => s + t.rr, 0);
   const grossLoss = Math.abs(losses.reduce((s, t) => s + t.rr, 0));
   const profitFactor = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : '∞';
 
-  // Simulate $ P&L (1.5% risk per trade, 0.1% slippage per round-trip)
-  // Slippage reduces effective R: a 1R win at 1% risk on $1000 = $10,
-  // but 0.1% slip on entry+exit eats ~0.2% of capital ≈ $2 → net ~$8.
-  // We model it as a flat slippage cost deducted from every closed trade.
-  let capital = CONFIG.STARTING_CAPITAL;
-  let peak    = capital;
-  let maxDD   = 0;
-  const equityCurve = [{ trade: 0, capital: parseFloat(capital.toFixed(2)), date: null }];
+  let capital = config.STARTING_CAPITAL, peak = capital, maxDD = 0;
   for (const t of closed) {
-    const riskAmt    = capital * (CONFIG.RISK_PER_TRADE_PCT / 100);
-    const slipCost   = capital * (CONFIG.SLIPPAGE_PCT || 0);  // entry slip + exit slip
+    const riskAmt  = capital * (config.RISK_PER_TRADE_PCT / 100);
+    const slipCost = capital * (config.SLIPPAGE_PCT || 0);
     capital += riskAmt * t.rr - slipCost;
     if (capital > peak) peak = capital;
     const dd = (peak - capital) / peak * 100;
     if (dd > maxDD) maxDD = dd;
-    const tradeDate = t.exitTime ? new Date(t.exitTime * 1000).toISOString().slice(0, 10) : null;
-    equityCurve.push({ trade: equityCurve.length, capital: parseFloat(capital.toFixed(2)), date: tradeDate, result: t.result, rr: t.rr });
   }
   const finalCapital = capital.toFixed(2);
-  const totalReturn  = ((capital - CONFIG.STARTING_CAPITAL) / CONFIG.STARTING_CAPITAL * 100).toFixed(1);
+  const totalReturn = ((capital - config.STARTING_CAPITAL) / config.STARTING_CAPITAL * 100).toFixed(1);
 
-  // Pattern frequency
   const patternCount = {};
-  allTrades.forEach(t => {
-    (t.patterns || []).forEach(p => { patternCount[p] = (patternCount[p] || 0) + 1; });
-  });
+  allTrades.forEach(t => (t.patterns || []).forEach(p => { patternCount[p] = (patternCount[p] || 0) + 1; }));
 
-  // By symbol breakdown
+  const voteTallyCount = {};
+  allTrades.forEach(t => { voteTallyCount[t.voteTally || 'N/A'] = (voteTallyCount[t.voteTally || 'N/A'] || 0) + 1; });
+
   const bySymbol = {};
   for (const t of closed) {
     if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { trades: 0, wins: 0, totalRR: 0 };
@@ -740,9 +371,6 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     bySymbol[t.symbol].totalRR += t.rr;
   }
 
-  // By direction breakdown (BUY vs SELL) — surfaces any structural imbalance,
-  // e.g. a backtest window that's entirely BUY means the SELL side of the
-  // strategy has never actually been exercised, not that it doesn't exist.
   const byDirection = {};
   for (const t of closed) {
     if (!byDirection[t.direction]) byDirection[t.direction] = { trades: 0, wins: 0, totalRR: 0 };
@@ -750,227 +378,117 @@ const generateReport = (allTrades, days, funnelsBySymbol) => {
     if (t.rr > 0) byDirection[t.direction].wins++;
     byDirection[t.direction].totalRR += t.rr;
   }
-  const totalBullBias4h = Object.values(funnelsBySymbol).reduce((s, f) => s + (f ? f.bullBias4h : 0), 0);
-  const totalBearBias4h = Object.values(funnelsBySymbol).reduce((s, f) => s + (f ? f.bearBias4h : 0), 0);
 
-  // Avg bars held
-  const avgBarsHeld = closed.length
-    ? (closed.reduce((s, t) => s + (t.barsHeld || 0), 0) / closed.length).toFixed(0)
-    : '0';
-
-  // requestedSymbols reflects what was ACTUALLY run, not just symbols that
-  // happened to produce a trade — this was the bug that made SOL-USDT
-  // silently vanish from the report header when it fired 0 signals.
+  const avgHoursHeld = closed.length ? (closed.reduce((s, t) => s + (t.hoursHeld || 0), 0) / closed.length).toFixed(0) : '0';
+  const signalsPerWeek = closed.length ? (closed.length / (requestedDays / 7)).toFixed(2) : '0.00';
   const requestedSymbols = Object.keys(funnelsBySymbol).length ? Object.keys(funnelsBySymbol) : [...new Set(allTrades.map(t => t.symbol))];
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ` MVS — BACKTEST REPORT`,
-    ` Period: Last ${days} days  |  Symbols requested: ${requestedSymbols.join(', ')}`,
+    ' MVS v10.0 — BACKTEST REPORT',
+    ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
+    ' 4H bias + 1H structure + 15m trigger, 2-of-3 timeframe vote',
     '═══════════════════════════════════════════════════════════════════',
     '',
+    '⚠️  This is a backtest, not a live-performance guarantee. No setting',
+    '    here was chosen to hit a target win rate — see config.js header.',
+    '',
     '── SUMMARY ─────────────────────────────────────────────────────────',
-    `  Total signals fired   : ${allTrades.length}`,
-    `  Closed trades         : ${closed.length}`,
-    `  Open (unrealised)     : ${allTrades.filter(t => t.result === 'OPEN').length}`,
-    `  Win rate              : ${winRate}%  (${wins.length}W / ${losses.length}L)`,
-    `  Real-money win rate   : ${trueWinRate}%  (${closed.length - realLosses} no-loss / ${realLosses} real loss — excludes ${bes.length} breakeven scratches)`,
-    `  Profit factor         : ${profitFactor}`,
-    `  Total R accumulated   : ${totalRR.toFixed(2)}R`,
-    `  Avg win R:R           : ${avgWinRR}R`,
-    `  Avg loss R:R          : ${avgLossRR}R`,
-    `  Avg bars held         : ${avgBarsHeld} bars (~${(parseInt(avgBarsHeld) * CONFIG.ENTRY_BAR_SECONDS / 3600).toFixed(1)}h)`,
+    `  Total signals fired    : ${allTrades.length}  (~${signalsPerWeek}/week across all symbols)`,
+    `  Closed trades          : ${closed.length}`,
+    `  Open (unrealised)      : ${allTrades.filter(t => t.result === 'OPEN').length}`,
+    `  Win rate (all closed)  : ${winRate}%  (${wins.length}W / ${losses.length}L)`,
+    `  No-real-loss rate      : ${noLossRate}%  (${closed.length - realLosses} no-loss / ${realLosses} real loss — excludes ${bes.length} breakeven scratches; this is NOT the same as "win rate")`,
+    `  Profit factor          : ${profitFactor}`,
+    `  Total R accumulated    : ${totalRR.toFixed(2)}R`,
+    `  Avg win / avg loss     : +${avgWinRR}R / ${avgLossRR}R`,
+    `  Avg hours held         : ${avgHoursHeld}h`,
     '',
     '── OUTCOME BREAKDOWN ───────────────────────────────────────────────',
     `  TP1 hits  : ${tp1s.length}`,
     `  TP2 hits  : ${tp2s.length}`,
     `  TP3 hits  : ${tp3s.length}`,
     `  SL hits   : ${sls.length}`,
-    `  BE hits   : ${bes.length}  (SL moved to entry, exited flat — see v8.7 note)`,
+    `  BE hits   : ${bes.length}  (SL moved to entry once trade proved itself)`,
     `  Timeouts  : ${timeouts.length}`,
     '',
-    `── $ P&L SIMULATION (${CONFIG.RISK_PER_TRADE_PCT}% risk / trade + 0.1% slippage, $${CONFIG.STARTING_CAPITAL} start) ──────`,
-    `  Starting capital      : $${CONFIG.STARTING_CAPITAL}`,
-    `  Final capital         : $${finalCapital}`,
-    `  Total return          : ${totalReturn}%`,
-    `  Max drawdown          : ${maxDD.toFixed(1)}%`,
+    `── $ P&L SIMULATION (${config.RISK_PER_TRADE_PCT}% risk/trade + ${(config.SLIPPAGE_PCT*100).toFixed(1)}% slippage, $${config.STARTING_CAPITAL} start) ──`,
+    `  Final capital : $${finalCapital}  (${totalReturn}% return)  |  Max drawdown: ${maxDD.toFixed(1)}%`,
+    '',
+    '── TIMEFRAME VOTE BREAKDOWN ────────────────────────────────────────',
+    ...Object.entries(voteTallyCount).sort().map(([k, v]) => `  ${k} agreement: ${v} signals`),
     '',
     '── BY SYMBOL ───────────────────────────────────────────────────────',
     ...requestedSymbols.map(sym => {
       const s = bySymbol[sym];
-      if (!s) return `  ${sym.padEnd(10)} 0 trades | 0% WR | 0.00R total   ⚠️ 0 SIGNALS — see FUNNEL DIAGNOSTICS below`;
+      if (!s) return `  ${sym.padEnd(10)} 0 trades — see funnel diagnostics below`;
       return `  ${sym.padEnd(10)} ${s.trades} trades | ${(s.wins/s.trades*100).toFixed(0)}% WR | ${s.totalRR.toFixed(2)}R total`;
     }),
     '',
     '── BY DIRECTION ────────────────────────────────────────────────────',
-    `  4H bias occurrence (all symbols) : BULLISH bars=${totalBullBias4h}  BEARISH bars=${totalBearBias4h}`,
     ...(Object.keys(byDirection).length ? Object.keys(byDirection).map(dir => {
       const d = byDirection[dir];
       return `  ${dir.padEnd(6)} ${d.trades} trades | ${(d.wins/d.trades*100).toFixed(0)}% WR | ${d.totalRR.toFixed(2)}R total`;
     }) : ['  No closed trades to break down by direction.']),
-    ...(totalBearBias4h === 0
-      ? ['  ⚠️ Zero BEARISH 4H bias bars across the whole window — the SELL side of this',
-         '     strategy has not been exercised at all in this backtest period. Any WR/PF',
-         '     numbers above only validate the BUY side. Extend the lookback (--days) to',
-         '     include a bear/range period before trusting this strategy in both directions.']
-      : []),
     '',
-    '── FUNNEL DIAGNOSTICS (bars surviving each gate, per symbol) ────────',
+    '── FUNNEL DIAGNOSTICS (15m ticks surviving each gate, per symbol) ───',
     ...requestedSymbols.flatMap(sym => {
       const f = funnelsBySymbol[sym];
-      if (!f) return [`  ${sym}: no funnel data (fetch/insufficient-data — check console log)`];
+      if (!f) return [`  ${sym}: no funnel data`];
       return [
         `  ${sym}:`,
-        `    scanned=${f.scanned}  bias4hOk=${f.bias4hOk} (bull=${f.bullBias4h}/bear=${f.bearBias4h})  atrOk=${f.atrOk}  swingInRange=${f.swingInRange}`,
-        `    biasAligned=${f.biasAligned}  notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  vpOk=${f.vpOk}`,
-        `    confluenceOk=${f.confluenceOk}  htfAligned=${f.htfAligned}  notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}`,
-        `    rejectionOk=${f.rejectionOk}  surgF1(RR1)=${f.surgF1}  surgF2(RR2)=${f.surgF2}  surgF3(patterns)=${f.surgF3}  surgF4(POC)=${f.surgF4}  opened=${f.opened}`,
+        `    scanned=${f.scanned}  voteOk=${f.voteOk}(bull=${f.bullVote}/bear=${f.bearVote})  structureOk=${f.structureOk}`,
+        `    notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  confluenceOk=${f.confluenceOk}  htfAligned=${f.htfAligned}`,
+        `    notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}  triggerOk=${f.triggerOk}  tp3RangeOk=${f.tp3RangeOk}  opened=${f.opened}`,
       ];
     }),
     '',
     '── PATTERN FREQUENCY ───────────────────────────────────────────────',
-    ...Object.entries(patternCount)
-      .sort(([,a],[,b]) => b - a)
-      .map(([p, c]) => `  ${p.padEnd(20)} ${c}x`),
+    ...Object.entries(patternCount).sort(([,a],[,b]) => b - a).map(([p, c]) => `  ${p.padEnd(20)} ${c}x`),
     '',
     '── RECENT TRADES (last 20) ─────────────────────────────────────────',
     ...closed.slice(-20).map(t => {
-      const d    = new Date(t.entryTime * 1000).toISOString().slice(0, 16).replace('T', ' ');
+      const d = new Date(t.entryTime * 1000).toISOString().slice(0, 16).replace('T', ' ');
       const icon = t.rr > 0 ? '✅' : '❌';
-      return `  ${icon} ${d} | ${t.symbol} ${t.direction} | ${t.result} | ${t.rr > 0 ? '+' : ''}${t.rr}R | ${t.patterns.join('+')}`;
+      return `  ${icon} ${d} | ${t.symbol} ${t.direction} | ${t.result} | ${t.rr > 0 ? '+' : ''}${t.rr}R | ${(t.voteTally||'')} | ${t.patterns.join('+')}`;
     }),
     '',
     '═══════════════════════════════════════════════════════════════════',
-    ' Report saved: backtest-report.json  |  backtest-report.txt',
-    '═══════════════════════════════════════════════════════════════════',
   ];
 
-  return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount, funnels: funnelsBySymbol }, equityCurve };
+  return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount } };
 };
 
-// ── TUNE MODE ────────────────────────────────────────────────────────────────
-// Sweeps ONLY the surgical/sensitivity knobs (cooldown, RR floors, rejection
-// strictness). Core foundation — POC/VAH/VAL, Fibonacci zone, 4H bias votes,
-// confluence/HTF-zone logic — is never modified by this grid.
-const TUNE_GRID = [
-  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // v8.9 baseline
-  { SIGNAL_COOLDOWN_BARS: 3, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // shorter cooldown
-  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.0, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // lower TP1 floor
-  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.80, HTFZONE_ATR_MULT: 3.5 }, // wider confluence
-  { SIGNAL_COOLDOWN_BARS: 3, TP1_RR_FLOOR: 1.0, MIN_TP2_RR: 0.40, REJECTION_MIN_PATTERNS: 2, CONFLUENCE_ATR_MULT: 0.80, HTFZONE_ATR_MULT: 3.5 }, // widest combo
-  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 3, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // stricter patterns
-  { SIGNAL_COOLDOWN_BARS: 5, TP1_RR_FLOOR: 1.2, MIN_TP2_RR: 0.50, REJECTION_MIN_PATTERNS: 1, CONFLUENCE_ATR_MULT: 0.65, HTFZONE_ATR_MULT: 3.0 }, // frequency test: 1-of-4
-];
-
-async function runTune(allData) {
-  const results = [];
-  for (const combo of TUNE_GRID) {
-    Object.assign(CONFIG, combo);
-    let allTrades = [];
-    for (const symbol of symbols) {
-      const { data15m, data4h } = allData[symbol];
-      const { trades } = await backtestSymbol(symbol, data15m, data4h);
-      allTrades.push(...trades);
-    }
-    const closed = allTrades.filter(t => t.result !== 'OPEN');
-    const wins   = closed.filter(t => t.rr > 0);
-    const wr     = closed.length ? (wins.length / closed.length * 100) : 0;
-    const totalRR = closed.reduce((s, t) => s + t.rr, 0);
-    results.push({ combo, trades: closed.length, wins: wins.length, wr, totalRR });
-  }
-  console.log('\n═══════════════════════════════════════════════════════════════════');
-  console.log(' TUNE RESULTS — ranked by trade count among 100% WR combos first');
-  console.log('═══════════════════════════════════════════════════════════════════');
-  results
-    .sort((a, b) => (b.wr === 100 && a.wr !== 100 ? 1 : a.wr !== 100 && b.wr === 100 ? -1 : b.trades - a.trades))
-    .forEach(r => {
-      console.log(`  cooldown=${r.combo.SIGNAL_COOLDOWN_BARS} TP1floor=${r.combo.TP1_RR_FLOOR} minTP2=${r.combo.MIN_TP2_RR} patterns=${r.combo.REJECTION_MIN_PATTERNS} conf=${r.combo.CONFLUENCE_ATR_MULT} htf=${r.combo.HTFZONE_ATR_MULT}  →  ${r.trades} trades | ${r.wr.toFixed(1)}% WR | ${r.totalRR.toFixed(2)}R`);
-    });
-  console.log('\nPick the row with the most trades that still shows 100.0% WR, then');
-  console.log('hard-code those 4 values into config.js (NOT just backtest.js) before going live.\n');
-}
-
-
-
+// ─────────────────────────────────────────────────────────────────────────
+//  MAIN
+// ─────────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log('\n═══════════════════════════════════════════════════════════════════');
-  console.log(' MVS — BACKTESTER v2.1');
-  console.log(`  Symbols : ${symbols.join(', ')}`);
-  console.log(`  Period  : Last ${days} days`);
-  console.log(`  Bars    : ~${days * 24} × 1H  |  ~${days * 6} × 4H`);
-  console.log('═══════════════════════════════════════════════════════════════════\n');
+  console.log(`\n🔬 MVS v10.0 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
 
   const allTrades = [];
   const funnelsBySymbol = {};
-  const minBarsNeeded = Math.max(CONFIG.VP_LOOKBACK, CONFIG.FIB_LOOKBACK) + CONFIG.ATR_PERIOD + 5;
-
-  if (tuneMode) {
-    const allData = {};
-    for (const symbol of symbols) {
-      console.log(`\n▶ Fetching ${symbol} (once, reused across tune grid)`);
-      const data15m = await fetchHistory(symbol, CONFIG.TIMEFRAME, days + 35);
-      const data4h  = await fetchHistory(symbol, '4hour', days + 35);
-      if (data15m.length < minBarsNeeded) { console.log(`  ⚠️ Insufficient data for ${symbol} — skipping`); continue; }
-      allData[symbol] = { data15m, data4h };
-      await sleep(500);
-    }
-    await runTune(allData);
-    process.exit(0);
-  }
 
   for (const symbol of symbols) {
-    console.log(`\n▶ ${symbol}`);
-    const data15m = await fetchHistory(symbol, CONFIG.TIMEFRAME, days + 35); // +35 days warmup buffer (covers 30-day VP/FIB lookback + ATR/cooldown margin)
-    const data4h  = await fetchHistory(symbol, '4hour', days + 35);
+    const data4h  = await fetchHistory(symbol, config.BIAS_TIMEFRAME, days);
+    const data1h  = await fetchHistory(symbol, config.STRUCT_TIMEFRAME, days);
+    const data15m = await fetchHistory(symbol, config.TRIGGER_TIMEFRAME, days);
 
-    if (data15m.length < minBarsNeeded) {
-      console.log(`  ⚠️ Insufficient data for ${symbol} — skipping`);
-      funnelsBySymbol[symbol] = null; // mark as attempted but no data
+    if (data4h.length < 50 || data1h.length < 50 || data15m.length < 50) {
+      console.log(`  ⚠️ ${symbol}: insufficient data, skipping.`);
+      funnelsBySymbol[symbol] = null;
       continue;
     }
 
-    const { trades, funnel } = await backtestSymbol(symbol, data15m, data4h);
-    console.log(`  → ${trades.length} signals fired`);
+    const { trades, funnel } = await backtestSymbol(symbol, data15m, data1h, data4h);
     allTrades.push(...trades);
     funnelsBySymbol[symbol] = funnel;
-    await sleep(500);
   }
 
-  if (!allTrades.length) {
-    console.log('\n⚠️ No trades found with current filters.');
-    // Still write report files so artifact always uploads
-    const emptyReport = [
-      '═══════════════════════════════════════════════════════════════════',
-      ` MVS — BACKTEST REPORT`,
-      ` Period: Last ${days} days  |  Symbols: ${symbols.join(', ')}`,
-      '═══════════════════════════════════════════════════════════════════',
-      '',
-      '  No signals fired in this period with current filters.',
-      '  The market did not present 3-of-4 pattern confluence setups.',
-      '  This is normal — try a longer period (180 or 360 days).',
-      '═══════════════════════════════════════════════════════════════════',
-    ].join('\n');
-    fs.writeFileSync(path.join(__dirname, 'backtest-report.txt'), emptyReport);
-    fs.writeFileSync(path.join(__dirname, 'backtest-report.json'), JSON.stringify({ days, symbols, trades: [] }, null, 2));
-    process.exit(0);
-  }
+  const { lines } = generateReport(allTrades, days, funnelsBySymbol);
+  const report = lines.join('\n');
+  console.log('\n' + report);
 
-  const report = generateReport(allTrades, days, funnelsBySymbol);
-  const { lines, stats, equityCurve } = report;
-
-  // Print to console
-  console.log('\n' + lines.join('\n'));
-
-  // Save report files
-  fs.writeFileSync(
-    path.join(__dirname, 'backtest-report.txt'),
-    lines.join('\n')
-  );
-  fs.writeFileSync(
-    path.join(__dirname, 'backtest-report.json'),
-    JSON.stringify({ generatedAt: new Date().toISOString(), days, symbols, stats, equityCurve, trades: allTrades }, null, 2)
-  );
-
-  console.log('\n✅ Done. Files saved: backtest-report.txt  backtest-report.json\n');
-  process.exit(0);
+  fs.writeFileSync(path.join(__dirname, 'backtest-report.txt'), report);
+  fs.writeFileSync(path.join(__dirname, 'backtest-report.json'), JSON.stringify(allTrades, null, 2));
+  console.log('\n📄 Saved backtest-report.txt and backtest-report.json');
 })();

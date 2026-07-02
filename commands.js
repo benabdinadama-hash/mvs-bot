@@ -1,13 +1,18 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v8.4 — 8-pair update)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v10.0)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.
  *
- *  FIX LOG (v8.4):
- *  ─ Updated /about, /pairs to reflect 8-pair expansion (720d backtest).
- *  ─ Corrected all stale 2-pair / 360d / 100% WR claims.
+ *  v10.0: /about and /pairs no longer hardcode backtest numbers (win rate,
+ *  R totals, per-pair stats) in the message text. That pattern has caused
+ *  stale/misleading claims to survive multiple strategy rewrites in a row
+ *  (v8.4's fix log literally says "corrected all stale... claims" — and
+ *  the exact same class of staleness was still present, worse, by v9.1).
+ *  A hardcoded number in a chat command will always eventually go stale
+ *  the moment strategy.js or config.js changes; these commands now point
+ *  to `node backtest.js` for current numbers instead of repeating one.
  *
  *  Commands handled:
  *    /scan       → run strategy.js right now, then reply with /status output
@@ -15,7 +20,7 @@
  *    /health     → KuCoin ping + last run timestamp
  *    /positions  → last active signal per symbol (signal-only, no live trades)
  *    /pairs      → tracked pairs + backtest stats
- *    /about      → strategy overview + verified performance
+ *    /about      → strategy overview + how to run your own backtest
  *    /signal     → how to read a signal
  *    /source     → GitHub link
  *    /help       → command menu
@@ -149,44 +154,30 @@ const cmdScan = async () => {
 // ── /about ───────────────────────────────────────────────────────────────
 const cmdAbout = async () => {
   await send(
-`📊 *MVS — Monthly Value Sniper*
+`📊 *MVS — Monthly Value Sniper* (v10.0)
 
-Institutional-grade crypto signals built on one principle: *price always reverts to where the most volume was traded.*
+Crypto signal bot built on one tendency: *price tends to revisit where the most volume was traded.* That's a real market pattern, not a guarantee about any single trade.
 
-*Strategy:* Volume Profile (POC + VAH + VAL) + Fibonacci (61.8–78.6% pocket) across two timeframes — 4H bias gate + 1H entry.
+*Strategy:* Volume Profile (POC + VAH + VAL) + Fibonacci (61.8–78.6% pocket) across three timeframes — 4H macro bias, 1H structure, 15m trigger. Needs 2-of-3 timeframes to agree on direction before anything fires.
 
-*Verified Performance (720-day backtest, 13 pairs):*
-• Signals fired: *151*
-• Win Rate: *75.3%* (113W / 37L)
-• Real-money WR: *90.7%* (excludes 109 breakeven scratches)
-• Total R: *+43.75R*
-• Total Return: *+65.2%* on $1,000
-• Max Drawdown: *3.3%*
-• Profit Factor: *5.26*
-• Avg Hold: *~50 hours*
+No hardcoded win-rate claim here. This bot does not target or achieve a 100% (or "near 100%") win rate — no trading system does. Run \`node backtest.js\` in the repo yourself for current, honest numbers over a window you haven't tuned against, and read the full funnel diagnostics, not just the headline win rate.
 
-Zero lagging indicators. No EMA, no RSI. Pure structure.`
+Zero lagging indicators. No EMA, no RSI. Pure structure — reviewed openly, not a black box.`
   );
 };
 
 // ── /pairs ────────────────────────────────────────────────────────────────
 const cmdPairs = async () => {
+  const pairList = config.SYMBOLS.map(s => `• *${s}*`).join('\n');
   await send(
-`💱 *Tracked Pairs (13 total — 720-day backtest)*
+`💱 *Tracked Pairs (${config.SYMBOLS.length} total)*
 
-• *ETH-USDT* — 16 trades | 81% WR | +6.46R
-• *SOL-USDT* — 9 trades | 67% WR | +2.58R
-• *BTC-USDT* — 10 trades | 90% WR | +4.02R
-• *XRP-USDT* — 19 trades | 84% WR | +5.22R
-• *ADA-USDT* — 10 trades | 100% WR | +4.59R
-• *DOGE-USDT* — 7 trades | 57% WR | +2.21R
-• *AVAX-USDT* — 10 trades | 80% WR | +1.88R
-• *LINK-USDT* — 14 trades | 71% WR | +3.04R
-• *BNB-USDT* — 10 trades | 70% WR | +1.00R
-• *DOT-USDT* — 12 trades | 67% WR | +2.73R
-• *LTC-USDT* — 10 trades | 80% WR | +4.44R
-• *TRX-USDT* — 9 trades | 56% WR | +0.97R
-• *POL-USDT* — 14 trades | 64% WR | +4.61R
+${pairList}
+
+Per-pair win rate / R stats aren't hardcoded here anymore — they change
+every time the strategy logic changes, and a stale number in a bot
+response is worse than no number. Run \`node backtest.js\` for current
+per-symbol stats.
 
 Exchange: *KuCoin* — fully accessible from Ghana without VPN.`
   );
@@ -199,15 +190,17 @@ const cmdSignal = async () => {
 
 When MVS fires, you'll receive:
 
-🟢 *B1 — Bullish Sniper* (or 🔴 B2 Bearish)
-• *Entry:* the exact price to enter
-• *SL:* stop loss level
-• *TP1:* first target — close 50% of position
-• *TP2:* second target — close remaining runner
-• *TP3:* final target — full structural exit
-• *R:R:* reward-to-risk ratio for each TP
+🟢 *BUY* (or 🔴 *SELL*)
+• *TF Vote:* which of 4H/1H/15m agreed, and the tally (2/3 or 3/3)
+• *Entry:* the 1H Fib/POC/VAH/VAL confluence level
+• *SL:* stop loss — 1H swing wick ± 0.25×ATR
+• *TP1 / TP2 / TP3:* a 3-stage target ladder with R:R for each
+• *15m trigger:* which rejection pattern(s) fired the signal
 
-Risk 1% of your capital per trade. Move SL to entry after TP1 hits.`
+This is a probability-favored setup with a defined stop, not a guarantee.
+Decide your own position size in advance — before an alert arrives, not
+in the moment. A string of 3-4 losses in a row is normal variance, even
+for a genuinely good strategy; size so that doesn't meaningfully hurt you.`
   );
 };
 
