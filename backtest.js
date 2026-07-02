@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.0
+ *  MVS — BACKTESTER (backtest.js)  v10.2
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -252,7 +252,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
     if ((direction === 'BUY' && price1h < fib.level886) || (direction === 'SELL' && price1h > fib.level886)) continue;
     funnel.notOverExtended++;
 
-    if (price1h < fib.zoneLow - atr1h || price1h > fib.zoneHigh + atr1h) continue;
+    if (!core.isNearZone(price1h, fib, atr1h, config.NEAR_ZONE_ATR_MULT)) continue;
     funnel.nearZone++;
 
     const vp1h = bias1h.vp;
@@ -284,7 +284,8 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
     const entryZoneHigh = fib.zoneHigh + atr1h * 0.1;
     const rejection = core.detectRejection(window15m, entryZoneLow, entryZoneHigh, direction,
       { poc: vp1h.pocPrice, vah: vp1h.vahPrice, val: vp1h.valPrice },
-      config.ABSORPTION_BODY_RATIO, config.REJECTION_MIN_PATTERNS, config.ALLOW_SOLO_TRIGGER);
+      config.ABSORPTION_BODY_RATIO, config.REJECTION_MIN_PATTERNS, config.ALLOW_SOLO_TRIGGER,
+      config.SOLO_ELIGIBLE_PATTERNS);
     if (!rejection.valid) continue;
     funnel.triggerOk++;
 
@@ -385,7 +386,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ' MVS v10.0 — BACKTEST REPORT',
+    ' MVS v10.2 — BACKTEST REPORT',
     ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
     ' 4H bias + 1H structure + 15m trigger, 2-of-3 timeframe vote',
     '═══════════════════════════════════════════════════════════════════',
@@ -463,7 +464,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 //  MAIN
 // ─────────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`\n🔬 MVS v10.0 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
+  console.log(`\n🔬 MVS v10.2 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
 
   const allTrades = [];
   const funnelsBySymbol = {};

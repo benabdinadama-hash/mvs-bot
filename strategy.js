@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.0  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.2  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -115,7 +115,7 @@ const isDuplicateRun = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v10.0 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v10.2 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -203,10 +203,11 @@ const runStrategy = async (symbol) => {
       return;
     }
 
-    // Early zone-proximity skip
-    const earlyLow  = fib.zoneLow  - atr1h * 0.1;
-    const earlyHigh = fib.zoneHigh + atr1h * 0.1;
-    if (price < earlyLow - atr1h || price > earlyHigh + atr1h) {
+    // Early zone-proximity skip — shared gate (core.isNearZone), identical
+    // to backtest.js. Bug fix: this used to be hand-rolled here with an
+    // extra 0.1×ATR pad stacked on top of the ±1×ATR band (~1.1×ATR total),
+    // while backtest.js used exactly ±1.0×ATR — see core.js v10.1 fix log.
+    if (!core.isNearZone(price, fib, atr1h, config.NEAR_ZONE_ATR_MULT)) {
       console.log(`  ⏳ Price not near 1H zone ($${fib.zoneLow.toFixed(2)}–$${fib.zoneHigh.toFixed(2)}). Waiting.`);
       return;
     }
@@ -283,7 +284,8 @@ const runStrategy = async (symbol) => {
     const rejection = core.detectRejection(
       data15m, entryZoneLow, entryZoneHigh, direction,
       { poc: vp1h.pocPrice, vah: vp1h.vahPrice, val: vp1h.valPrice },
-      config.ABSORPTION_BODY_RATIO, config.REJECTION_MIN_PATTERNS, config.ALLOW_SOLO_TRIGGER
+      config.ABSORPTION_BODY_RATIO, config.REJECTION_MIN_PATTERNS, config.ALLOW_SOLO_TRIGGER,
+      config.SOLO_ELIGIBLE_PATTERNS
     );
 
     logDiag({
@@ -344,7 +346,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v10.0*
+⚡ *MVS v10.2*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -376,7 +378,7 @@ risk capital you can't afford to lose on a single position.
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v10.0                          ║');
+console.log('║   MVS — Monthly Value Sniper v10.2                          ║');
 console.log('║   4H bias + 1H structure + 15m trigger — 2-of-3 vote         ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);
