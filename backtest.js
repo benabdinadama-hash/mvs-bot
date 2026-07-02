@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.2
+ *  MVS — BACKTESTER (backtest.js)  v10.3
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -348,7 +348,10 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   let capital = config.STARTING_CAPITAL, peak = capital, maxDD = 0;
   for (const t of closed) {
-    const riskAmt  = capital * (config.RISK_PER_TRADE_PCT / 100);
+    // v10.3: position size scaled by computeRiskMultiplier — see config.js
+    // RISK_TIER_MATRIX for the backing data.
+    const riskMult = core.computeRiskMultiplier(t.pivot, t.agreeing, config.RISK_TIER_MATRIX, config.RISK_TIER_DEFAULT);
+    const riskAmt  = capital * (config.RISK_PER_TRADE_PCT / 100) * riskMult;
     const slipCost = capital * (config.SLIPPAGE_PCT || 0);
     capital += riskAmt * t.rr - slipCost;
     if (capital > peak) peak = capital;
@@ -380,13 +383,35 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     byDirection[t.direction].totalRR += t.rr;
   }
 
+  // v10.3: confidence-tier breakdown — does 1H confirm the trade direction?
+  // (agreeing includes '1H') vs not (agreeing == ['15m','4H'] only). See
+  // core.js computeRiskMultiplier() for why this split exists.
+  const byTier = {};
+  for (const t of closed) {
+    const tier = (t.agreeing || []).includes('1H') ? '1H-confirmed' : 'no-1H-confirm';
+    if (!byTier[tier]) byTier[tier] = { trades: 0, wins: 0, sl: 0, totalRR: 0 };
+    byTier[tier].trades++;
+    if (t.rr > 0) byTier[tier].wins++;
+    if (t.result === 'SL') byTier[tier].sl++;
+    byTier[tier].totalRR += t.rr;
+  }
+  const byPivotTier = {};
+  for (const t of closed) {
+    const key = t.pivot || 'N/A';
+    if (!byPivotTier[key]) byPivotTier[key] = { trades: 0, wins: 0, sl: 0, totalRR: 0 };
+    byPivotTier[key].trades++;
+    if (t.rr > 0) byPivotTier[key].wins++;
+    if (t.result === 'SL') byPivotTier[key].sl++;
+    byPivotTier[key].totalRR += t.rr;
+  }
+
   const avgHoursHeld = closed.length ? (closed.reduce((s, t) => s + (t.hoursHeld || 0), 0) / closed.length).toFixed(0) : '0';
   const signalsPerWeek = closed.length ? (closed.length / (requestedDays / 7)).toFixed(2) : '0.00';
   const requestedSymbols = Object.keys(funnelsBySymbol).length ? Object.keys(funnelsBySymbol) : [...new Set(allTrades.map(t => t.symbol))];
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ' MVS v10.2 — BACKTEST REPORT',
+    ' MVS v10.3 — BACKTEST REPORT',
     ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
     ' 4H bias + 1H structure + 15m trigger, 2-of-3 timeframe vote',
     '═══════════════════════════════════════════════════════════════════',
@@ -432,6 +457,14 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
       return `  ${dir.padEnd(6)} ${d.trades} trades | ${(d.wins/d.trades*100).toFixed(0)}% WR | ${d.totalRR.toFixed(2)}R total`;
     }) : ['  No closed trades to break down by direction.']),
     '',
+    '── BY CONFIDENCE TIER (v10.3 — drives RISK_MULT_NO_1H_CONFIRM) ──────',
+    ...Object.entries(byTier).map(([k, v]) =>
+      `  ${k.padEnd(15)} ${v.trades} trades | ${(v.wins/v.trades*100).toFixed(1)}% WR | ${v.sl} SL | ${v.totalRR.toFixed(2)}R total`),
+    '',
+    '── BY PIVOT (v10.3 — drives RISK_MULT_BY_PIVOT) ─────────────────────',
+    ...Object.entries(byPivotTier).map(([k, v]) =>
+      `  ${k.padEnd(15)} ${v.trades} trades | ${(v.wins/v.trades*100).toFixed(1)}% WR | ${v.sl} SL | ${v.totalRR.toFixed(2)}R total`),
+    '',
     '── FUNNEL DIAGNOSTICS (15m ticks surviving each gate, per symbol) ───',
     ...requestedSymbols.flatMap(sym => {
       const f = funnelsBySymbol[sym];
@@ -464,7 +497,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 //  MAIN
 // ─────────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`\n🔬 MVS v10.2 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
+  console.log(`\n🔬 MVS v10.3 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
 
   const allTrades = [];
   const funnelsBySymbol = {};

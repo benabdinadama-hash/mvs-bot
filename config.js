@@ -201,6 +201,24 @@ module.exports = {
   RISK_PER_TRADE_PCT: 1.5,    // % of capital risked per trade in backtest sim
   SLIPPAGE_PCT: 0.001,        // 0.1% slippage/spread assumption
 
+  // ── Risk tiering (v10.3) ──────────────────────────────────────────────
+  // Position-size multiplier, NOT an entry gate — every trade that used to
+  // fire still fires, at reduced size for the one segment the trade log
+  // actually flags. See core.js computeRiskMultiplier() header for the
+  // full pivot × 1H-confirm breakdown. Short version, from the v10.2
+  // backtest-report.json (246 closed trades):
+  //   POC pivot, 1H NOT in the confirming vote → 168 trades, 58.3% WR,
+  //   15 of 18 total SLs (83%). Every other pivot/confirm combination —
+  //   including POC when 1H DOES confirm (46 trades, 73.9% WR, only 3 SL)
+  //   — has no SL evidence to justify a cut, so it stays at 1.0.
+  // Only one key set below 1.0 on purpose: cutting more than the data
+  // supports is exactly the v9.x overfitting mistake described above.
+  RISK_TIER_MATRIX: {
+    POC_NO1H: 0.75,
+    // POC_1H, VAH_1H, VAH_NO1H, VAL_1H, VAL_NO1H all default to 1.0 below.
+  },
+  RISK_TIER_DEFAULT: 1.0,
+
   // ── TP structure ─────────────────────────────────────────────────────────
   TP1_RR_FLOOR: 1.2,          // TP1 = max(50%Fib, entry + 1.2×risk)
   // TP2 = midpoint between TP1 and TP3 (structural). TP3 = 1H VAH/VAL.
