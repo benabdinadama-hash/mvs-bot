@@ -38,5 +38,16 @@ jobs:
             exit 0
           fi
           git commit -m "MVS offset $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          # Same fix already applied in mvs-scan.yml: this workflow and
+          # mvs-scan.yml both push to main independently (different
+          # concurrency groups, so they CAN overlap in time). Without a
+          # rebase, whichever job finishes second gets a plain `git push`
+          # rejected as non-fast-forward and the whole job fails silently
+          # — the offset file just never gets saved, and Telegram commands
+          # start replaying/skipping. --rebase --autostash keeps this job
+          # from ever failing just because the other one pushed first.
+          git pull --rebase --autostash origin main
+
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
           echo "✅ Offset pushed"

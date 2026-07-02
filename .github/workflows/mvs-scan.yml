@@ -1,7 +1,15 @@
 name: MVS Scan
 
 on:
-  workflow_dispatch: {}   # Triggered by cron-job.org every 15 min
+  workflow_dispatch: {}   # Triggered by cron-job.org every 15 min (primary)
+  schedule:
+    # Backup trigger, native to GitHub — fires on its own schedule even if
+    # cron-job.org has an outage, its token expires, or its ping silently
+    # stops. GitHub's own scheduler can lag a few minutes under load, which
+    # is why this is a backup and not the primary trigger. strategy.js has
+    # a duplicate-run guard so if this and cron-job.org ever land close
+    # together, the second one exits immediately instead of double-firing.
+    - cron: '*/15 * * * *'
   push:
     branches: [main]
 
