@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — Monthly Value Sniper v10.0
+ *  MVS — Monthly Value Sniper v10.2
  *  KuCoin API Configuration
  *
  *  FOUNDATION: POC + VAH + VAL + FIBO. No lagging indicators.
@@ -26,8 +26,24 @@
  *    symbol and direction now runs the identical rule set. If you want
  *    to reintroduce per-symbol tuning later, do it only after collecting
  *    a much larger out-of-sample trade count on THIS clean baseline.
- *  ─ No setting in this file is chosen to hit a target win rate. A
- *    "near 100% win rate" strategy does not exist — see README for why.
+ *
+ *  v10.1 — fixed a live/backtest drift bug in the near-zone gate (see
+ *  core.js header). No threshold values changed, just made them shared.
+ *
+ *  v10.2 — FREQUENCY PASS (2026-07-02). Explicitly requested: push signal
+ *  count from ~0.94/week (97 signals / 720 days in the last backtest)
+ *  toward 2-3/week, accepting that win rate will very likely drop below
+ *  the 55.7% in that backtest. Six gates loosened — see each setting
+ *  below for the specific before/after and the funnel data behind it.
+ *  Two important honesty notes:
+ *   1. This box has no network access to api.kucoin.com, so none of these
+ *      numbers have been re-backtested. Run `node backtest.js` after
+ *      deploying and treat the old 55.7%/97-signal report as stale.
+ *   2. No setting here was chosen to hit a target win rate — that's a
+ *      different thing from what just happened, which is choosing
+ *      settings to hit a target FREQUENCY while being upfront that win
+ *      rate is the cost. A "near 100% win rate" strategy does not exist
+ *      at ANY frequency — see README for why.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -86,40 +102,84 @@ module.exports = {
   FIB_ZONE_LOW:  0.60,
   FIB_ZONE_HIGH: 0.80,
 
+  // ── Near-zone gate ───────────────────────────────────────────────────────
+  // How close (in ATR(1H)) price must be to the 1H Fib 60-80% pocket before
+  // the bot bothers checking confluence at all.
+  // v10.1: pulled out of strategy.js/backtest.js into one shared constant
+  // (core.isNearZone) — was previously ~1.1×ATR live vs 1.0×ATR backtest,
+  // a silent drift bug.
+  // v10.2 (FREQUENCY PASS): 1.0 → 1.5. This was the single biggest
+  // bottleneck in the whole funnel — the v10.0 backtest funnel shows only
+  // 2,246 of 50,983 vote-passing 15m ticks on ETH-USDT (4.4%) ever got
+  // this close to the zone. Widening the net here does NOT skip the
+  // confluence or trigger checks that come after it — it just lets more
+  // candidate bars reach those checks. Expect this alone to meaningfully
+  // raise signal count; expect win rate to drop somewhat too, since some
+  // of the newly-admitted bars are further from the "true" zone.
+  NEAR_ZONE_ATR_MULT: 1.5,
+
   // ── Confluence engine ───────────────────────────────────────────────────
   // Tolerance = 1H ATR × this multiplier. A Fib level within this band of
   // POC/VAH/VAL counts as confluence.
-  CONFLUENCE_ATR_MULT: 0.65,
+  // v10.2 (FREQUENCY PASS): 0.65 → 0.85. Second-largest bottleneck after
+  // near-zone (ETH funnel: 1,224 of 2,246 near-zone bars passed, 54.5%).
+  // Widening this admits looser Fib/POC-VAH-VAL overlaps as "confluence."
+  CONFLUENCE_ATR_MULT: 0.85,
 
   // 4H zone cross-check tolerance — same multiplier, both directions
   // (the old SELL-only 1.10x boost has been removed — see header note).
-  HTFZONE_ATR_MULT: 3.0,
+  // v10.2 (FREQUENCY PASS): 3.0 → 4.0. This gate already passed ~93% of
+  // confluence-qualified setups (ETH funnel: 1,140/1,224), so this is a
+  // minor lever, but every bit counts toward 2-3 signals/week.
+  HTFZONE_ATR_MULT: 4.0,
 
   // POC entries need tight alignment (score>=2) because POC is a single
   // point; VAH/VAL are boundary lines and pass at score>=1. This is a
   // structural distinction, not a per-symbol tune.
-  MIN_CONFLUENCE_POC: 2,
+  // v10.2 (FREQUENCY PASS): 2 → 1, so POC now qualifies at the same
+  // looseness as VAH/VAL. DISCLOSURE: the backtest data available shows
+  // this is the highest-risk change in this pass — POC-pivot trades were
+  // already the weakest bucket (52.4% WR over 82 trades, vs 75% WR for
+  // VAH over 12 trades) and ALL 7 of the backtest's SL losses were POC
+  // pivot at exactly the old score-2 threshold. Loosening it further will
+  // very likely pull win rate down further, on top of the drop already
+  // expected from the other v10.2 changes. Set back to 2 if the next
+  // backtest run shows POC-pivot win rate degrading past what's useful.
+  MIN_CONFLUENCE_POC: 1,
 
   // ── Rejection / trigger candle (2-of-5 rule, on the 15m trigger TF) ────
   // Patterns: POC_RECLAIM, VAH_VAL_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION
   REJECTION_MIN_PATTERNS: parseInt(process.env.REJECTION_MIN_PATTERNS, 10) || 2,
 
-  // Solo trigger: a single POC_RECLAIM or VAH_VAL_RECLAIM pattern alone is
-  // enough IF every other gate (4H/1H/15m vote, confluence, HTF zone, RR)
-  // still passes. Applies equally to BUY and SELL.
-  // Turned ON by default (2026-07-02): this gate exists specifically to
-  // stop high-conviction reclaims (POC_RECLAIM / VAH_VAL_RECLAIM) from
-  // being thrown away just because a second pattern didn't co-occur on
-  // the same 15m candle — the backtest funnel shows VAH_VAL_RECLAIM alone
-  // hit only 2/91 fires under the old 2-of-5 rule. Every other gate (vote,
-  // confluence, HTF alignment, cooldown, RR) is unchanged, so this adds
-  // frequency without loosening quality. Set ALLOW_SOLO_TRIGGER=false in
-  // env to revert. Re-run `npm run backtest` after any change here before
-  // trusting new numbers — this box can't reach api.kucoin.com to verify.
+  // Solo trigger: a single pattern in SOLO_ELIGIBLE_PATTERNS is enough IF
+  // every other gate (4H/1H/15m vote, confluence, HTF zone, RR) still
+  // passes. Applies equally to BUY and SELL.
   ALLOW_SOLO_TRIGGER: process.env.ALLOW_SOLO_TRIGGER === 'false' ? false : true,
 
+  // v10.0: turned solo ON, limited to the two "reclaim" patterns (price
+  // wicks through a real level and closes back — structurally the
+  // strongest single piece of evidence this system detects).
+  // v10.2 (FREQUENCY PASS): added CLOSE_REJECTION — a full close outside
+  // the zone boundary is also a clean, unambiguous single-candle signal,
+  // not just noise. Deliberately did NOT add PIN_BAR or ENGULFING: those
+  // are pure wick/body-ratio shapes with no confirmation against an actual
+  // price level, and the backtest data shows they're weakest when they
+  // co-occur with each other (ENGULFING+PIN_BAR combo: 44.4% WR, n=18 —
+  // the worst multi-pattern bucket). Letting either fire alone is the one
+  // lever in this whole pass I'm not willing to pull without more data.
+  // The biggest remaining bottleneck in the funnel (triggerOk: only 121 of
+  // 1,126 htf/invalidation-passing ETH ticks, ~10.7%) is intentionally
+  // left the most conservative gate in this pass — this is where "cheap"
+  // frequency is easiest to get and easiest to regret.
+  SOLO_ELIGIBLE_PATTERNS: ['POC_RECLAIM', 'VAH_VAL_RECLAIM', 'CLOSE_REJECTION'],
+
   // ── Absorption veto ─────────────────────────────────────────────────────
-  ABSORPTION_BODY_RATIO: 0.60,
+  // Vetoes a trigger when an opposing full-body candle sits at the zone
+  // (bodyRatio > this AND candle closed the "wrong" way for the direction).
+  // v10.2 (FREQUENCY PASS): 0.60 → 0.70 — fewer candles get vetoed as
+  // "institutional absorption," since a slightly larger body is now
+  // tolerated before the veto kicks in.
+  ABSORPTION_BODY_RATIO: 0.70,
 
   // ── Zone invalidation ───────────────────────────────────────────────────
   // 1H close beyond zone ref by > ATR × this multiplier voids the zone.
@@ -127,7 +187,11 @@ module.exports = {
 
   // ── Signal cooldown ─────────────────────────────────────────────────────
   // Suppress re-alert on same symbol+direction for N structure(1H) bars.
-  SIGNAL_COOLDOWN_BARS: 5,
+  // v10.2 (FREQUENCY PASS): 5 → 3. Smaller lever than the others (this
+  // gate already passed ~99% in the ETH funnel), but it does let
+  // fast-trending symbols like LTC (16 of 97 backtest trades) re-signal
+  // sooner instead of sitting out a trend.
+  SIGNAL_COOLDOWN_BARS: 3,
 
   // ── ATR ─────────────────────────────────────────────────────────────────
   ATR_PERIOD: 14,

@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — CORE STRATEGY LOGIC (core.js)  v10.0
+ *  MVS — CORE STRATEGY LOGIC (core.js)  v10.2
  *
  *  Every pure function used to decide BUY/SELL/NO-TRADE lives here, and
  *  ONLY here. strategy.js (live/Telegram) and backtest.js (simulation)
@@ -35,6 +35,25 @@
  *  versions (tuned against one 85-trade backtest) have been removed.
  *  Every symbol and every direction runs through the identical rule set.
  *  That is a deliberate choice to reduce overfitting, not an oversight.
+ *
+ *  v10.1 FIX LOG (2026-07-02):
+ *  ─ isNearZone() added and now shared by strategy.js + backtest.js. Found
+ *    strategy.js was applying a ~1.1×ATR "close enough to the 1H zone"
+ *    band (fib.zoneLow - atr*0.1 - atr) while backtest.js applied exactly
+ *    ±1.0×ATR. Same class of bug the v10.0 rewrite was meant to eliminate:
+ *    live was quietly running looser than what the backtest report
+ *    (55.7% WR / PF 7.30 / 97 signals over 720d) actually measured. Fixed
+ *    by moving the check into this file so there is only one copy of the
+ *    threshold. See NEAR_ZONE_ATR_MULT in config.js.
+ *
+ *  v10.2 FREQUENCY PASS (2026-07-02, requested by user — traded win rate
+ *  for signal count, on purpose, with eyes open):
+ *  ─ detectRejection()'s solo-trigger pattern list moved out of this file
+ *    into config.SOLO_ELIGIBLE_PATTERNS (was hardcoded to 2 patterns here).
+ *  ─ No win-probability logic changed — every gate below still runs the
+ *    same math on every symbol/direction. Only the THRESHOLDS moved (see
+ *    config.js v10.2 notes). This file's job (identical live/backtest
+ *    logic) is unaffected by that — thresholds live in config either way.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -186,6 +205,20 @@ const tfBiasVote = (data, vpLookback, fibLookback, rows = 100, valueAreaPct = 0.
 };
 
 // ─────────────────────────────────────────────────────────────────────────
+//  NEAR-ZONE GATE — is price close enough to the 1H Fib pocket to bother
+//  checking confluence at all? (bug fix: strategy.js used to hand-roll this
+//  with an extra +0.1×ATR pad baked in on top of the ±1×ATR band, so live
+//  ran a ~1.1×ATR band while backtest.js ran ~1.0×ATR — a silent drift
+//  between what was tested and what actually fired live. Both files now
+//  call this one function with the same config constant.)
+// ─────────────────────────────────────────────────────────────────────────
+const isNearZone = (price, fib, atr, padMult) => {
+  const lo = fib.zoneLow  - atr * padMult;
+  const hi = fib.zoneHigh + atr * padMult;
+  return price >= lo && price <= hi;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
 //  2-OF-3 TIMEFRAME DIRECTION RESOLUTION
 //  votes: [{ tf: '4H', result: <tfBiasVote output or null> }, ...]
 //  Returns { direction, agreeing: [tf,...], tally } or null if no 2-of-3.
@@ -261,11 +294,16 @@ const isZoneInvalidated = (closePrice, zoneRef, atr, direction, atrMult) => {
 //  5. CLOSE_REJECTION — wicked into zone, closed cleanly outside it
 //
 //  Fires if patterns.length >= minPatterns (default 2-of-5), UNLESS
-//  soloPatterns is enabled and exactly one qualifying "high-conviction"
-//  pattern (POC_RECLAIM or VAH_VAL_RECLAIM) appears alone — applies
-//  identically to BUY and SELL, no direction-specific carve-out.
+//  allowSolo is enabled and exactly one pattern fires that's in the
+//  soloPatterns list (config.SOLO_ELIGIBLE_PATTERNS) — applies identically
+//  to BUY and SELL, no direction-specific carve-out.
+//
+//  v10.2 NOTE: soloPatterns used to be hardcoded here to just POC_RECLAIM/
+//  VAH_VAL_RECLAIM. It's now a parameter so config.js is the single place
+//  that decides which patterns count as "strong enough alone" — no more
+//  editing core.js to change strategy behavior.
 // ─────────────────────────────────────────────────────────────────────────
-const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorptionBodyRatio, minPatterns = 2, allowSolo = false) => {
+const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorptionBodyRatio, minPatterns = 2, allowSolo = false, soloPatterns = ['POC_RECLAIM', 'VAH_VAL_RECLAIM']) => {
   if (candles.length < 2) return { valid: false, patterns: [], absorptionVeto: false, score: 0, solo: false };
 
   const c = candles[candles.length - 1];
@@ -304,8 +342,7 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorpti
   }
 
   const score = patterns.length;
-  const highConviction = ['POC_RECLAIM', 'VAH_VAL_RECLAIM'];
-  const solo = allowSolo && score === 1 && highConviction.includes(patterns[0]);
+  const solo = allowSolo && score === 1 && soloPatterns.includes(patterns[0]);
   const valid = !absorptionVeto && (score >= minPatterns || solo);
 
   return { valid, patterns, absorptionVeto, score, solo };
@@ -347,7 +384,7 @@ const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, 
 };
 
 module.exports = {
-  calcATR, calcFib, calcVolumeProfile, tfBiasVote, resolveDirection,
+  calcATR, calcFib, calcVolumeProfile, tfBiasVote, isNearZone, resolveDirection,
   confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
   detectRejection, computeTradeLevels,
 };
