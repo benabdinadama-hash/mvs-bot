@@ -3,12 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       symbol:
-        description: 'Symbol(s), comma-separated (leave blank for all 8 default pairs: ETH,SOL,BTC,XRP,ADA,DOGE,AVAX,LINK-USDT)'
+        description: 'Symbol(s), comma-separated (leave blank for all 13 pairs in config.js)'
         required: false
       days:
-        description: 'Days to backtest (default 90)'
+        description: 'Days to backtest (leave blank for config.BACKTEST_DAYS)'
         required: false
-        default: '90'
 
 jobs:
   backtest:
