@@ -94,6 +94,22 @@ const isCoolingDown = (symbol, direction, currentBarTime) => {
   return barsSince < config.SIGNAL_COOLDOWN_BARS;
 };
 
+// ── Duplicate-run guard ──────────────────────────────────────────────────────
+// mvs-scan.yml now has two independent triggers: cron-job.org's ping (primary)
+// and a GitHub-native `schedule:` backup (added so scanning survives a
+// cron-job.org outage). Both call this same script via workflow_dispatch/
+// schedule. If they ever land within a few minutes of each other, this stops
+// the second invocation before it does any work — prevents duplicate Telegram
+// alerts and duplicate state/log writes for the same 15m candle.
+const DUPLICATE_RUN_GUARD_MS = 5 * 60 * 1000; // 5 min — well under the 15 min cadence
+
+const isDuplicateRun = () => {
+  const state = loadJSON(STATE_FILE, {});
+  if (!state._lastRunAt) return false;
+  const elapsed = Date.now() - new Date(state._lastRunAt).getTime();
+  return elapsed >= 0 && elapsed < DUPLICATE_RUN_GUARD_MS;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  MAIN STRATEGY ENGINE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -370,6 +386,12 @@ console.log(`   Cooldown: ${config.SIGNAL_COOLDOWN_BARS} × 1H bars`);
 console.log('');
 
 (async () => {
+  if (isDuplicateRun()) {
+    console.log(`⏸️  Skipping: a scan already ran within the last ${DUPLICATE_RUN_GUARD_MS / 60000} min ` +
+      `(cron-job.org and the GitHub schedule backup likely overlapped). Exiting cleanly, no state changed.`);
+    process.exit(0);
+  }
+
   for (const sym of config.SYMBOLS) {
     await runStrategy(sym);
     if (config.SYMBOLS.indexOf(sym) < config.SYMBOLS.length - 1) {

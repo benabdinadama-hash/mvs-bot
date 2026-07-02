@@ -106,9 +106,17 @@ module.exports = {
 
   // Solo trigger: a single POC_RECLAIM or VAH_VAL_RECLAIM pattern alone is
   // enough IF every other gate (4H/1H/15m vote, confluence, HTF zone, RR)
-  // still passes. Applies equally to BUY and SELL. Off by default — test
-  // it yourself via backtest before flipping on live.
-  ALLOW_SOLO_TRIGGER: process.env.ALLOW_SOLO_TRIGGER === 'true' || false,
+  // still passes. Applies equally to BUY and SELL.
+  // Turned ON by default (2026-07-02): this gate exists specifically to
+  // stop high-conviction reclaims (POC_RECLAIM / VAH_VAL_RECLAIM) from
+  // being thrown away just because a second pattern didn't co-occur on
+  // the same 15m candle — the backtest funnel shows VAH_VAL_RECLAIM alone
+  // hit only 2/91 fires under the old 2-of-5 rule. Every other gate (vote,
+  // confluence, HTF alignment, cooldown, RR) is unchanged, so this adds
+  // frequency without loosening quality. Set ALLOW_SOLO_TRIGGER=false in
+  // env to revert. Re-run `npm run backtest` after any change here before
+  // trusting new numbers — this box can't reach api.kucoin.com to verify.
+  ALLOW_SOLO_TRIGGER: process.env.ALLOW_SOLO_TRIGGER === 'false' ? false : true,
 
   // ── Absorption veto ─────────────────────────────────────────────────────
   ABSORPTION_BODY_RATIO: 0.60,
