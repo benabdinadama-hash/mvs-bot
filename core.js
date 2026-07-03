@@ -69,6 +69,26 @@
  *    of all SLs. 4H isn't the problem; 1H disagreement is. Handled via
  *    sizing here rather than excluding 4H or blocking that combo outright,
  *    since blocking it would cut ~78% of signal volume.
+ *
+ *  v10.4 FIX LOG (2026-07-03, from backtest-report.json — 215 closed
+ *  trades, v10.3 ruleset):
+ *  ─ TP3 minimum extension added (see computeTradeLevels). The v10.3
+ *    report showed TP3 hits: 0 across 216 signals — not bad luck. Median
+ *    gap between TP2 and TP3, on the 19 trades that actually reached TP2,
+ *    was 0.09R (min 0.00R). TP3 = current 1H VAH/VAL, TP1 = max(50% Fib,
+ *    entry + 1.2R), and the only prior check was tp3Price > tp1Price with
+ *    NO minimum margin — so trades where the value-area edge sat only
+ *    fractions of a cent past TP1 still passed, then the trailing stop
+ *    (moved to TP2 the moment TP2 hits) sat close enough to TP3 that
+ *    ordinary 15m noise closed the trade before TP3 could ever register.
+ *    See config.js TP3_MIN_EXTENSION_RR.
+ *  ─ computeRiskMultiplier extended to also weigh in POC_RECLAIM pattern
+ *    presence (see updated function header below). Independent, data-
+ *    confirmed finding across THREE separate backtests now (this file's
+ *    v10.3 log above only sliced by pivot × 1H-confirm; this is a second,
+ *    orthogonal factor found in the same trade log). Position-size only —
+ *    frequency and win-rate-by-count are both unaffected, exactly like
+ *    the v10.3 change above.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -388,14 +408,37 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorpti
 //  shows a real, dataset-wide reason to, same anti-overfitting stance as
 //  the rest of this file.
 // ─────────────────────────────────────────────────────────────────────────
-const computeRiskMultiplier = (pivotName, agreeing, riskTierMatrix, defaultMult = 1.0) => {
+// ─────────────────────────────────────────────────────────────────────────
+//  v10.4: extended with an independent, orthogonal second factor —
+//  POC_RECLAIM pattern presence. Backing data (backtest-report.json, 215
+//  closed trades, v10.3 ruleset — and this is the THIRD consecutive
+//  backtest to show the same thing, at n=21/62/61 respectively):
+//    Trades WITH POC_RECLAIM in the pattern list : 61 trades | 39.3% WR |
+//      10 SL | avg +0.228R/trade
+//    Trades WITHOUT POC_RECLAIM                  : 154 trades| 72.7% WR |
+//      5 SL  | avg +0.770R/trade
+//  Confirmed independent of the pivot/1H-confirm split above: even inside
+//  the "strong" 1H-confirmed tier, adding POC_RECLAIM drags win rate from
+//  74.4% down to 38.5% (n=13). Applied as a second multiplicative factor
+//  (patternRiskMatrix), not folded into riskTierMatrix, precisely because
+//  it's evidenced as independent — POC_RECLAIM is weak whether or not 1H
+//  confirms. Same anti-overfitting stance: this is a discount, not a
+//  block, and no other pattern (CLOSE_REJECTION/ENGULFING/PIN_BAR/
+//  VAH_VAL_RECLAIM) has comparable evidence against it.
+// ─────────────────────────────────────────────────────────────────────────
+const computeRiskMultiplier = (pivotName, agreeing, patterns, riskTierMatrix, patternRiskMatrix, defaultMult = 1.0) => {
   const confirmKey = (Array.isArray(agreeing) && agreeing.includes('1H')) ? '1H' : 'NO1H';
   const key = `${pivotName}_${confirmKey}`;
-  const mult = (riskTierMatrix && riskTierMatrix[key] != null) ? riskTierMatrix[key] : defaultMult;
+  let mult = (riskTierMatrix && riskTierMatrix[key] != null) ? riskTierMatrix[key] : defaultMult;
+  if (Array.isArray(patterns) && patternRiskMatrix) {
+    for (const p of patterns) {
+      if (patternRiskMatrix[p] != null) mult *= patternRiskMatrix[p];
+    }
+  }
   return Math.max(0.1, Math.min(1.0, mult));
 };
 
-const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, tp1RrFloor, fibLevel500 }) => {
+const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, tp1RrFloor, fibLevel500, tp3MinExtensionRR = 0 }) => {
   const swingWick = direction === 'BUY' ? swing.low : swing.high;
   const slPrice = direction === 'BUY'
     ? swingWick - atr * slAtrMult
@@ -413,8 +456,14 @@ const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, 
     : Math.min(tp1Structural, tp1Dynamic);
 
   const tp3Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
-  const tp3BeyondTp1 = direction === 'BUY' ? tp3Price > tp1Price : tp3Price < tp1Price;
-  if (!tp3BeyondTp1) return null;
+  // v10.4 FIX: this used to be `tp3Price > tp1Price` with no minimum
+  // margin, which is why TP3 was hit 0 times in 216 live-equivalent
+  // backtest signals — see core.js header v10.4 fix log for the data.
+  // Now requires TP3 to clear TP1 by at least tp3MinExtensionRR (in R),
+  // not just by any nonzero amount.
+  const tp3ExtensionRR = Math.abs(tp3Price - tp1Price) / risk;
+  const tp3Beyond = direction === 'BUY' ? tp3Price > tp1Price : tp3Price < tp1Price;
+  if (!tp3Beyond || tp3ExtensionRR < tp3MinExtensionRR) return null;
 
   const tp2Price = tp1Price + (tp3Price - tp1Price) * 0.5;
 

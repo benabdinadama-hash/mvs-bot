@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — Monthly Value Sniper v10.2
+ *  MVS — Monthly Value Sniper v10.4
  *  KuCoin API Configuration
  *
  *  FOUNDATION: POC + VAH + VAL + FIBO. No lagging indicators.
@@ -44,6 +44,29 @@
  *      settings to hit a target FREQUENCY while being upfront that win
  *      rate is the cost. A "near 100% win rate" strategy does not exist
  *      at ANY frequency — see README for why.
+ *
+ *  v10.3 — RISK TIERING (added directly to the repo). Introduced
+ *  computeRiskMultiplier() / RISK_TIER_MATRIX: position-size scaling for
+ *  the POC-pivot / 1H-not-confirming segment, evidenced from the v10.2
+ *  backtest (168 trades, 58.3% WR, 15 of 18 SLs). No entry gate touched —
+ *  frequency unchanged. Well-scoped, reviewed and left as-is.
+ *
+ *  v10.4 — (2026-07-03) three fixes from the v10.3 backtest-report.json:
+ *   1. LINK-USDT (0 signals/2yr) and AVAX-USDT (truncated to ~71 days) —
+ *      NOT a data or strategy problem. backtest.js's history pager was
+ *      silently treating "one HTTP call failed" the same as "reached the
+ *      start of history" and giving up on all older data. Fixed in
+ *      backtest.js (fetchKlines/fetchHistory) — see that file's header.
+ *   2. TP3 hit 0 times in 216 signals — TP1 and TP3 were structurally
+ *      allowed to sit fractions of a cent apart. Added TP3_MIN_EXTENSION_RR
+ *      below. See core.js v10.4 fix log.
+ *   3. PATTERN_RISK_MATRIX added — POC_RECLAIM pattern confirmed weak
+ *      across three independent backtests now, independent of the v10.3
+ *      pivot/confirm split. Position-size only, same as v10.3 — frequency
+ *      and win-rate-by-count unaffected.
+ *   Also hardened: Telegram send and live KuCoin fetch both retry on
+ *   transient failure now instead of silently dropping the attempt — see
+ *   strategy.js header.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -219,9 +242,33 @@ module.exports = {
   },
   RISK_TIER_DEFAULT: 1.0,
 
+  // ── Pattern risk tiering (v10.4) ────────────────────────────────────────
+  // Second, independent multiplier — multiplies with RISK_TIER_MATRIX,
+  // doesn't replace it. From backtest-report.json (215 closed trades,
+  // v10.3 ruleset, THIRD consecutive backtest showing this):
+  //   Trades where POC_RECLAIM is one of the firing patterns → 61 trades,
+  //   39.3% WR, 10 SL, avg +0.228R/trade. Without it → 154 trades, 72.7%
+  //   WR, 5 SL, avg +0.770R/trade. Holds independent of the 1H-confirm
+  //   split (still only 38.5% WR inside the "strong" 1H-confirmed tier).
+  // No other pattern has comparable evidence against it, so only
+  // POC_RECLAIM is discounted here.
+  PATTERN_RISK_MATRIX: {
+    POC_RECLAIM: 0.65,
+  },
+
   // ── TP structure ─────────────────────────────────────────────────────────
   TP1_RR_FLOOR: 1.2,          // TP1 = max(50%Fib, entry + 1.2×risk)
   // TP2 = midpoint between TP1 and TP3 (structural). TP3 = 1H VAH/VAL.
+
+  // v10.4 FIX: TP3 used to only require tp3Price > tp1Price (BUY) with NO
+  // minimum margin — see core.js v10.4 fix log. Result: TP3 hits: 0 across
+  // 216 signals in the last backtest, because TP2 (the midpoint of TP1
+  // and TP3) sat, on the 19 trades that reached it, a median of just
+  // 0.09R short of TP3 — well within normal 15m noise. This value (0.25R)
+  // rejects the worst ~15% of setups by TP1-TP3 gap (the ones where TP3
+  // was structurally unreachable to begin with) while keeping the other
+  // ~85%. Set to 0 to restore the old (broken) behavior.
+  TP3_MIN_EXTENSION_RR: 0.25,
 
   // ── Backtest-only settings ──────────────────────────────────────────────
   BACKTEST_DAYS: 360,
