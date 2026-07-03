@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.3
+ *  MVS — BACKTESTER (backtest.js)  v10.4
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -43,19 +43,48 @@ const days = parseInt(rawArgs[1] || rawArgs[0]) || config.BACKTEST_DAYS;
 // ── KuCoin paged history fetch ───────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const BAR_SECONDS = { '15min': 900, '1hour': 3600, '4hour': 14400 };
+const FETCH_MAX_RETRIES = 5;
 
+// v10.4 FIX: fetchKlines used to catch every error (network blip, timeout,
+// rate limit, non-200000 code) and return [] — indistinguishable from a
+// SUCCESSFUL call that legitimately found no older candles (i.e. walked
+// back past the symbol's listing date). fetchHistory's loop then did
+// `if (!bars.length) break`, treating both cases identically: "stop
+// paging, we've reached the beginning."
+//
+// This is exactly what produced LINK-USDT: 995 bars (~10 days) and
+// AVAX-USDT: 6866 bars (~71 days) in the last backtest, instead of the
+// ~64,000+ bars every other symbol got — a single transient failure
+// partway through paging back 720 days silently truncated ALL older
+// history for those two symbols. It had nothing to do with LINK or AVAX
+// actually lacking history.
+//
+// Fix: fetchKlines now returns { ok, bars } so the caller can tell "call
+// failed" (ok:false — retry, then skip just that one chunk and keep
+// paging further back) apart from "call succeeded, no data" (ok:true,
+// bars:[] — genuine end of history, safe to stop).
 const fetchKlines = async (symbol, interval, startAt, endAt) => {
   const url = `${config.BASE_URL}/market/candles?symbol=${symbol}&type=${interval}&startAt=${startAt}&endAt=${endAt}`;
-  try {
-    const res = await axios.get(url, { timeout: 20000 });
-    if (res.data.code !== '200000') return [];
-    return (res.data.data || [])
-      .map(k => ({ time: parseInt(k[0]), open: parseFloat(k[1]), close: parseFloat(k[2]), high: parseFloat(k[3]), low: parseFloat(k[4]), volume: parseFloat(k[5]) }))
-      .sort((a, b) => a.time - b.time);
-  } catch (e) {
-    console.error(`  Fetch error: ${e.message}`);
-    return [];
+  for (let attempt = 1; attempt <= FETCH_MAX_RETRIES; attempt++) {
+    try {
+      const res = await axios.get(url, { timeout: 20000 });
+      if (res.data.code !== '200000') {
+        console.error(`\n  ⚠️  KuCoin ${res.data.code} for ${symbol} ${interval} (attempt ${attempt}/${FETCH_MAX_RETRIES}): ${res.data.msg || 'unknown'}`);
+        if (attempt === FETCH_MAX_RETRIES) return { ok: false, bars: [] };
+        await sleep(500 * attempt);
+        continue;
+      }
+      const bars = (res.data.data || [])
+        .map(k => ({ time: parseInt(k[0]), open: parseFloat(k[1]), close: parseFloat(k[2]), high: parseFloat(k[3]), low: parseFloat(k[4]), volume: parseFloat(k[5]) }))
+        .sort((a, b) => a.time - b.time);
+      return { ok: true, bars };
+    } catch (e) {
+      console.error(`\n  ⚠️  Fetch error for ${symbol} ${interval} (attempt ${attempt}/${FETCH_MAX_RETRIES}): ${e.message}`);
+      if (attempt === FETCH_MAX_RETRIES) return { ok: false, bars: [] };
+      await sleep(500 * attempt);
+    }
   }
+  return { ok: false, bars: [] };
 };
 
 const fetchHistory = async (symbol, interval, historyDays) => {
@@ -65,12 +94,22 @@ const fetchHistory = async (symbol, interval, historyDays) => {
   let allBars = [];
   let chunkEnd = endAt;
   const chunkSize = 1500 * barSeconds;
+  let hadGap = false;
 
   process.stdout.write(`  Fetching ${interval} history for ${symbol}...`);
   while (chunkEnd > startAt) {
     const chunkStart = Math.max(chunkEnd - chunkSize, startAt);
-    const bars = await fetchKlines(symbol, interval, chunkStart, chunkEnd);
-    if (!bars.length) break;
+    const { ok, bars } = await fetchKlines(symbol, interval, chunkStart, chunkEnd);
+    if (!ok) {
+      // Real failure after retries — do NOT stop paging. Log it loudly and
+      // move the window back past this chunk so a single bad chunk can't
+      // truncate everything older than it.
+      hadGap = true;
+      console.error(`  ⚠️  Giving up on ${symbol} ${interval} chunk [${new Date(chunkStart * 1000).toISOString()} – ${new Date(chunkEnd * 1000).toISOString()}] after ${FETCH_MAX_RETRIES} retries — data will have a gap here, continuing further back.`);
+      chunkEnd = chunkStart - 1;
+      continue;
+    }
+    if (!bars.length) break; // genuine end of history — safe to stop
     allBars = [...bars, ...allBars];
     chunkEnd = bars[0].time - 1;
     process.stdout.write('.');
@@ -78,7 +117,7 @@ const fetchHistory = async (symbol, interval, historyDays) => {
   }
   const seen = new Set();
   allBars = allBars.filter(b => (seen.has(b.time) ? false : (seen.add(b.time), true))).sort((a, b) => a.time - b.time);
-  console.log(` ${allBars.length} bars`);
+  console.log(` ${allBars.length} bars${hadGap ? '  ⚠️  INCOMPLETE — see warnings above' : ''}`);
   return allBars;
 };
 
@@ -292,6 +331,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
     const levels = core.computeTradeLevels({
       direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
       slAtrMult: config.SL_ATR_MULT, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
+      tp3MinExtensionRR: config.TP3_MIN_EXTENSION_RR,
     });
     if (!levels) continue;
     funnel.tp3RangeOk++;
@@ -348,9 +388,9 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   let capital = config.STARTING_CAPITAL, peak = capital, maxDD = 0;
   for (const t of closed) {
-    // v10.3: position size scaled by computeRiskMultiplier — see config.js
-    // RISK_TIER_MATRIX for the backing data.
-    const riskMult = core.computeRiskMultiplier(t.pivot, t.agreeing, config.RISK_TIER_MATRIX, config.RISK_TIER_DEFAULT);
+    // v10.3/v10.4: position size scaled by computeRiskMultiplier — see
+    // config.js RISK_TIER_MATRIX / PATTERN_RISK_MATRIX for the backing data.
+    const riskMult = core.computeRiskMultiplier(t.pivot, t.agreeing, t.patterns, config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT);
     const riskAmt  = capital * (config.RISK_PER_TRADE_PCT / 100) * riskMult;
     const slipCost = capital * (config.SLIPPAGE_PCT || 0);
     capital += riskAmt * t.rr - slipCost;
@@ -411,7 +451,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ' MVS v10.3 — BACKTEST REPORT',
+    ' MVS v10.4 — BACKTEST REPORT',
     ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
     ' 4H bias + 1H structure + 15m trigger, 2-of-3 timeframe vote',
     '═══════════════════════════════════════════════════════════════════',
@@ -497,7 +537,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 //  MAIN
 // ─────────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`\n🔬 MVS v10.3 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
+  console.log(`\n🔬 MVS v10.4 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
 
   const allTrades = [];
   const funnelsBySymbol = {};

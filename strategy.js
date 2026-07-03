@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.3  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.4  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -12,6 +12,15 @@
  *  probability-favored setup with a defined stop-loss — not a guarantee.
  *  Size positions so that a string of 3-4 consecutive losses (normal,
  *  expected variance) does not meaningfully damage your account.
+ *
+ *  v10.4 RELIABILITY NOTE (2026-07-03): sendSafe (Telegram) and getKlines
+ *  (KuCoin fetch) both now retry on transient failure instead of silently
+ *  giving up after one attempt. Previously, a single brief Telegram outage
+ *  or network blip at exactly the wrong moment would drop a real signal
+ *  with only a line in the Action log — you'd have no way to know. Now:
+ *  Telegram send retries 3x (1s/2s/3s backoff), KuCoin fetch retries 2x
+ *  (0.8s backoff). If it still fails after that, it's a genuine outage on
+ *  their end, not this bot, and it's logged loudly either way.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -21,16 +30,29 @@ const path   = require('path');
 const config = require('./config');
 const core   = require('./core');
 
-// ── Telegram send — pure axios, 10s timeout ─────────────────────────────────
+// ── Telegram send — pure axios, 10s timeout, retries on transient failure ──
+// v10.4 FIX: this used to catch a failure/timeout and just return null —
+// meaning a transient Telegram hiccup (their API has brief outages) would
+// silently drop a real signal alert. You'd never know a signal fired
+// unless you happened to check the Action logs. Now retries 3 times with
+// a short backoff before giving up, and only THEN does it fail silently
+// (logged loudly either way).
 const TG = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
-const sendSafe = (chatId, text, opts = {}, ms = 10000) =>
-  Promise.race([
-    axios.post(`${TG}/sendMessage`, { chat_id: chatId, text, ...opts }),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('Telegram send timed out')), ms)),
-  ]).catch((e) => {
-    console.error(`  ⚠️ Telegram send failed/timed out: ${e.message}`);
-    return null;
-  });
+const sendSafe = async (chatId, text, opts = {}, ms = 10000, maxRetries = 3) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const result = await Promise.race([
+      axios.post(`${TG}/sendMessage`, { chat_id: chatId, text, ...opts }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('Telegram send timed out')), ms)),
+    ]).catch((e) => ({ __failed: true, message: e.message }));
+
+    if (!result || !result.__failed) return result;
+
+    console.error(`  ⚠️ Telegram send failed/timed out (attempt ${attempt}/${maxRetries}): ${result.message}`);
+    if (attempt < maxRetries) await new Promise(r => setTimeout(r, 1000 * attempt));
+  }
+  console.error(`  ❌ Telegram send FAILED after ${maxRetries} attempts — this alert was NOT delivered.`);
+  return null;
+};
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 const STATE_FILE = path.join(__dirname, 'state.json');
@@ -64,24 +86,35 @@ const logDiag = (entry) => {
 };
 
 // ── KuCoin data fetch ────────────────────────────────────────────────────────
-const getKlines = async (symbol, interval, limit) => {
+// v10.4 FIX: added light retry (2 attempts, short backoff) for the same
+// reason as backtest.js's fetchKlines — a single transient network blip
+// used to make the bot silently skip a symbol for that whole 15-min cycle.
+// Low-severity live (next cycle retries fresh in 15 min regardless), but
+// worth closing given the point of this pass is end-to-end reliability.
+const getKlines = async (symbol, interval, limit, maxRetries = 2) => {
   const safeLimit = Math.min(limit + 20, 1500); // buffer for ATR/VP warmup
   const url = `${config.BASE_URL}/market/candles?symbol=${symbol}&type=${interval}&limit=${safeLimit}`;
-  try {
-    const res = await axios.get(url, { timeout: 15000, headers: { 'Content-Type': 'application/json' } });
-    if (res.data.code !== '200000') {
-      console.error(`  ❌ KuCoin API error (${interval}): ${res.data.code} — ${res.data.msg || 'Unknown'}`);
-      return [];
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await axios.get(url, { timeout: 15000, headers: { 'Content-Type': 'application/json' } });
+      if (res.data.code !== '200000') {
+        console.error(`  ❌ KuCoin API error (${interval}, attempt ${attempt}/${maxRetries}): ${res.data.code} — ${res.data.msg || 'Unknown'}`);
+        if (attempt === maxRetries) return [];
+        await new Promise(r => setTimeout(r, 800));
+        continue;
+      }
+      const sorted = (res.data.data || []).reverse();
+      return sorted.slice(-limit).map(k => ({
+        time: parseInt(k[0]), open: parseFloat(k[1]), close: parseFloat(k[2]),
+        high: parseFloat(k[3]), low: parseFloat(k[4]), volume: parseFloat(k[5]),
+      }));
+    } catch (e) {
+      console.error(`  ❌ KuCoin fetch error for ${symbol} (${interval}, attempt ${attempt}/${maxRetries}):`, e.message);
+      if (attempt === maxRetries) return [];
+      await new Promise(r => setTimeout(r, 800));
     }
-    const sorted = (res.data.data || []).reverse();
-    return sorted.slice(-limit).map(k => ({
-      time: parseInt(k[0]), open: parseFloat(k[1]), close: parseFloat(k[2]),
-      high: parseFloat(k[3]), low: parseFloat(k[4]), volume: parseFloat(k[5]),
-    }));
-  } catch (e) {
-    console.error(`  ❌ KuCoin fetch error for ${symbol} (${interval}):`, e.message);
-    return [];
   }
+  return [];
 };
 
 // ── Signal cooldown ──────────────────────────────────────────────────────────
@@ -115,7 +148,7 @@ const isDuplicateRun = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v10.3 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v10.4 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -311,9 +344,10 @@ const runStrategy = async (symbol) => {
     const levels = core.computeTradeLevels({
       direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
       slAtrMult: config.SL_ATR_MULT, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
+      tp3MinExtensionRR: config.TP3_MIN_EXTENSION_RR,
     });
     if (!levels) {
-      console.log(`  ⏭️ Invalid TP structure (TP3 doesn't extend beyond TP1). Suppressed.`);
+      console.log(`  ⏭️ Invalid TP structure (TP3 doesn't extend ≥${config.TP3_MIN_EXTENSION_RR}R beyond TP1). Suppressed.`);
       return;
     }
 
@@ -323,12 +357,18 @@ const runStrategy = async (symbol) => {
     const voteLine = `🗳️ *TF Vote (${resolved.tally}):* ${resolved.agreeing.join(' + ')} agree ${direction === 'BUY' ? 'BULLISH' : 'BEARISH'}` +
       (bias4h ? ` | 4H:${bias4h.bias}` : '') + ` 1H:${bias1h.bias}` + (bias15m ? ` 15m:${bias15m.bias}` : '');
 
-    // v10.3: risk-tiered sizing — see core.js computeRiskMultiplier() for
-    // the backtest evidence behind this. Not a filter: this signal fires
-    // regardless of tier, only the suggested size changes.
-    const riskMult = core.computeRiskMultiplier(bestPivot.name, resolved.agreeing, config.RISK_TIER_MATRIX, config.RISK_TIER_DEFAULT);
+    // v10.3/v10.4: risk-tiered sizing — see core.js computeRiskMultiplier()
+    // for the backtest evidence behind this. Not a filter: this signal
+    // fires regardless of tier, only the suggested size changes.
+    const riskMult = core.computeRiskMultiplier(
+      bestPivot.name, resolved.agreeing, rejection.patterns,
+      config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT
+    );
+    const weakReasons = [];
+    if (!resolved.agreeing.includes('1H')) weakReasons.push('1H not in the confirming vote');
+    if (rejection.patterns.includes('POC_RECLAIM')) weakReasons.push('POC_RECLAIM pattern');
     const sizeLine = riskMult < 1
-      ? `⚖️ *Suggested size:* ${Math.round(riskMult * 100)}% of normal (${bestPivot.name} pivot${resolved.agreeing.includes('1H') ? '' : ', 1H not in the confirming vote'} — historically weaker segment, see README)`
+      ? `⚖️ *Suggested size:* ${Math.round(riskMult * 100)}% of normal (${bestPivot.name} pivot, ${weakReasons.join(' + ')} — historically weaker segment, see README)`
       : `⚖️ *Suggested size:* 100% of normal (${bestPivot.name} pivot, 1H confirms — historically strongest segment)`;
 
     const message = `
@@ -355,7 +395,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v10.3*
+⚡ *MVS v10.4*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -387,7 +427,7 @@ risk capital you can't afford to lose on a single position.
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v10.3                          ║');
+console.log('║   MVS — Monthly Value Sniper v10.4                          ║');
 console.log('║   4H bias + 1H structure + 15m trigger — 2-of-3 vote         ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);
