@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — Monthly Value Sniper v10.4
+ *  MVS — Monthly Value Sniper v10.6
  *  KuCoin API Configuration
  *
  *  FOUNDATION: POC + VAH + VAL + FIBO. No lagging indicators.
@@ -67,6 +67,55 @@
  *   Also hardened: Telegram send and live KuCoin fetch both retry on
  *   transient failure now instead of silently dropping the attempt — see
  *   strategy.js header.
+ *
+ *  v10.5 — (2026-07-03) requested: eliminate TP3, keep only TP1/TP2 as
+ *  real targets, confirmed by FOUR separate backtests (30/360/720/1800
+ *  days) all showing TP3 hits: 0.
+ *   1. TP3 retired. TP2 is now the former TP3's VAH/VAL formula — the
+ *      only far target left. TP1 is now a genuine 50% partial exit
+ *      (PARTIAL_EXIT_PCT) that arms a hard breakeven stop for the rest,
+ *      instead of the old instant full-close-at-TP1 behavior that was the
+ *      actual reason TP2/TP3 were almost never reached in the first
+ *      place — see core.js v10.5 fix log for the full mechanism. This is
+ *      a real behavior fix, not a cosmetic rename: it changes what
+ *      happens after TP1 is hit, and should increase avg R per trade
+ *      without touching frequency or the pre-TP1 loss-protection logic.
+ *   2. Separately: the r30 (30-day) backtest request came back with
+ *      scanned=0 for all 13 symbols — not a quiet market. backtest.js
+ *      fetched exactly `days` of history for warmup AND evaluation, but
+ *      warming up the 4H volume profile alone needs ~34.2 days on its
+ *      own, so any request under ~35 days could never produce a signal.
+ *      Fixed with WARMUP_BUFFER_DAYS — see backtest.js v10.5 notes.
+ *
+ *  v10.6 — (2026-07-03) evaluated a third-party strategy spec (DeepSeek-
+ *  authored, "Pi-9 VA Fib Reversal Bot") on request, adopted what held up,
+ *  explicitly declined the rest:
+ *   ADOPTED: TD Sequential "9" exhaustion count (Tom DeMark) as an
+ *      independent, size-only confirmation signal — see core.js
+ *      computeTDSequential(). Genuinely non-lagging, well-established, and
+ *      structurally safe to add: it's additive-only (TD9_BOOST_MULT),
+ *      clamped so it can never exceed normal size or block a signal, so
+ *      it can't reduce frequency and can't introduce a new failure mode
+ *      in the entry/gate logic that's already validated on 500+ trades.
+ *   DECLINED: swapping TP2 from 1H VAH/VAL to a "Pi Target" (entry ± 
+ *      VA_Range × π). The premise — "Pi solves the TP problem" — doesn't
+ *      hold up: the actual TP problem was the v10.5 sequencing bug (TP1
+ *      closing the whole trade before TP2 could ever be reached), already
+ *      fixed. Swapping the TARGET FORMULA doesn't address that, and π as
+ *      a multiplier has no evidence behind it in this system — it's an
+ *      arbitrary constant, not a validated one. VAH/VAL stays: it's a
+ *      real structural level with 500+ trades of backtest history behind
+ *      it. Discussed with the user directly rather than silently skipped.
+ *   DECLINED: 4H-based Value Area / Fibonacci (spec used 4H for both;
+ *      this bot's validated version uses 1H). Swapping timeframes here
+ *      would discard everything the four backtests (30/360/720/1800 day)
+ *      validated and reintroduce unproven parameters — exactly what this
+ *      codebase has been deliberately moving away from since v10.0.
+ *   DECLINED: ADX filter, volume-confirmation filter, news filter — all
+ *      would reduce signal frequency, which was explicitly the opposite
+ *      of what was asked for this round ("maintain the signal firing
+ *      system active as it is"). News filter also explicitly declined by
+ *      the user directly.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -256,24 +305,42 @@ module.exports = {
     POC_RECLAIM: 0.65,
   },
 
-  // ── TP structure ─────────────────────────────────────────────────────────
-  TP1_RR_FLOOR: 1.2,          // TP1 = max(50%Fib, entry + 1.2×risk)
-  // TP2 = midpoint between TP1 and TP3 (structural). TP3 = 1H VAH/VAL.
+  // ── TD Sequential "9" exhaustion boost (v10.6, added on request) ────────
+  // Independent, additive-only supporting evidence — see core.js
+  // computeTDSequential() header for the full reasoning. Bounded so it can
+  // only ever restore size toward 1.0 (never past it, never a gate). No
+  // backtest history of its own yet in this system, so the boost is kept
+  // deliberately modest (1.15x) rather than assumed strong. Revisit with
+  // real data once enough signals have fired with TD9 present to check.
+  TD9_ENABLED: true,
+  TD9_BOOST_MULT: 1.15,
 
-  // v10.4 FIX: TP3 used to only require tp3Price > tp1Price (BUY) with NO
-  // minimum margin — see core.js v10.4 fix log. Result: TP3 hits: 0 across
-  // 216 signals in the last backtest, because TP2 (the midpoint of TP1
-  // and TP3) sat, on the 19 trades that reached it, a median of just
-  // 0.09R short of TP3 — well within normal 15m noise. This value (0.25R)
-  // rejects the worst ~15% of setups by TP1-TP3 gap (the ones where TP3
-  // was structurally unreachable to begin with) while keeping the other
-  // ~85%. Set to 0 to restore the old (broken) behavior.
-  TP3_MIN_EXTENSION_RR: 0.25,
+  // ── TP structure (v10.5: TP3 eliminated — see core.js v10.5 fix log) ────
+  TP1_RR_FLOOR: 1.2,          // TP1 = max(50%Fib, entry + 1.2×risk)
+  // TP2 = 1H VAH/VAL (formerly TP3). TP1 is now a 50% PARTIAL exit that
+  // arms a hard breakeven stop for the other half, which then targets
+  // TP2. The old midpoint-of-TP1-and-TP3 formula for "TP2" is gone
+  // entirely — that level never did much useful work, since under the
+  // old sequencing TP1 closed the whole trade before it could matter.
+
+  // Fraction of the position closed at TP1. Remaining (1 - this) rides to
+  // TP2 with a breakeven stop. 0.5 = the standard, most defensible split;
+  // change with real evidence only, not a hunch.
+  PARTIAL_EXIT_PCT: 0.5,
+
+  // v10.4 FIX (kept, renamed for v10.5): the far target used to only
+  // require tp3Price > tp1Price (BUY) with NO minimum margin, which is
+  // why the old TP3 hit 0 times across every single backtest run (30,
+  // 360, 720, AND 1800 days, all showing 0). This value (0.25R) rejects
+  // the worst ~15% of setups by TP1-TP2 gap (the ones where the far
+  // target was structurally too close to be a meaningful second stage)
+  // while keeping the other ~85%. Set to 0 to disable the floor entirely.
+  TP2_MIN_EXTENSION_RR: 0.25,
 
   // ── Backtest-only settings ──────────────────────────────────────────────
   BACKTEST_DAYS: 360,
   STARTING_CAPITAL: 1000,
-  EARLY_TIMEOUT_BARS: 70,     // close sim trades early if TP2 not hit by then
+  EARLY_TIMEOUT_BARS: 70,     // close sim trades early if TP1 not hit by then (v10.5: was "TP2" under the old 3-target system)
 
   // ── KuCoin API ──────────────────────────────────────────────────────────
   BASE_URL: 'https://api.kucoin.com/api/v1',

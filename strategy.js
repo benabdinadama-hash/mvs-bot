@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.4  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.6  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -148,7 +148,7 @@ const isDuplicateRun = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v10.4 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v10.6 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -344,10 +344,10 @@ const runStrategy = async (symbol) => {
     const levels = core.computeTradeLevels({
       direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
       slAtrMult: config.SL_ATR_MULT, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
-      tp3MinExtensionRR: config.TP3_MIN_EXTENSION_RR,
+      tp2MinExtensionRR: config.TP2_MIN_EXTENSION_RR,
     });
     if (!levels) {
-      console.log(`  ⏭️ Invalid TP structure (TP3 doesn't extend ≥${config.TP3_MIN_EXTENSION_RR}R beyond TP1). Suppressed.`);
+      console.log(`  ⏭️ Invalid TP structure (TP2 doesn't extend ≥${config.TP2_MIN_EXTENSION_RR}R beyond TP1). Suppressed.`);
       return;
     }
 
@@ -357,34 +357,45 @@ const runStrategy = async (symbol) => {
     const voteLine = `🗳️ *TF Vote (${resolved.tally}):* ${resolved.agreeing.join(' + ')} agree ${direction === 'BUY' ? 'BULLISH' : 'BEARISH'}` +
       (bias4h ? ` | 4H:${bias4h.bias}` : '') + ` 1H:${bias1h.bias}` + (bias15m ? ` 15m:${bias15m.bias}` : '');
 
-    // v10.3/v10.4: risk-tiered sizing — see core.js computeRiskMultiplier()
-    // for the backtest evidence behind this. Not a filter: this signal
-    // fires regardless of tier, only the suggested size changes.
+    // v10.6: TD Sequential "9" — independent, additive-only evidence. See
+    // core.js computeTDSequential() header for the full reasoning. Only
+    // ever restores size toward 1.0, never blocks, never exceeds normal.
+    const td9 = config.TD9_ENABLED ? core.computeTDSequential(data1h) : { buy9: false, sell9: false };
+    const td9Confirms = (direction === 'BUY' && td9.buy9) || (direction === 'SELL' && td9.sell9);
+
+    // v10.3/v10.4/v10.5/v10.6: risk-tiered sizing — see core.js
+    // computeRiskMultiplier() for the backtest evidence behind this. Not a
+    // filter: this signal fires regardless of tier, only the suggested
+    // size changes.
     const riskMult = core.computeRiskMultiplier(
       bestPivot.name, resolved.agreeing, rejection.patterns,
-      config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT
+      config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT,
+      td9Confirms, config.TD9_BOOST_MULT
     );
     const weakReasons = [];
     if (!resolved.agreeing.includes('1H')) weakReasons.push('1H not in the confirming vote');
     if (rejection.patterns.includes('POC_RECLAIM')) weakReasons.push('POC_RECLAIM pattern');
+    const td9Suffix = td9Confirms ? ' | TD9 exhaustion confirms +boost' : '';
     const sizeLine = riskMult < 1
-      ? `⚖️ *Suggested size:* ${Math.round(riskMult * 100)}% of normal (${bestPivot.name} pivot, ${weakReasons.join(' + ')} — historically weaker segment, see README)`
-      : `⚖️ *Suggested size:* 100% of normal (${bestPivot.name} pivot, 1H confirms — historically strongest segment)`;
+      ? `⚖️ *Suggested size:* ${Math.round(riskMult * 100)}% of normal (${bestPivot.name} pivot, ${weakReasons.join(' + ')} — historically weaker segment, see README${td9Suffix})`
+      : `⚖️ *Suggested size:* 100% of normal (${bestPivot.name} pivot, 1H confirms — historically strongest segment${td9Suffix})`;
+    const td9Line = (td9.buy9 || td9.sell9)
+      ? `\n🔢 *TD Sequential:* ${td9.buy9 ? 'Buy 9 just completed' : 'Sell 9 just completed'} (1H)${td9Confirms ? ' ✅ agrees with direction' : ' — opposite direction, informational only'}`
+      : '';
 
     const message = `
 ${emoji} *${symbol} — MVS Signal*
 
 📊 *Direction:* ${direction}
 ${voteLine}
-🔗 *4H Zone:* near ${htfCheck.nearestLevel} ✅
+🔗 *4H Zone:* near ${htfCheck.nearestLevel} ✅${td9Line}
 
 ━━━━━━━━━━━━━━━━━━━━
 💵 *Entry:* \`$${bestFibLevel.toFixed(4)}\` (1H Fib ${fibPct} ↔ ${bestPivot.name})
 🛑 *SL:* \`$${levels.slPrice.toFixed(4)}\` (1H swing wick ± 0.25×ATR)
 ━━━━━━━━━━━━━━━━━━━━
-🎯 *TP1:* \`$${levels.tp1Price.toFixed(4)}\`  R:R ${levels.rr1.toFixed(2)}:1
-🏁 *TP2:* \`$${levels.tp2Price.toFixed(4)}\`  R:R ${levels.rr2.toFixed(2)}:1
-🏆 *TP3* (${direction === 'BUY' ? 'VAH' : 'VAL'} runner): \`$${levels.tp3Price.toFixed(4)}\`  R:R ${levels.rr3.toFixed(2)}:1
+🎯 *TP1 (exit ${Math.round(config.PARTIAL_EXIT_PCT * 100)}%, move SL to entry):* \`$${levels.tp1Price.toFixed(4)}\`  R:R ${levels.rr1.toFixed(2)}:1
+🏁 *TP2 (runner, remaining ${Math.round((1 - config.PARTIAL_EXIT_PCT) * 100)}%, ${direction === 'BUY' ? 'VAH' : 'VAL'}):* \`$${levels.tp2Price.toFixed(4)}\`  R:R ${levels.rr2.toFixed(2)}:1
 ━━━━━━━━━━━━━━━━━━━━
 ${sizeLine}
 🕯 *15m trigger (${rejection.solo ? 'SOLO' : rejection.score + '/' + config.REJECTION_MIN_PATTERNS}):* ${patternStr}
@@ -395,7 +406,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v10.4*
+⚡ *MVS v10.6*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -427,7 +438,7 @@ risk capital you can't afford to lose on a single position.
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v10.4                          ║');
+console.log('║   MVS — Monthly Value Sniper v10.6                          ║');
 console.log('║   4H bias + 1H structure + 15m trigger — 2-of-3 vote         ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);

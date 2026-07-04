@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — CORE STRATEGY LOGIC (core.js)  v10.2
+ *  MVS — CORE STRATEGY LOGIC (core.js)  v10.6
  *
  *  Every pure function used to decide BUY/SELL/NO-TRADE lives here, and
  *  ONLY here. strategy.js (live/Telegram) and backtest.js (simulation)
@@ -89,6 +89,38 @@
  *    orthogonal factor found in the same trade log). Position-size only —
  *    frequency and win-rate-by-count are both unaffected, exactly like
  *    the v10.3 change above.
+ *
+ *  v10.5 FIX LOG (2026-07-03, requested change: eliminate TP3, keep only
+ *  TP1/TP2 as real targets — confirmed by four separate backtests, 30/
+ *  360/720/1800 days, ALL showing TP3 hits: 0):
+ *  ─ Root cause was deeper than "TP3 is just hard to reach": TP1 used to
+ *    be a full, instant close. The trade-management loop checked "did TP2
+ *    get hit" BEFORE checking "did TP1 get hit," so in ordinary gradual
+ *    price movement TP1 always closed the entire position first, and TP2/
+ *    TP3 could only ever fire if a single 15m candle jumped through both
+ *    TP1 and TP2 in the same bar — a rare gap/spike event. This is why
+ *    TP2 hits were also rare (4-26 across hundreds of trades) even before
+ *    TP3 itself is considered.
+ *  ─ Fix: TP1 is now a genuine 50% partial exit that arms a hard
+ *    breakeven stop for the remaining half, which then targets TP2 (the
+ *    former TP3's VAH/VAL formula — the only far target that now exists).
+ *    See computeTradeLevels() below and backtest.js/strategy.js v10.5
+ *    notes for the sequencing fix itself.
+ *  ─ This is a strict improvement, not just a rename: previously, a trade
+ *    that reached TP1 was DONE at +rr1 (~1.2R), full stop, no upside left
+ *    on the table even in a strong trend. Now that same trade banks 50%
+ *    at TP1 (locking in real profit) and lets the other 50% chase the
+ *    structural VAH/VAL target with a stop that can't go negative from
+ *    there. Worst case for a trade that reaches TP1 is now ~0.5×rr1
+ *    (still a win, just smaller); best case is meaningfully larger than
+ *    the old flat rr1 payout.
+ *
+ *  v10.6 — added computeTDSequential() (TD Sequential "9" exhaustion
+ *  count) as an independent, size-only confirmation signal — see that
+ *  function's own header below for the full reasoning, and config.js
+ *  v10.6 notes for what else was evaluated from the same source and
+ *  explicitly declined (Pi-target TPs, 4H VA/Fib, ADX/volume/news
+ *  filters).
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -384,10 +416,6 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorpti
 };
 
 // ─────────────────────────────────────────────────────────────────────────
-//  TRADE LEVELS — SL / TP1 / TP2 / TP3, unchanged math from prior version
-//  (this part was not overfit — it's a straightforward R:R structure).
-// ─────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────
 //  RISK MULTIPLIER — evidence-based position-size tiering (v10.3, not a
 //  new entry gate). Backing data (backtest-report.json, 246 closed trades,
 //  v10.2 ruleset), split by pivot AND by whether 1H confirms direction:
@@ -407,8 +435,7 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorpti
 //  split). Deliberately narrow: sizing changes only where the trade log
 //  shows a real, dataset-wide reason to, same anti-overfitting stance as
 //  the rest of this file.
-// ─────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────
+//
 //  v10.4: extended with an independent, orthogonal second factor —
 //  POC_RECLAIM pattern presence. Backing data (backtest-report.json, 215
 //  closed trades, v10.3 ruleset — and this is the THIRD consecutive
@@ -426,7 +453,43 @@ const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorpti
 //  block, and no other pattern (CLOSE_REJECTION/ENGULFING/PIN_BAR/
 //  VAH_VAL_RECLAIM) has comparable evidence against it.
 // ─────────────────────────────────────────────────────────────────────────
-const computeRiskMultiplier = (pivotName, agreeing, patterns, riskTierMatrix, patternRiskMatrix, defaultMult = 1.0) => {
+//  TD SEQUENTIAL "9" SETUP COUNT (v10.6, added on request)
+// ─────────────────────────────────────────────────────────────────────────
+//  Tom DeMark's TD Sequential Setup — pure price comparison, genuinely
+//  non-lagging (no averaging/smoothing of any kind, matching this bot's
+//  existing "no lagging indicators" design). Rule, exactly as specified:
+//  Buy Setup count increments each bar where close < close[4 bars ago],
+//  resets to 0 the instant a bar fails that test. "Buy 9" = the count
+//  hits exactly 9 on the most recent bar (a fresh completion, not still
+//  sitting at 9+ from bars ago). Sell Setup is the mirror condition.
+//
+//  This is used as ADDITIONAL, INDEPENDENT evidence — not a gate. It only
+//  ever adjusts position size upward (see computeRiskMultiplier below),
+//  and only within the existing size ceiling (1.0× = normal size). It can
+//  never block a signal or push size above normal. This was a deliberate
+//  choice: the existing 2-of-3 timeframe vote + confluence + trigger
+//  system is validated against 500+ backtested trades across four
+//  separate time horizons (30/360/720/1800 days); TD9 has zero backtest
+//  history of its own in this system. Turning it into a hard requirement
+//  would cut signal frequency based on an unvalidated assumption. Turning
+//  it into a size-only bonus lets it help when it agrees, and costs
+//  nothing when it doesn't fire (which, per DeMark's own statistics, is
+//  most of the time — a real 9-count is a fairly rare, specific event).
+// ─────────────────────────────────────────────────────────────────────────
+const computeTDSequential = (bars) => {
+  if (!Array.isArray(bars) || bars.length < 5) return { buyCount: 0, sellCount: 0, buy9: false, sell9: false };
+  let buyCount = 0, sellCount = 0, buy9 = false, sell9 = false;
+  for (let i = 4; i < bars.length; i++) {
+    const c = bars[i].close, c4 = bars[i - 4].close;
+    buyCount  = (c < c4) ? buyCount + 1 : 0;
+    sellCount = (c > c4) ? sellCount + 1 : 0;
+    buy9  = (buyCount === 9);
+    sell9 = (sellCount === 9);
+  }
+  return { buyCount, sellCount, buy9, sell9 };
+};
+
+const computeRiskMultiplier = (pivotName, agreeing, patterns, riskTierMatrix, patternRiskMatrix, defaultMult = 1.0, td9Confirms = false, td9BoostMult = 1.0) => {
   const confirmKey = (Array.isArray(agreeing) && agreeing.includes('1H')) ? '1H' : 'NO1H';
   const key = `${pivotName}_${confirmKey}`;
   let mult = (riskTierMatrix && riskTierMatrix[key] != null) ? riskTierMatrix[key] : defaultMult;
@@ -435,10 +498,35 @@ const computeRiskMultiplier = (pivotName, agreeing, patterns, riskTierMatrix, pa
       if (patternRiskMatrix[p] != null) mult *= patternRiskMatrix[p];
     }
   }
+  // v10.6: TD9 exhaustion count agreeing with trade direction is treated
+  // as independent supporting evidence — it can partially restore a
+  // discount, never push size past 1.0 (the clamp below is unconditional,
+  // not just documentation).
+  if (td9Confirms) mult *= td9BoostMult;
   return Math.max(0.1, Math.min(1.0, mult));
 };
 
-const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, tp1RrFloor, fibLevel500, tp3MinExtensionRR = 0 }) => {
+// ─────────────────────────────────────────────────────────────────────────
+//  TRADE LEVELS — SL / TP1 / TP2 (v10.5: TP3 retired, see fix log below)
+// ─────────────────────────────────────────────────────────────────────────
+//  v10.5 REDESIGN: this used to compute THREE targets — TP1 (structural/
+//  1.2R floor), TP2 (the arithmetic midpoint of TP1 and TP3), and TP3
+//  (1H VAH/VAL). The trade-management loop (backtest.js) treated TP1 as a
+//  FULL close the instant it was touched — meaning in ordinary gradual
+//  price action, TP1 closed the whole position before TP2 could ever be
+//  reached; TP2/TP3 only fired when a single 15m candle happened to jump
+//  through both TP1 and TP2 in one bar. That's why TP3 hit 0 times across
+//  every backtest run (30/360/720/1800 days all showed TP3 hits: 0) and
+//  TP2 only fired a handful of times per hundred trades.
+//
+//  Rather than just delete TP3 and keep the same broken sequencing, this
+//  is now a genuine two-stage exit: TP1 = 50% partial exit (locks in
+//  profit, arms a hard breakeven stop for the other half), TP2 = the old
+//  TP3's VAH/VAL formula — now the ONLY further target, for the runner
+//  half. See backtest.js / strategy.js v10.5 notes for the management-
+//  loop side of this.
+// ─────────────────────────────────────────────────────────────────────────
+const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, tp1RrFloor, fibLevel500, tp2MinExtensionRR = 0 }) => {
   const swingWick = direction === 'BUY' ? swing.low : swing.high;
   const slPrice = direction === 'BUY'
     ? swingWick - atr * slAtrMult
@@ -455,28 +543,25 @@ const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, 
     ? Math.max(tp1Structural, tp1Dynamic)
     : Math.min(tp1Structural, tp1Dynamic);
 
-  const tp3Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
-  // v10.4 FIX: this used to be `tp3Price > tp1Price` with no minimum
-  // margin, which is why TP3 was hit 0 times in 216 live-equivalent
-  // backtest signals — see core.js header v10.4 fix log for the data.
-  // Now requires TP3 to clear TP1 by at least tp3MinExtensionRR (in R),
-  // not just by any nonzero amount.
-  const tp3ExtensionRR = Math.abs(tp3Price - tp1Price) / risk;
-  const tp3Beyond = direction === 'BUY' ? tp3Price > tp1Price : tp3Price < tp1Price;
-  if (!tp3Beyond || tp3ExtensionRR < tp3MinExtensionRR) return null;
-
-  const tp2Price = tp1Price + (tp3Price - tp1Price) * 0.5;
+  // TP2 (formerly TP3): the 1H value-area edge — the structural "how far
+  // can this realistically run" target. Same minimum-extension guard as
+  // before (renamed from TP3_MIN_EXTENSION_RR to TP2_MIN_EXTENSION_RR),
+  // still doing the same job: reject setups where this target sits too
+  // close to TP1 to ever be a meaningful second stage.
+  const tp2Price = direction === 'BUY' ? vp.vahPrice : vp.valPrice;
+  const tp2ExtensionRR = Math.abs(tp2Price - tp1Price) / risk;
+  const tp2Beyond = direction === 'BUY' ? tp2Price > tp1Price : tp2Price < tp1Price;
+  if (!tp2Beyond || tp2ExtensionRR < tp2MinExtensionRR) return null;
 
   return {
-    slPrice, tp1Price, tp2Price, tp3Price, risk,
+    slPrice, tp1Price, tp2Price, risk,
     rr1: risk > 0 ? Math.abs(tp1Price - entryPrice) / risk : 0,
     rr2: risk > 0 ? Math.abs(tp2Price - entryPrice) / risk : 0,
-    rr3: risk > 0 ? Math.abs(tp3Price - entryPrice) / risk : 0,
   };
 };
 
 module.exports = {
   calcATR, calcFib, calcVolumeProfile, tfBiasVote, isNearZone, resolveDirection,
   confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
-  detectRejection, computeTradeLevels, computeRiskMultiplier,
+  detectRejection, computeTradeLevels, computeRiskMultiplier, computeTDSequential,
 };
