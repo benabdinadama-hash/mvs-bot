@@ -41,7 +41,7 @@ const call = async (method, params = {}) => {
 
   // 3. Set short description (shown on bot profile page)
   await call('setMyShortDescription', {
-    short_description: '🎯 Institutional crypto signals across 13 liquid KuCoin pairs. POC/VAH/VAL/Fib + 4H bias. 720-day backtested. Built for Ghana.'
+    short_description: '🎯 Institutional-structure crypto signals across 13 liquid KuCoin pairs. POC/VAH/VAL/Fib, 4H+1H+15m 2-of-3 vote. Built for Ghana.'
   });
 
   // 4. Set full description (shown when user first opens bot)
@@ -50,13 +50,13 @@ const call = async (method, params = {}) => {
 `🏆 Monthly Value Sniper (MVS)
 By Abdin — KuCoin Edition for Ghana
 
-An institutional-grade signal bot using Volume Profile (POC/VAH/VAL) + Fibonacci confluence, gated by 4H bias, on 1hour entry candles.
+An institutional-grade signal bot using Volume Profile (POC/VAH/VAL) + Fibonacci confluence across three timeframes — 4H macro bias, 1H structure, 15m trigger — requiring 2-of-3 to agree before anything fires.
 
-📊 Verified Performance (720 days, 13 pairs):
-• Real-money win rate: 90.7% (only 14 real losses of 150 closed trades)
-• Profit factor: 5.26
-• Total R accumulated: +43.75R
-• Avg hold: ~50 hours
+No hardcoded win-rate claim here on purpose: an earlier version quoted a
+90.7% figure that turned out to be tuned against the same backtest it was
+"verified" on — the textbook definition of overfitting, and misleading to
+show new users. Run \`node backtest.js\` in the repo yourself for current,
+honest numbers over a window you haven't tuned against.
 
 🎯 Pairs: ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL (USDT)
 📡 Exchange: KuCoin (works in Ghana — no VPN)
@@ -72,6 +72,7 @@ Source: github.com/benabdinadama-hash/mvs-bot`
       { command: 'about',     description: '📊 Strategy overview + backtest results' },
       { command: 'pairs',     description: '💱 Which pairs are tracked and why' },
       { command: 'signal',    description: '📡 How to read a signal when it fires' },
+      { command: 'positions', description: '📌 Last active signal per symbol' },
       { command: 'source',    description: '🔗 GitHub repo link' },
       { command: 'health',    description: '🩺 KuCoin API status + last scan time' },
       { command: 'status',    description: '📈 Last saved scan result' },
@@ -88,7 +89,7 @@ Bot profile, description and command menu have been configured.
 
 Tap the */* button in this chat to see the command menu. Any visitor who opens this bot will now see the full MVS description and performance stats instantly — no polling required.
 
-Signal alerts will continue firing automatically when ETH or SOL hits a valid confluence zone.`,
+Signal alerts will continue firing automatically whenever any of the 13 tracked pairs hits a valid confluence zone.`,
     parse_mode: 'Markdown'
   });
 

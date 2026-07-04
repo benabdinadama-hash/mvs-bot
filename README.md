@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.0-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.6-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -37,6 +37,47 @@ the summary — not just the win-rate line.
 
 ---
 
+## What changed since v10.0 (v10.3 → v10.6)
+
+Kept here so this stays a living record instead of scattered commit
+messages. Full technical detail lives in the header comments of `core.js`
+and `config.js` if you want the exact numbers behind each change.
+
+- **v10.3 — Risk tiering.** Position-size scaling (not a new entry gate —
+  nothing that used to fire got blocked) for the one segment the trade log
+  actually flagged: POC-pivot entries where 1H doesn't confirm direction.
+- **v10.4 — Three fixes.** LINK-USDT and AVAX-USDT were silently getting
+  truncated trade history in backtests (a pagination bug, not a real data
+  gap — fixed). A second, independent risk factor (the `POC_RECLAIM`
+  pattern) got its own position-size discount. Telegram send and KuCoin
+  fetch both gained retries so a transient network blip can't silently
+  drop a real signal.
+- **v10.5 — TP3 retired.** Confirmed by four separate backtests (30/360/
+  720/1800 days) that TP3 was hit exactly 0 times, ever. Root cause: TP1
+  used to be a full, instant close, which (due to check ordering) meant
+  the further targets could basically never be reached in ordinary price
+  action. Fixed properly: TP1 is now a genuine 50% partial exit with a
+  hard breakeven stop for the rest, and TP2 (the old TP3 formula — 1H
+  VAH/VAL) is the only further target. Two real targets instead of three
+  where the third was structurally unreachable. Also fixed: backtest
+  requests for short windows (e.g. 30 days) used to silently return zero
+  signals for every symbol, because warming up the 4H volume profile
+  alone needs ~34 days — that warmup buffer is now fetched separately
+  from the days you actually asked to evaluate.
+- **v10.6 — Evaluated a third-party strategy spec on request, adopted
+  what held up, declined the rest with reasons on record.** Adopted: TD
+  Sequential "9" (Tom DeMark) as an independent, size-only confirmation
+  signal — genuinely non-lagging, bounded so it can only restore size
+  toward normal, never exceed it or block a signal. Declined: swapping
+  the TP2 target formula to an `entry ± VA_Range × π` "Pi target" (the
+  actual TP problem was the v10.5 sequencing bug, already fixed — π
+  itself has no evidence behind it in this system); 4H-based Value Area/
+  Fibonacci (would discard everything the four backtests validated);
+  ADX/volume/news filters (would cut signal frequency, the opposite of
+  what was asked).
+
+---
+
 ## ⚠️ Important: Why KuCoin?
 
 **Binance and Bybit do NOT work in Ghana.** KuCoin is the recommended exchange for Ghana-based traders.
@@ -48,18 +89,20 @@ This bot uses the **KuCoin Spot API** which is fully accessible from Ghana witho
 ## Table of Contents
 
 1. [What is MVS?](#what-is-mvs)
-2. [Core Pillars](#core-pillars)
-3. [Setup Parameters](#setup-parameters)
-4. [Fibonacci Roles](#fibonacci-roles-the-6-levels)
-5. [Signal Taxonomy](#signal-taxonomy-all-possible-states)
-6. [Rejection Patterns](#rejection-patterns-2-of-5-rule-on-the-15m-trigger-candle)
-7. [Expected Signal Frequency](#expected-signal-frequency)
-8. [Entry Logic](#entry-logic-step-by-step)
-9. [Backtest Results](#backtest-results)
-10. [Why MVS Works](#why-mvs-works)
-11. [Deployment](#deployment)
-12. [File Structure](#file-structure)
-13. [Troubleshooting](#troubleshooting)
+2. [What changed since v10.0](#what-changed-since-v100-v103--v106)
+3. [Core Pillars](#core-pillars)
+4. [Setup Parameters](#setup-parameters)
+5. [Fibonacci Roles](#fibonacci-roles-the-6-levels)
+6. [Signal Taxonomy](#signal-taxonomy-all-possible-states)
+7. [Rejection Patterns](#rejection-patterns-2-of-5-rule-on-the-15m-trigger-candle)
+8. [Expected Signal Frequency](#expected-signal-frequency)
+9. [Entry Logic](#entry-logic-step-by-step)
+10. [Backtest Results](#backtest-results)
+11. [Why MVS Works](#why-mvs-works)
+12. [Deployment](#deployment)
+13. [Keeping the Bot Alive](#keeping-the-bot-alive)
+14. [File Structure](#file-structure)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -129,7 +172,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL (USDT) | 13 liquid pairs — repo is public, Actions minutes are free |
 | **Scan cadence** | Every 15 minutes | Matches the 15m trigger timeframe |
 | **VP rows** | 100 | Matches TradingView "Profile Rows: 100" |
-| **Command polling** | Every 2 minutes | Near real-time response to Telegram commands |
+| **Command polling** | Every 5 minutes | Near real-time response to Telegram commands |
 
 ---
 
@@ -139,9 +182,9 @@ actually happens — 15m only sharpens *when* inside that zone.
 |-------|------|--------|
 | 23.6% | Momentum Gauge | Trend strength only — ignore for entries |
 | 38.2% | Momentum Gauge | Trend strength only — ignore for entries |
-| **50.0%** | **TP1** | **Close 50% of position — equilibrium snap-back** |
-| **61.8%** | **ENTRY ZONE start** | **Must overlap with POC, VAH, or VAL within ATR×0.5** |
-| **78.6%** | **ENTRY ZONE end** | **Must overlap with POC, VAH, or VAL within ATR×0.5** |
+| **50.0%** | **TP1 floor** | **One of two inputs to TP1 (see TP structure below) — closes 50% of position when hit** |
+| **61.8%** | **ENTRY ZONE start** | **Must overlap with POC, VAH, or VAL within ATR×0.85** |
+| **78.6%** | **ENTRY ZONE end** | **Must overlap with POC, VAH, or VAL within ATR×0.85** |
 | **88.6%** | **D4 EXTREME** | **Beyond this = over-extended, signal blocked** |
 
 ---
@@ -152,7 +195,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 
 | Signal | Condition | Action |
 |--------|-----------|--------|
-| **A1** Golden Zone | Fib 60–80% pocket overlaps POC, VAH, or VAL within ATR×0.5 | Confluence found. Proceed to HTF check. |
+| **A1** Golden Zone | Fib 60–80% pocket overlaps POC, VAH, or VAL within ATR×0.85 | Confluence found. Proceed to HTF check. |
 | **A2** Structural Remap | Price breaks the 1H STRUCT_FIB_LOOKBACK-bar swing high/low | All previous zones VOID. Wait for recalculation. |
 | **A3** Zone Expiry | No Fib/POC/VAH/VAL confluence found | Silent reset. Wait for next scan. |
 
@@ -171,12 +214,21 @@ actually happens — 15m only sharpens *when* inside that zone.
 
 | Signal | Condition | Action |
 |--------|-----------|--------|
-| **C1** TP1 Hit | Price reaches 50% Fib | Close 50% of position. Move runner SL to entry. |
-| **C2** TP2 Hit | Price reaches VAH (BUY) / VAL (SELL) | Close another portion. Runner continues to TP3. |
-| **C3** TP3 Hit | Price reaches swing high (BUY) / swing low (SELL) | Full structural exit. Close remaining position. |
-| **C4** SL Hit | Price breaches swing wick + 0.25×ATR | Surgical filter minimises this — POC entries require POC_RECLAIM. |
-| **C5** Breakeven | Price +0.5% in your favour after entry | Move SL to entry manually. |
-| **C6** Partial Sweep | Wick into SL buffer, immediate reversal | HOLD. This is a liquidity hunt. |
+| **C1** Halfway-to-TP1 | Price reaches the midpoint between entry and TP1 | SL auto-moves to entry (breakeven) — automatic, not manual. |
+| **C2** TP1 Hit | Price reaches TP1 (max of 50% Fib / entry+1.2R) | 50% of position closes, locking in real profit. Remaining 50%'s SL moves to entry (hard breakeven) and now targets TP2. |
+| **C3** TP2 Hit | Runner half reaches TP2 (1H VAH for BUY / VAL for SELL — the value-area edge) | Full exit. Both halves realized. |
+| **C4** SL Hit | Price breaches swing wick ± 0.25×ATR (before TP1) | Full loss on the position. Position-size tiering (see below) already discounts the segments most likely to end here. |
+| **C5** TP1+BE | TP1 already banked, then runner half stops out at breakeven | Net result: still a real win (≈half of TP1's R), not a scratch — the 50% banked at TP1 doesn't go away. |
+
+> **v10.5 note:** TP1 used to be a full, instant close — the code checked
+> "did the far target get hit" *before* checking "did TP1 get hit," so in
+> ordinary gradual price movement TP1 always closed the whole trade first.
+> A third target (TP3) existed on paper but was reachable only when a
+> single candle jumped through two levels at once — confirmed by four
+> separate backtests (30/360/720/1800 days) all showing **TP3 hits: 0**.
+> Fixed: TP1 is now a genuine partial exit, TP3 was retired, and its
+> VAH/VAL formula became the new TP2 (the only further target). Two real
+> targets, not three targets where the third was structurally unreachable.
 
 ### D — Invalidation / Skip (Do NOT Trade)
 
@@ -203,9 +255,9 @@ A signal fires only if **at least 2 of these 5 patterns** appear on the last clo
 | **ENGULFING** | Bullish candle fully engulfs prior bar | Bearish candle fully engulfs prior bar |
 | **CLOSE_REJECTION** | Candle wicked into zone, closed above it | Candle wicked into zone, closed below it |
 
-**Absorption Veto (overrides all):** If a high-volume 15m candle (body > 60% of range) closes strongly in the opposite direction, the signal is suppressed even if 2-of-5 patterns fire.
+**Absorption Veto (overrides all):** If a high-volume 15m candle (body > 70% of range) closes strongly in the opposite direction, the signal is suppressed even if 2-of-5 patterns fire.
 
-**Solo trigger (off by default — `ALLOW_SOLO_TRIGGER` in config.js):** a single POC_RECLAIM or VAH_VAL_RECLAIM alone can qualify if every other gate still passes. Applies identically to BUY and SELL. Test it yourself via `backtest.js` before enabling live — it is not a preset the way it was in prior versions, because a direction-restricted version of this exact flag (SELL-only) was one of the overfit rules removed in v10.0.
+**Solo trigger (ON by default — `ALLOW_SOLO_TRIGGER` in config.js):** a single pattern in `SOLO_ELIGIBLE_PATTERNS` (currently `POC_RECLAIM`, `VAH_VAL_RECLAIM`, `CLOSE_REJECTION`) can qualify alone if every other gate still passes. Applies identically to BUY and SELL. `PIN_BAR` and `ENGULFING` are deliberately excluded from solo eligibility — backtest data shows they're weakest exactly when they co-occur with each other, so letting either fire completely alone isn't supported by the data. Change the list in `config.js` (not here) if you want to test a different set — re-run `node backtest.js` before trusting live results against any change.
 
 ---
 
@@ -248,27 +300,37 @@ STEP 3:  1H structure: get the swing/Fib pocket this vote's timeframes used.
 STEP 4:  D4 check — price already beyond 1H Fib 88.6%? → over-extended, stop.
 STEP 5:  Early zone-proximity skip — save compute if price isn't near the pocket.
 STEP 6:  1H Confluence Check — does the 60–80% Fib pocket overlap 1H POC, VAH,
-         or VAL? Score >= 1 (within ATR×0.65) required; POC entries need
-         score >= 2 (tighter — POC is a single point, not a boundary line).
+         or VAL? Score >= 1 (within ATR×0.85) required; POC entries need
+         score >= 1 too as of v10.2 (was 2 — tightened POC alignment was
+         loosened deliberately for signal frequency; see config.js history).
          No confluence → stop.
 STEP 7:  4H Zone Cross-Check — is the 1H entry price near a 4H structural
-         level (POC/VAH/VAL/Fib50%, tolerance ATR×3.0, same both directions)?
+         level (POC/VAH/VAL/Fib50%, tolerance ATR×4.0, same both directions)?
          No → D6 block, stop.
 STEP 8:  Zone Invalidation — did the 1H close THROUGH the zone by > ATR×1.0?
          Yes → discard zone, stop.
-STEP 9:  Signal Cooldown — signal fired this direction in the last 5 × 1H bars?
+STEP 9:  Signal Cooldown — signal fired this direction in the last 3 × 1H bars?
          Yes → suppress, stop.
 STEP 10: 15m Trigger — check the last closed 15m candle inside the 1H zone
          for 2-of-5 patterns (POC_RECLAIM, VAH_VAL_RECLAIM, PIN_BAR,
          ENGULFING, CLOSE_REJECTION). Absorption veto active → stop.
-         < 2 patterns (and no solo trigger) → wait, no signal yet.
-STEP 11: Calculate SL / TP
+         < 2 patterns AND no solo-eligible pattern alone → wait, no signal yet.
+STEP 11: TD Sequential "9" check (v10.6, informational/sizing only) — does
+         a fresh 9-count exhaustion signal (Tom DeMark, pure price
+         comparison, non-lagging) agree with this direction on 1H? If yes,
+         suggested position size gets a bounded upward adjustment (never
+         above 100%, never a gate — see config.js TD9_BOOST_MULT).
+STEP 12: Calculate SL / TP (v10.5: two real targets, not three — see below)
          Entry: best 1H Fib/POC/VAH/VAL confluence level
          SL:    1H swing wick ± 0.25 × ATR
-         TP1:   max(50% Fib, entry + 1.2R) — dynamic floor
-         TP2:   midpoint between TP1 and TP3
-         TP3:   1H VAH (BUY) / VAL (SELL) — full value area exit
-STEP 12: Fire Telegram alert (shows which TFs agreed, entry/SL/TP, patterns).
+         TP1:   max(50% Fib, entry + 1.2R) — closes 50% of position, moves
+                remaining SL to entry (breakeven)
+         TP2:   1H VAH (BUY) / VAL (SELL) — the runner's target for the
+                other 50%, must clear TP1 by ≥ 0.25R or the setup is
+                skipped (this floor is why TP2 is actually reachable now —
+                see the v10.5 note under Signal Taxonomy above)
+STEP 13: Fire Telegram alert (shows which TFs agreed, entry/SL/TP1/TP2,
+         suggested size, patterns, TD9 status if it fired).
          Save state.json + signals.log.json.
 ```
 
@@ -286,13 +348,14 @@ node backtest.js SOL-USDT 180       # single symbol, custom window
 
 `backtest-report.txt` gives you, in order: total signals + signals/week,
 win rate, no-real-loss rate (explicitly labeled as different from win
-rate), profit factor, outcome breakdown (TP1/TP2/TP3/SL/BE/timeout counts),
-a $ P&L simulation, a timeframe-vote-agreement breakdown (2/3 vs 3/3),
-per-symbol and per-direction stats, and — most important — **funnel
-diagnostics per symbol** showing exactly how many scan ticks survived each
-gate. If a config change makes the headline win rate go up, check whether
-the trade count also collapsed; a strategy that fires twice in 360 days at
-100% WR has told you almost nothing about its real edge.
+rate), profit factor, outcome breakdown (TP1-reached/TP2-reached/SL/BE/
+timeout counts — see the "Active Trade Management" table above for what
+each means), a $ P&L simulation, a timeframe-vote-agreement breakdown (2/3
+vs 3/3), per-symbol and per-direction stats, and — most important —
+**funnel diagnostics per symbol** showing exactly how many scan ticks
+survived each gate. If a config change makes the headline win rate go up,
+check whether the trade count also collapsed; a strategy that fires twice
+in 360 days at 100% WR has told you almost nothing about its real edge.
 
 **Before you trust a number:** run the backtest over a window you have NOT
 already used to tune `config.js`. Tuning filters until a specific window
@@ -327,7 +390,7 @@ have.
    - `TELEGRAM_CHAT_ID` — from [@userinfobot](https://t.me/userinfobot)
 3. Go to **Actions tab** → enable workflows
 4. Go to **Actions → MVS Scan → Run workflow** once to bootstrap
-5. Send `/health` to your bot in Telegram — you'll get a response within 2 minutes
+5. Send `/health` to your bot in Telegram — you'll get a response within 5 minutes
 
 > The repo must be **public** for unlimited free GitHub Actions minutes. Your secrets are never exposed.
 
@@ -359,6 +422,33 @@ node strategy.js
 
 ---
 
+## Keeping the Bot Alive
+
+GitHub automatically disables **all** scheduled workflows in a repo after
+60 days with no repository activity (commits) —
+[docs](https://docs.github.com/actions/using-workflows/disabling-and-enabling-a-workflow).
+`mvs-scan.yml` already commits a fresh `.ping.json` timestamp on every run
+(every 15 minutes), which normally keeps the whole repo "active" on its
+own — any commit from any workflow resets the 60-day clock for every
+scheduled workflow in the repo, not just the one that made it.
+
+`keepalive.yml` is a second, fully independent safety net: it commits a
+tiny heartbeat file once a day on its own separate schedule, regardless of
+whether the scan workflows are healthy. If `mvs-scan.yml`'s two triggers
+(cron-job.org's external ping and GitHub's own native schedule) ever
+somehow both stopped firing for an extended stretch, this keeps the repo
+active anyway, so the underlying workflows never get caught in the
+auto-disable trap in the first place. You don't need to open the repo or
+do anything for this to work.
+
+If you ever DO see a workflow show as disabled (Actions tab → workflow
+name → banner saying it's disabled), a manual **Run workflow** click
+re-enables it immediately — this only happens after a genuine 60-day gap
+with all triggers failing, which `keepalive.yml` is specifically here to
+prevent.
+
+---
+
 ## File Structure
 
 ```
@@ -377,13 +467,19 @@ mvs-bot/
 │       ├── mvs-scan.yml        # Runs strategy.js every 15 min (own lock)
 │       ├── mvs-commands.yml    # Polls Telegram commands every 2 min (own lock)
 │       ├── mvs-backtest.yml    # On-demand backtester workflow
-│       └── mvs-weekly.yml      # Sends weekly summary every Monday 07:00 UTC (own lock)
+│       ├── mvs-setup.yml       # Manual-only — configures Telegram bot profile/commands
+│       ├── mvs-weekly.yml      # Sends weekly summary every Monday 07:00 UTC (own lock)
+│       └── keepalive.yml       # Daily heartbeat commit — prevents GitHub's 60-day
+│                                #   scheduled-workflow auto-disable (see "Keeping the
+│                                #   Bot Alive" above)
 │
 └── (auto-generated at runtime)
     ├── state.json          # Last scan result per symbol + signal cooldown state
     ├── signals.log.json    # Rolling log of last 500 signals (used by weekly summary)
     ├── diag.log.json       # Per-bar diagnostic log for offline tuning
-    └── tg-offset.json      # Telegram update offset (prevents duplicate command processing)
+    ├── tg-offset.json      # Telegram update offset (prevents duplicate command processing)
+    ├── .ping.json          # Timestamp touched every scan (keeps repo "active")
+    └── .github/keepalive/  # Heartbeat file touched daily by keepalive.yml
 ```
 
 ---
@@ -392,14 +488,15 @@ mvs-bot/
 
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|
-| No signals after several days | Confluence or 2-of-3 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_2OF3_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (try `0.75`) |
-| Too many signals (noise) | Confluence/rejection too loose | Lower `CONFLUENCE_ATR_MULT` (try `0.5`) or raise `REJECTION_MIN_PATTERNS` to `3` |
+| No signals after several days | Confluence or 2-of-3 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_2OF3_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (current default is `0.85`; try `1.0`) |
+| Too many signals (noise) | Confluence/rejection too loose | Lower `CONFLUENCE_ATR_MULT` (current default `0.85`; try `0.65`) or raise `REJECTION_MIN_PATTERNS` to `3` |
 | Commands not responding | `tg-offset.json` not committed yet | Go to **Actions → MVS Commands → Run workflow** once manually to bootstrap the offset |
 | `/health` shows "Last scan run: never" | `state.json` not yet committed | Go to Actions → MVS Scan → Run workflow manually once to bootstrap |
 | KuCoin returns empty data | Temporary API issue | Wait a few minutes and re-run. KuCoin public API has occasional timeouts |
 | Actions tab shows no runs | Workflows not enabled | Go to repo → Actions tab → enable workflows |
-| Want to test the solo-trigger rule | `ALLOW_SOLO_TRIGGER` defaults to `false` in `config.js` | Set to `true`, or run `ALLOW_SOLO_TRIGGER=true node backtest.js`, and compare the funnel/win-rate against the default before enabling live |
+| Want to test WITHOUT the solo-trigger rule | `ALLOW_SOLO_TRIGGER` defaults to `true` in `config.js` (it's a net-positive rule for the reclaim/close-rejection patterns per backtest data, so it's on by default — see `config.js` for the exact patterns and reasoning) | Set to `false`, or run `ALLOW_SOLO_TRIGGER=false node backtest.js`, and compare the funnel/win-rate against the default before disabling live |
 | Backtest feels slow | 360+ day backtest across 13 symbols fetches and replays a lot of 15m data | Normal — expect low tens of seconds per symbol depending on connection. Run a single symbol (`node backtest.js SOL-USDT`) while iterating on config changes |
+| A workflow shows as "disabled" in the Actions tab | Genuine 60-day gap where all of a workflow's triggers failed (rare — `keepalive.yml` exists specifically to prevent this) | Click into the workflow → **Enable workflow**, or just push any commit to the repo, which re-enables all previously auto-disabled scheduled workflows |
 
 ---
 
