@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.4
+ *  MVS — BACKTESTER (backtest.js)  v10.6
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -124,7 +124,19 @@ const fetchHistory = async (symbol, interval, historyDays) => {
 // ─────────────────────────────────────────────────────────────────────────
 //  REPLAY ENGINE — walks the 15m clock, two-pointer sync on 1H/4H arrays
 // ─────────────────────────────────────────────────────────────────────────
-const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
+// v10.5 FIX: `days` used to be passed straight into fetchHistory as BOTH
+// the evaluation window AND the only source of warmup data — meaning a
+// request for a short window (e.g. `node backtest.js 30`) fetched exactly
+// 30 days of 4H candles, but warming up the 4H volume profile needs
+// BIAS_VP_LOOKBACK+5 = 205 bars = ~34.2 days on its own. Result: with
+// `days` below ~35, warmup NEVER completes and every symbol silently
+// returns scanned=0 — confirmed exactly this way in a 30-day run (every
+// symbol: scanned=0, voteOk=0, ... opened=0), which looks like "the bot
+// went quiet" but is actually just this arithmetic. Fix: always fetch an
+// extra buffer of history for warmup, then only evaluate/open trades
+// within the actual requested `days` window — see backtestSymbol().
+const WARMUP_BUFFER_DAYS = 40; // covers the 34.2-day 4H warmup with margin
+const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTime = 0) => {
   const trades = [];
   const cooldownMap = {};
   let openTrade = null;
@@ -132,7 +144,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
   const funnel = {
     scanned: 0, voteOk: 0, bullVote: 0, bearVote: 0, structureOk: 0, notOverExtended: 0,
     nearZone: 0, confluenceOk: 0, htfAligned: 0, notInvalidated: 0, cooldownOk: 0,
-    triggerOk: 0, tp3RangeOk: 0, opened: 0,
+    triggerOk: 0, tp2RangeOk: 0, opened: 0,
   };
 
   const warmup1h = config.STRUCT_VP_LOOKBACK + config.ATR_PERIOD + 5;
@@ -150,7 +162,11 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
     let p1 = 0, p4 = 0;
     while (p1 < data1h.length - 1 && data1h[p1 + 1].time <= t) p1++;
     while (p4 < data4h.length - 1 && data4h[p4 + 1].time <= t) p4++;
-    if (p1 >= warmup1h && p4 >= warmup4h) break;
+    // v10.5 FIX: warmup satisfied is no longer sufficient on its own —
+    // also require we've reached the actual requested evaluation window,
+    // so the extra WARMUP_BUFFER_DAYS of history feeds warmup ONLY, and
+    // never gets counted as part of the days the user asked to evaluate.
+    if (p1 >= warmup1h && p4 >= warmup4h && t >= evalWindowStartTime) break;
     startIdx++;
   }
   if (startIdx >= data15m.length) {
@@ -172,7 +188,19 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
     while (ptr4h < data4h.length - 1 && data4h[ptr4h + 1].time <= bar.time) { ptr4h++; advanced4h = true; }
 
     // ── OPEN TRADE MANAGEMENT (checked every 15m tick for tighter fills) ──
+    // v10.5 REDESIGN — see core.js/backtest.js header for the full story.
+    // Old behavior: TP1 caused an INSTANT FULL CLOSE, checked only after
+    // TP2 was confirmed not-yet-hit — so in ordinary gradual price moves,
+    // TP1 always closed the whole trade before TP2/TP3 got a chance. TP2/
+    // TP3 only fired on single-candle gap-throughs. New behavior: TP1 is
+    // a genuine 50% partial exit that arms a hard breakeven stop for the
+    // runner half, which then targets TP2 (the former TP3 — 1H VAH/VAL).
     if (openTrade) {
+      // Layer 1 (unchanged from prior versions): halfway-to-TP1 early
+      // breakeven protection. This is independent of the TP1 partial-exit
+      // logic below — it's what converts "reached halfway then reversed"
+      // into a scratch (BE) instead of a full loss (SL), for trades that
+      // never make it all the way to TP1 in the first place.
       if (!openTrade.beMoved) {
         const halfway = openTrade.direction === 'BUY'
           ? openTrade.entryPrice + (openTrade.tp1Price - openTrade.entryPrice) * 0.5
@@ -181,35 +209,35 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
         if (reached) { openTrade.slPrice = openTrade.entryPrice; openTrade.beMoved = true; }
       }
 
-      const { direction, entryPrice, slPrice, tp1Price, tp2Price, tp3Price, origSlPrice, rr1, rr2, rr3 } = openTrade;
+      const { direction, entryPrice, slPrice, tp1Price, tp2Price, origSlPrice, rr1, rr2 } = openTrade;
       const origRisk = Math.abs(entryPrice - origSlPrice);
       const slRR = parseFloat((((slPrice - entryPrice) / origRisk) * (direction === 'BUY' ? 1 : -1)).toFixed(2));
       let outcome = null;
 
-      if (!openTrade.halfExited) {
-        const tp2Hit = direction === 'BUY' ? bar.high >= tp2Price : bar.low <= tp2Price;
-        if (tp2Hit) { openTrade.halfExited = true; openTrade.halfR = rr2; openTrade.slPrice = tp2Price; }
+      // Layer 2 (new): TP1 arms the partial exit instead of closing everything.
+      if (!openTrade.tp1Hit) {
+        const tp1Hit = direction === 'BUY' ? bar.high >= tp1Price : bar.low <= tp1Price;
+        if (tp1Hit) { openTrade.tp1Hit = true; openTrade.halfR = rr1; openTrade.slPrice = entryPrice; }
       }
 
-      if (openTrade.halfExited) {
+      if (openTrade.tp1Hit) {
+        // Half position already banked at TP1 (rr1). Remaining half is
+        // protected by a hard breakeven stop and targets TP2 (VAH/VAL).
         if (direction === 'BUY') {
-          if      (bar.low  <= openTrade.slPrice) outcome = { result: 'TP2+BE',  exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * 0.5).toFixed(2)) };
-          else if (bar.high >= tp3Price)          outcome = { result: 'TP2+TP3', exitPrice: tp3Price,          rr: parseFloat(((openTrade.halfR + rr3) * 0.5).toFixed(2)) };
+          if      (bar.low  <= openTrade.slPrice) outcome = { result: 'TP1+BE', exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT).toFixed(2)) };
+          else if (bar.high >= tp2Price)          outcome = { result: 'TP1+TP2', exitPrice: tp2Price,          rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT + rr2 * (1 - config.PARTIAL_EXIT_PCT)).toFixed(2)) };
         } else {
-          if      (bar.high >= openTrade.slPrice) outcome = { result: 'TP2+BE',  exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * 0.5).toFixed(2)) };
-          else if (bar.low  <= tp3Price)          outcome = { result: 'TP2+TP3', exitPrice: tp3Price,          rr: parseFloat(((openTrade.halfR + rr3) * 0.5).toFixed(2)) };
+          if      (bar.high >= openTrade.slPrice) outcome = { result: 'TP1+BE', exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT).toFixed(2)) };
+          else if (bar.low  <= tp2Price)          outcome = { result: 'TP1+TP2', exitPrice: tp2Price,          rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT + rr2 * (1 - config.PARTIAL_EXIT_PCT)).toFixed(2)) };
         }
       } else {
+        // Full position still live, targeting TP1, protected by whatever
+        // Layer 1 currently has slPrice set to (original SL, or breakeven
+        // if halfway was already reached).
         if (direction === 'BUY') {
-          if      (bar.low  <= slPrice)  outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice,  rr: slRR };
-          else if (bar.high >= tp3Price) outcome = { result: 'TP3', exitPrice: tp3Price, rr: rr3 };
-          else if (bar.high >= tp2Price) outcome = { result: 'TP2', exitPrice: tp2Price, rr: rr2 };
-          else if (bar.high >= tp1Price) outcome = { result: 'TP1', exitPrice: tp1Price, rr: rr1 };
+          if (bar.low  <= slPrice) outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
         } else {
-          if      (bar.high >= slPrice)  outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice,  rr: slRR };
-          else if (bar.low  <= tp3Price) outcome = { result: 'TP3', exitPrice: tp3Price, rr: rr3 };
-          else if (bar.low  <= tp2Price) outcome = { result: 'TP2', exitPrice: tp2Price, rr: rr2 };
-          else if (bar.low  <= tp1Price) outcome = { result: 'TP1', exitPrice: tp1Price, rr: rr1 };
+          if (bar.high >= slPrice) outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
         }
       }
 
@@ -220,8 +248,8 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
         continue;
       }
 
-      // Early time-stop: TP2 not reached within EARLY_TIMEOUT_BARS hours
-      if (!openTrade.halfExited && (bar.time - openTrade.entryTime) > config.EARLY_TIMEOUT_BARS * config.STRUCT_BAR_SECONDS) {
+      // Early time-stop: only while still waiting on TP1 (full position live).
+      if (!openTrade.tp1Hit && (bar.time - openTrade.entryTime) > config.EARLY_TIMEOUT_BARS * config.STRUCT_BAR_SECONDS) {
         const price = bar.close;
         trades.push({ ...openTrade, exitTime: bar.time, exitPrice: price, result: 'EARLY_TIMEOUT',
           rr: parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
@@ -229,11 +257,18 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
         openTrade = null;
         continue;
       }
-      // Max hold: 200 structure(1H) bars ≈ 8.3 days
+      // Max hold: 200 structure(1H) bars ≈ 8.3 days. v10.5 FIX: if TP1 was
+      // already banked, blend that locked-in rr1 with the live price on
+      // the runner half instead of naively computing RR off the full
+      // original position — the old code ignored tp1Hit here entirely,
+      // which would have understated (or overstated) realized R for any
+      // partial-exit trade that timed out on the runner leg.
       if ((bar.time - openTrade.entryTime) > 200 * config.STRUCT_BAR_SECONDS) {
         const price = bar.close;
+        const liveLegRR = (price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1);
+        const rr = openTrade.tp1Hit ? (openTrade.halfR * config.PARTIAL_EXIT_PCT + liveLegRR * (1 - config.PARTIAL_EXIT_PCT)) : liveLegRR;
         trades.push({ ...openTrade, exitTime: bar.time, exitPrice: price, result: 'TIMEOUT',
-          rr: parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
+          rr: parseFloat(rr.toFixed(2)),
           hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600) });
         openTrade = null;
       }
@@ -250,7 +285,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
       const window1h = data1h.slice(w1Start, ptr1h + 1);
       const bias1h = core.tfBiasVote(window1h, config.STRUCT_VP_LOOKBACK, config.STRUCT_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
       const atr1h = core.calcATR(window1h, config.ATR_PERIOD);
-      cached1h = bias1h && atr1h ? { bias1h, atr1h } : null;
+      cached1h = bias1h && atr1h ? { bias1h, atr1h, window1h } : null;
     }
     // ── Recompute 4H bias only when a new 4H bar closed ──────────────────
     if (advanced4h || !cached4h) {
@@ -279,7 +314,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
     if (resolved.direction === 'BUY') funnel.bullVote++; else funnel.bearVote++;
 
     const direction = resolved.direction;
-    const { bias1h, atr1h } = cached1h;
+    const { bias1h, atr1h, window1h } = cached1h;
     const swing1h = bias1h.swing;
     const price1h = data1h[ptr1h].close;
 
@@ -331,29 +366,42 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h) => {
     const levels = core.computeTradeLevels({
       direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
       slAtrMult: config.SL_ATR_MULT, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
-      tp3MinExtensionRR: config.TP3_MIN_EXTENSION_RR,
+      tp2MinExtensionRR: config.TP2_MIN_EXTENSION_RR,
     });
     if (!levels) continue;
-    funnel.tp3RangeOk++;
+    funnel.tp2RangeOk++;
     funnel.opened++;
+
+    // v10.6: TD Sequential "9" — same computation as strategy.js, using
+    // the identical window1h that fed bias1h/atr1h this tick, so live and
+    // backtest can never drift on this the way earlier versions drifted
+    // on the near-zone gate (see core.js v10.1 fix log).
+    const td9 = config.TD9_ENABLED ? core.computeTDSequential(window1h) : { buy9: false, sell9: false };
+    const td9Confirms = (direction === 'BUY' && td9.buy9) || (direction === 'SELL' && td9.sell9);
 
     cooldownMap[direction] = bar.time;
     openTrade = {
       symbol, direction,
       entryTime: bar.time,
-      entryPrice: bestFibLevel, slPrice: levels.slPrice, tp1Price: levels.tp1Price, tp2Price: levels.tp2Price, tp3Price: levels.tp3Price,
+      entryPrice: bestFibLevel, slPrice: levels.slPrice, tp1Price: levels.tp1Price, tp2Price: levels.tp2Price,
       origSlPrice: levels.slPrice,
-      rr1: parseFloat(levels.rr1.toFixed(2)), rr2: parseFloat(levels.rr2.toFixed(2)), rr3: parseFloat(levels.rr3.toFixed(2)),
+      rr1: parseFloat(levels.rr1.toFixed(2)), rr2: parseFloat(levels.rr2.toFixed(2)),
       patterns: rejection.patterns, pivot: bestPivot.name,
       voteTally: resolved.tally, agreeing: resolved.agreeing,
-      confluenceScore: bestScore,
+      confluenceScore: bestScore, td9Confirms,
     };
   }
 
   if (openTrade) {
     const lastBar = data15m[data15m.length - 1];
+    // v10.6 FIX: this had the same blending gap that TIMEOUT had before
+    // the v10.5 fix above — if TP1 was already banked on the trade still
+    // open at the end of the backtest window, the unrealized R needs the
+    // same halfR-blend, not a naive full-position calc from entry.
+    const liveLegRR = (lastBar.close - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1);
+    const openRR = openTrade.tp1Hit ? (openTrade.halfR * config.PARTIAL_EXIT_PCT + liveLegRR * (1 - config.PARTIAL_EXIT_PCT)) : liveLegRR;
     trades.push({ ...openTrade, exitTime: lastBar.time, exitPrice: lastBar.close, result: 'OPEN',
-      rr: parseFloat(((lastBar.close - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
+      rr: parseFloat(openRR.toFixed(2)),
       hoursHeld: Math.round((lastBar.time - openTrade.entryTime) / 3600) });
   }
 
@@ -368,11 +416,16 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
   const closed = allTrades.filter(t => t.result !== 'OPEN');
   const wins   = closed.filter(t => t.rr > 0);
   const losses = closed.filter(t => t.rr <= 0);
-  const tp1s   = closed.filter(t => t.result === 'TP1');
-  const tp2s   = closed.filter(t => ['TP2', 'TP2+BE', 'TP2+TP3'].includes(t.result));
-  const tp3s   = closed.filter(t => ['TP3', 'TP2+TP3'].includes(t.result));
+  // v10.5: result set changed — 'TP1' (old full-close) and all TP3-based
+  // results are gone. New set: SL, BE (true 0R scratch, never reached
+  // TP1), TP1+BE (banked TP1, gave back the runner half at breakeven —
+  // still a REAL win, ~0.5×rr1, not a scratch), TP1+TP2 (both halves won),
+  // EARLY_TIMEOUT, TIMEOUT.
+  const tp1Reached = closed.filter(t => ['TP1+BE', 'TP1+TP2'].includes(t.result));
+  const tp2Reached = closed.filter(t => t.result === 'TP1+TP2');
+  const partialWins = closed.filter(t => t.result === 'TP1+BE');
   const sls    = closed.filter(t => t.result === 'SL');
-  const bes    = closed.filter(t => t.result === 'BE' || t.result === 'TP2+BE');
+  const bes    = closed.filter(t => t.result === 'BE'); // true 0R scratches only
   const timeouts = closed.filter(t => t.result === 'TIMEOUT' || t.result === 'EARLY_TIMEOUT');
 
   const winRate = closed.length ? (wins.length / closed.length * 100).toFixed(1) : '0.0';
@@ -388,9 +441,10 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   let capital = config.STARTING_CAPITAL, peak = capital, maxDD = 0;
   for (const t of closed) {
-    // v10.3/v10.4: position size scaled by computeRiskMultiplier — see
-    // config.js RISK_TIER_MATRIX / PATTERN_RISK_MATRIX for the backing data.
-    const riskMult = core.computeRiskMultiplier(t.pivot, t.agreeing, t.patterns, config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT);
+    // v10.3/v10.4/v10.6: position size scaled by computeRiskMultiplier —
+    // see config.js RISK_TIER_MATRIX / PATTERN_RISK_MATRIX / TD9_BOOST_MULT
+    // for the backing data.
+    const riskMult = core.computeRiskMultiplier(t.pivot, t.agreeing, t.patterns, config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT, t.td9Confirms, config.TD9_BOOST_MULT);
     const riskAmt  = capital * (config.RISK_PER_TRADE_PCT / 100) * riskMult;
     const slipCost = capital * (config.SLIPPAGE_PCT || 0);
     capital += riskAmt * t.rr - slipCost;
@@ -451,7 +505,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ' MVS v10.4 — BACKTEST REPORT',
+    ' MVS v10.6 — BACKTEST REPORT',
     ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
     ' 4H bias + 1H structure + 15m trigger, 2-of-3 timeframe vote',
     '═══════════════════════════════════════════════════════════════════',
@@ -471,12 +525,12 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     `  Avg hours held         : ${avgHoursHeld}h`,
     '',
     '── OUTCOME BREAKDOWN ───────────────────────────────────────────────',
-    `  TP1 hits  : ${tp1s.length}`,
-    `  TP2 hits  : ${tp2s.length}`,
-    `  TP3 hits  : ${tp3s.length}`,
-    `  SL hits   : ${sls.length}`,
-    `  BE hits   : ${bes.length}  (SL moved to entry once trade proved itself)`,
-    `  Timeouts  : ${timeouts.length}`,
+    `  TP1 reached (partial banked) : ${tp1Reached.length}`,
+    `  TP2 reached (full target)    : ${tp2Reached.length}`,
+    `    ..of which runner gave back to BE : ${partialWins.length}`,
+    `  SL hits                      : ${sls.length}`,
+    `  BE hits (never reached TP1)  : ${bes.length}`,
+    `  Timeouts                     : ${timeouts.length}`,
     '',
     `── $ P&L SIMULATION (${config.RISK_PER_TRADE_PCT}% risk/trade + ${(config.SLIPPAGE_PCT*100).toFixed(1)}% slippage, $${config.STARTING_CAPITAL} start) ──`,
     `  Final capital : $${finalCapital}  (${totalReturn}% return)  |  Max drawdown: ${maxDD.toFixed(1)}%`,
@@ -513,7 +567,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
         `  ${sym}:`,
         `    scanned=${f.scanned}  voteOk=${f.voteOk}(bull=${f.bullVote}/bear=${f.bearVote})  structureOk=${f.structureOk}`,
         `    notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  confluenceOk=${f.confluenceOk}  htfAligned=${f.htfAligned}`,
-        `    notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}  triggerOk=${f.triggerOk}  tp3RangeOk=${f.tp3RangeOk}  opened=${f.opened}`,
+        `    notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}  triggerOk=${f.triggerOk}  tp2RangeOk=${f.tp2RangeOk}  opened=${f.opened}`,
       ];
     }),
     '',
@@ -537,15 +591,21 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 //  MAIN
 // ─────────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`\n🔬 MVS v10.4 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
+  console.log(`\n🔬 MVS v10.6 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
 
   const allTrades = [];
   const funnelsBySymbol = {};
+  // v10.5 FIX: fetch days+WARMUP_BUFFER_DAYS so short windows (e.g. 30)
+  // still have enough history to warm up the 4H volume profile (~34.2
+  // days) BEFORE the requested evaluation window starts. evalWindowStartTime
+  // tells backtestSymbol() where the real "start counting" line is.
+  const fetchDays = days + WARMUP_BUFFER_DAYS;
+  const evalWindowStartTime = Math.floor(Date.now() / 1000) - days * 86400;
 
   for (const symbol of symbols) {
-    const data4h  = await fetchHistory(symbol, config.BIAS_TIMEFRAME, days);
-    const data1h  = await fetchHistory(symbol, config.STRUCT_TIMEFRAME, days);
-    const data15m = await fetchHistory(symbol, config.TRIGGER_TIMEFRAME, days);
+    const data4h  = await fetchHistory(symbol, config.BIAS_TIMEFRAME, fetchDays);
+    const data1h  = await fetchHistory(symbol, config.STRUCT_TIMEFRAME, fetchDays);
+    const data15m = await fetchHistory(symbol, config.TRIGGER_TIMEFRAME, fetchDays);
 
     if (data4h.length < 50 || data1h.length < 50 || data15m.length < 50) {
       console.log(`  ⚠️ ${symbol}: insufficient data, skipping.`);
@@ -553,7 +613,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
       continue;
     }
 
-    const { trades, funnel } = await backtestSymbol(symbol, data15m, data1h, data4h);
+    const { trades, funnel } = await backtestSymbol(symbol, data15m, data1h, data4h, evalWindowStartTime);
     allTrades.push(...trades);
     funnelsBySymbol[symbol] = funnel;
   }

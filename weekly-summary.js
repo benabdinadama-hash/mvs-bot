@@ -1,13 +1,8 @@
 /**
- * MVS — Weekly Summary  (v8.3 — pure axios, no node-telegram-bot-api)
+ * MVS — Weekly Summary  (v10.6 — pure axios, no node-telegram-bot-api)
  *
  * Reads signals.log.json, summarises the last 7 days, sends to Telegram.
  * Triggered every Monday 07:00 UTC by mvs-weekly.yml.
- *
- * CHANGE vs v8.2: removed node-telegram-bot-api dependency entirely.
- * Using TelegramBot (even with polling:false) while commands.js calls
- * deleteWebhook can produce a 409 Conflict that crashes this job.
- * Pure axios is used everywhere in v8.3 for consistency.
  */
 
 const axios  = require('axios');
@@ -53,6 +48,20 @@ const loadJSON = (file, fallback) => {
 // drawdown, and appends a weekly snapshot to equity-curve.json.
 // This file is committed back to the repo by the workflow, giving a running
 // picture of live performance that can be charted over time.
+//
+// HONESTY NOTE (found during v10.6 review): closedEntries below requires
+// e.rr and e.exitTime, but strategy.js's logSignal() only ever logs at
+// signal-FIRE time (signal: 'FIRED') — there is no live exit-tracking
+// (this bot alerts, it doesn't monitor open positions between scans). So
+// closedEntries is currently ALWAYS empty, and everything below this
+// comment down to "Weekly snapshot" never actually runs against real
+// data — the equity curve and "Live Equity Snapshot" section further down
+// stay silent/absent rather than showing fabricated numbers, which is the
+// safe failure mode, but it's worth knowing this feature is not yet wired
+// up rather than assuming it's quietly tracking your results. Building
+// real exit-tracking would need the bot to poll KuCoin price against each
+// open signal's SL/TP1/TP2 between scans and log the outcome when one
+// hits — a real feature, just a bigger one than this pass covers.
 const updateEquityCurve = (log) => {
   const curve   = loadJSON(EQUITY_FILE, []);
   const RISK    = config.RISK_PER_TRADE_PCT || 1.5;
@@ -141,13 +150,18 @@ const updateEquityCurve = (log) => {
   // 'B2 — Bearish Sniper'). Updated to match — otherwise this filter would
   // silently match zero entries forever and the weekly digest would always
   // report no trades even while the bot was firing signals live.
+  // v10.5/v10.6: strategy.js's computeTradeLevels no longer returns
+  // tp3Price/rr3 (TP3 was retired — see core.js v10.5 fix log). This used
+  // to read e.tp3Price/e.rr3 here, which would print "$NaN" in every
+  // weekly summary the moment those fields disappeared from newly logged
+  // entries. Fixed to show the actual TP1/TP2 two-stage structure.
   const entries = recent.filter(e => e.signal === 'FIRED');
   if (entries.length) {
     msg += `\n\n🎯 *Entries (${entries.length}):*`;
     for (const e of entries.slice(-10)) {
       msg += `\n${e.symbol} ${e.direction} @ $${Number(e.entryPrice).toFixed(4)}`;
-      msg += `\n  SL $${Number(e.slPrice).toFixed(4)} | TP2 $${Number(e.tp2Price).toFixed(4)} | TP3 $${Number(e.tp3Price).toFixed(4)}`;
-      msg += `\n  Patterns: ${(e.patterns || []).join(' + ')} | R:R ${e.rr2}/${e.rr3}`;
+      msg += `\n  SL $${Number(e.slPrice).toFixed(4)} | TP1 $${Number(e.tp1Price).toFixed(4)} | TP2 (runner) $${Number(e.tp2Price).toFixed(4)}`;
+      msg += `\n  Patterns: ${(e.patterns || []).join(' + ')} | R:R ${e.rr1}/${e.rr2}`;
     }
   }
 

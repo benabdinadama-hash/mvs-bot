@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v10.0)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v10.6)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.
@@ -102,7 +102,7 @@ const cmdStatus = async () => {
     }
     if (s.entryPrice) {
       msg += `\nEntry: $${Number(s.entryPrice).toFixed(2)} | SL: $${Number(s.slPrice).toFixed(2)}`;
-      msg += `\nTP1: $${Number(s.tp1Price).toFixed(2)} (R:R ${s.rr1}) | TP2: $${Number(s.tp2Price).toFixed(2)} (R:R ${s.rr2}) | TP3: $${Number(s.tp3Price).toFixed(2)} (R:R ${s.rr3})`;
+      msg += `\nTP1 (${Math.round((config.PARTIAL_EXIT_PCT||0.5)*100)}% exit): $${Number(s.tp1Price).toFixed(2)} (R:R ${s.rr1}) | TP2 (runner): $${Number(s.tp2Price).toFixed(2)} (R:R ${s.rr2})`;
     }
     msg += `\nUpdated: ${s.updatedAt}`;
   }
@@ -154,7 +154,7 @@ const cmdScan = async () => {
 // ── /about ───────────────────────────────────────────────────────────────
 const cmdAbout = async () => {
   await send(
-`📊 *MVS — Monthly Value Sniper* (v10.0)
+`📊 *MVS — Monthly Value Sniper* (v10.6)
 
 Crypto signal bot built on one tendency: *price tends to revisit where the most volume was traded.* That's a real market pattern, not a guarantee about any single trade.
 
@@ -194,7 +194,7 @@ When MVS fires, you'll receive:
 • *TF Vote:* which of 4H/1H/15m agreed, and the tally (2/3 or 3/3)
 • *Entry:* the 1H Fib/POC/VAH/VAL confluence level
 • *SL:* stop loss — 1H swing wick ± 0.25×ATR
-• *TP1 / TP2 / TP3:* a 3-stage target ladder with R:R for each
+• *TP1 / TP2:* a 2-stage exit — TP1 closes ${Math.round((config.PARTIAL_EXIT_PCT||0.5)*100)}% and moves the rest to breakeven; TP2 (the value-area edge) is the runner's target for the remaining ${Math.round((1-(config.PARTIAL_EXIT_PCT||0.5))*100)}%
 • *15m trigger:* which rejection pattern(s) fired the signal
 
 This is a probability-favored setup with a defined stop, not a guarantee.
