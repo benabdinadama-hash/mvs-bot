@@ -363,6 +363,45 @@ looks good and then reporting that same window's stats is the exact
 mechanism that produced the misleading "90.7%" badge this README used to
 have.
 
+### Reference snapshot (v10.6, 2026-07-04 — a dated historical record, not a live performance guarantee)
+
+Two overlapping windows, run back to back on the same ruleset. Kept here
+because consistency *between* windows is more informative than either
+number alone — if a future config change makes one window look great and
+the other looks worse, that's the tuning-to-one-window trap this repo has
+been actively avoiding since v10.0.
+
+| Metric | 360 days | 720 days |
+|---|---|---|
+| Signals fired | 96 (~1.85/wk) | 188 (~1.82/wk) |
+| Closed trades | 95 | 187 |
+| Win rate | 60.0% (57W/38L) | 62.0% (116W/71L) |
+| No-real-loss rate | 88.4% | 89.8% |
+| Profit factor | 7.03 | 8.47 |
+| Total R | 61.55R | 128.54R |
+| Avg win / avg loss | +1.26R / -0.27R | +1.26R / -0.24R |
+| Avg hold time | 33h | 33h |
+| SL hits | 9 (100% POC pivot) | 15 (100% POC pivot) |
+| $1,000 → | $1,964.52 (+96.5%) | $4,055.63 (+305.6%) |
+| Max drawdown | 1.9% | 2.3% |
+| 2-of-3 vs 3-of-3 vote split | 92 / 4 | 176 / 12 |
+
+Every single SL in both windows is **POC pivot** — that part holds
+exactly. Most also lack 1H confirmation (9 of 9 in the 360-day window,
+12 of 15 in the 720-day window) — the segment `RISK_TIER_MATRIX` already
+sizes down (see `core.js` `computeRiskMultiplier()`). The 720-day window
+also shows 3 SLs where 1H *did* confirm — a reminder that even the
+strongest segment (76.1% WR overall in the 720-day confidence-tier
+breakdown) has a real, nonzero loss rate, not a guarantee. VAH and VAL
+pivots carried zero SLs in either window (n=4 and n=8 in the 360-day
+run — small samples, watch this rather than assume it holds forever).
+Top 6 by total R differs somewhat between windows (360-day: AVAX, DOGE,
+ETH, LINK, DOT, BTC — 720-day: ETH, AVAX, BTC, DOGE, POL, LTC); only
+**AVAX, BTC, DOGE, ETH** appear in the top 6 of both. This is a snapshot
+of one point in time on one ruleset — it will go
+stale the moment `config.js` changes again. Re-run `node backtest.js` and
+replace this table rather than trust it past its date.
+
 ---
 
 ## Why MVS Works (and where its limits are)
