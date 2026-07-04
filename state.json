@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-04T03:15:41.412Z",
+  "_lastRunAt": "2026-07-04T03:30:41.790Z",
   "SOL-USDT": {
     "signal": "SCANNED",
     "price": 73.57,
@@ -61,21 +61,24 @@
     "updatedAt": "2026-07-02T01:15:17.579Z"
   },
   "POL-USDT": {
-    "signal": "SCANNED",
-    "price": 0.0732,
+    "signal": "FIRED",
     "direction": "SELL",
-    "voteTally": "2/3",
-    "agreeing": [
-      "4H",
-      "15m"
+    "entryPrice": 0.07353080000000001,
+    "slPrice": 0.07534235622506719,
+    "tp1Price": 0.0713,
+    "tp2Price": 0.0706175,
+    "tp3Price": 0.069935,
+    "risk": 0.001811556225067179,
+    "rr1": 1.2314274153523879,
+    "rr2": 1.6081753134060037,
+    "rr3": 1.9849232114596194,
+    "patterns": [
+      "POC_RECLAIM"
     ],
-    "poc": 0.073367,
-    "vah": 0.075161,
-    "val": 0.069935,
-    "swingHigh": 0.0752,
-    "swingLow": 0.0674,
-    "atr1h": 0.0005622820431258605,
-    "updatedAt": "2026-07-04T03:15:41.411Z"
+    "riskMult": 0.48750000000000004,
+    "lastSignalBar": 1783134000,
+    "lastSignalDir": "SELL",
+    "updatedAt": "2026-07-04T03:30:41.789Z"
   },
   "DOGE-USDT": {
     "signal": "SCANNED",
