@@ -932,5 +932,27 @@
     "fired": false,
     "reason": "NO_2OF3_AGREEMENT",
     "ts": "2026-07-04T05:00:42.475Z"
+  },
+  {
+    "symbol": "POL-USDT",
+    "barTime": 1783141200,
+    "price": 0.0733,
+    "bias4h": "BEARISH",
+    "bias1h": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "voteTally": "2/3",
+    "agreeing": [
+      "4H",
+      "15m"
+    ],
+    "htfAligned": true,
+    "confluenceScore": 2,
+    "confluenceLevel": "78.6%",
+    "confluencePivot": "POC",
+    "patterns": [],
+    "absorptionVeto": false,
+    "fired": false,
+    "reason": "PATTERNS_0_OF_2",
+    "ts": "2026-07-04T05:15:38.626Z"
   }
 ]
