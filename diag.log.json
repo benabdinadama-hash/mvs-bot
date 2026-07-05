@@ -4334,5 +4334,94 @@
     "fired": false,
     "reason": "PATTERNS_0_OF_2",
     "ts": "2026-07-05T05:45:37.617Z"
+  },
+  {
+    "symbol": "SOL-USDT",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_2OF3_AGREEMENT",
+    "ts": "2026-07-05T06:00:20.917Z"
+  },
+  {
+    "symbol": "ADA-USDT",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_2OF3_AGREEMENT",
+    "ts": "2026-07-05T06:00:27.466Z"
+  },
+  {
+    "symbol": "DOGE-USDT",
+    "barTime": 1783231200,
+    "price": 0.07582,
+    "bias4h": "BEARISH",
+    "bias1h": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "voteTally": "2/3",
+    "agreeing": [
+      "4H",
+      "15m"
+    ],
+    "htfAligned": true,
+    "confluenceScore": 2,
+    "confluenceLevel": "61.8%",
+    "confluencePivot": "POC",
+    "patterns": [],
+    "absorptionVeto": false,
+    "fired": false,
+    "reason": "PATTERNS_0_OF_2",
+    "ts": "2026-07-05T06:00:29.648Z"
+  },
+  {
+    "symbol": "DOT-USDT",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BULLISH",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_2OF3_AGREEMENT",
+    "ts": "2026-07-05T06:00:38.363Z"
+  },
+  {
+    "symbol": "LTC-USDT",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_2OF3_AGREEMENT",
+    "ts": "2026-07-05T06:00:40.545Z"
+  },
+  {
+    "symbol": "TRX-USDT",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BULLISH",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_2OF3_AGREEMENT",
+    "ts": "2026-07-05T06:00:42.730Z"
+  },
+  {
+    "symbol": "POL-USDT",
+    "barTime": 1783227600,
+    "price": 0.073,
+    "bias4h": "BEARISH",
+    "bias1h": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "voteTally": "2/3",
+    "agreeing": [
+      "4H",
+      "15m"
+    ],
+    "htfAligned": true,
+    "confluenceScore": 2,
+    "confluenceLevel": "70% mid-pocket",
+    "confluencePivot": "POC",
+    "patterns": [],
+    "absorptionVeto": true,
+    "fired": false,
+    "reason": "ABSORPTION_VETO",
+    "ts": "2026-07-05T06:00:44.910Z"
   }
 ]
