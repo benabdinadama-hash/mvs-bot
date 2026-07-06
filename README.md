@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.6-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.9-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -37,7 +37,7 @@ the summary — not just the win-rate line.
 
 ---
 
-## What changed since v10.0 (v10.3 → v10.6)
+## What changed since v10.0 (v10.3 → v10.9)
 
 Kept here so this stays a living record instead of scattered commit
 messages. Full technical detail lives in the header comments of `core.js`
@@ -75,6 +75,39 @@ and `config.js` if you want the exact numbers behind each change.
   Fibonacci (would discard everything the four backtests validated);
   ADX/volume/news filters (would cut signal frequency, the opposite of
   what was asked).
+- **v10.7 — EXPERIMENTAL, off by default.** A fresh backtest found every
+  single SL (9/9 in a 360-day window, 15/15 in a 720-day window) traced to
+  POC pivot. Rather than cut POC volume (costs frequency), `SL_ATR_MULT_MATRIX`
+  tests whether POC's SL rate is partly noise: POC is a single price point
+  that can shift bar to bar, unlike VAH/VAL (stable range boundaries), so
+  it may be more prone to brief overshoot-then-reverse. Widens POC's stop
+  and shrinks position size to match, so $ risk per trade is unchanged.
+  Genuinely untested — stays off by default (`SL_ATR_MULT_MATRIX_ENABLED`),
+  needs a real backtest with wider stops before it should be trusted.
+- **v10.8 — Three more theories for the same "every SL is POC" finding,
+  chosen to be mechanistically different from v10.7 and from each other:**
+  **POC prominence** (is POC's volume a clear peak, or does it barely edge
+  out its neighbor price rows — a contested, ambiguous "winner" rather
+  than a level the market clearly agreed on?); **POC migration** (has POC
+  been drifting toward the trade direction across recent windows — real,
+  forming consensus — or is it static/noisy?); **naked/untested POC**
+  (does an earlier, now-closed window's POC — never revisited since — sit
+  near the current POC? Two profiles agreeing is stronger evidence than
+  one). All three: bounded, size-only multipliers, never gates, complete
+  no-ops for VAH/VAL regardless of state.
+- **v10.9 — Two changes.** (1) All three v10.8 POC-quality factors flipped
+  from off-by-default to **live by default**, applied directly per explicit
+  instruction rather than gated behind a backtest-first requirement.
+  `SL_ATR_MULT_MATRIX` (v10.7) is a separate mechanism and was NOT included
+  in that instruction — it stays off by default. (2) `signals.log.json`
+  and `diag.log.json` now write **newest-first** (most recent entry at the
+  top of the file) instead of oldest-first, so you don't have to scroll to
+  the bottom to see what just happened. `equity-curve.json` follows the
+  same convention. Every place that read these files with an
+  oldest-first assumption baked in was found and fixed — see the
+  `strategy.js` / `weekly-summary.js` v10.9 header notes for the three
+  spots that needed updating (equity-curve math, "latest snapshot"
+  lookup, displayed entry list).
 
 ---
 
@@ -89,7 +122,7 @@ This bot uses the **KuCoin Spot API** which is fully accessible from Ghana witho
 ## Table of Contents
 
 1. [What is MVS?](#what-is-mvs)
-2. [What changed since v10.0](#what-changed-since-v100-v103--v106)
+2. [What changed since v10.0](#what-changed-since-v100-v103--v109)
 3. [Core Pillars](#core-pillars)
 4. [Setup Parameters](#setup-parameters)
 5. [Fibonacci Roles](#fibonacci-roles-the-6-levels)
@@ -98,11 +131,12 @@ This bot uses the **KuCoin Spot API** which is fully accessible from Ghana witho
 8. [Expected Signal Frequency](#expected-signal-frequency)
 9. [Entry Logic](#entry-logic-step-by-step)
 10. [Backtest Results](#backtest-results)
-11. [Why MVS Works](#why-mvs-works)
+11. [Why MVS Works](#why-mvs-works-and-where-its-limits-are)
 12. [Deployment](#deployment)
 13. [Keeping the Bot Alive](#keeping-the-bot-alive)
-14. [File Structure](#file-structure)
-15. [Troubleshooting](#troubleshooting)
+14. [Log File Ordering](#log-file-ordering)
+15. [File Structure](#file-structure)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -320,9 +354,21 @@ STEP 11: TD Sequential "9" check (v10.6, informational/sizing only) — does
          comparison, non-lagging) agree with this direction on 1H? If yes,
          suggested position size gets a bounded upward adjustment (never
          above 100%, never a gate — see config.js TD9_BOOST_MULT).
+STEP 11a: POC quality checks (v10.8, live by default as of v10.9,
+         sizing-only, POC pivot only — VAH/VAL untouched) — three
+         independent tests, each a bounded position-size multiplier:
+           • Prominence: is POC's volume a clear peak vs its neighbor
+             rows, or a barely-won, contested price?
+           • Migration: has POC drifted toward this trade's direction
+             across recent windows, or is it static/noisy?
+           • Naked POC: does an untested prior-window POC sit near the
+             current one (two profiles agreeing)?
+         See config.js POC_PROMINENCE_*/POC_MIGRATION_*/NAKED_POC_* and
+         core.js computePOCQualityMultiplier() for the exact mechanism.
 STEP 12: Calculate SL / TP (v10.5: two real targets, not three — see below)
          Entry: best 1H Fib/POC/VAH/VAL confluence level
-         SL:    1H swing wick ± 0.25 × ATR
+         SL:    1H swing wick ± 0.25 × ATR (or ± SL_ATR_MULT_MATRIX's
+                per-pivot override — v10.7, off by default, untested)
          TP1:   max(50% Fib, entry + 1.2R) — closes 50% of position, moves
                 remaining SL to entry (breakeven)
          TP2:   1H VAH (BUY) / VAL (SELL) — the runner's target for the
@@ -330,8 +376,10 @@ STEP 12: Calculate SL / TP (v10.5: two real targets, not three — see below)
                 skipped (this floor is why TP2 is actually reachable now —
                 see the v10.5 note under Signal Taxonomy above)
 STEP 13: Fire Telegram alert (shows which TFs agreed, entry/SL/TP1/TP2,
-         suggested size, patterns, TD9 status if it fired).
-         Save state.json + signals.log.json.
+         suggested size — including which of the above factors moved it
+         off 100%, TD9 status if it fired).
+         Save state.json + signals.log.json (newest-first as of v10.9 —
+         see "Log File Ordering" below).
 ```
 
 ---
@@ -364,6 +412,16 @@ mechanism that produced the misleading "90.7%" badge this README used to
 have.
 
 ### Reference snapshot (v10.6, 2026-07-04 — a dated historical record, not a live performance guarantee)
+
+> **⚠️ This snapshot predates v10.7, v10.8, and v10.9.** It does not
+> reflect `SL_ATR_MULT_MATRIX` (still off by default, untested), or the
+> three POC-quality factors from v10.8 that are now live by default as of
+> v10.9 (prominence, migration, naked POC). Those factors change position
+> sizing on POC-pivot trades — they don't change which signals fire, so
+> frequency here should still hold, but the $ P&L numbers below will not
+> match a fresh run. **Run `node backtest.js` and replace this table**
+> once you've got a v10.9 backtest — that's the actual point of dating
+> every snapshot like this rather than just asserting a number.
 
 Two overlapping windows, run back to back on the same ruleset. Kept here
 because consistency *between* windows is more informative than either
@@ -488,6 +546,24 @@ prevent.
 
 ---
 
+## Log File Ordering
+
+As of v10.9, `signals.log.json`, `diag.log.json`, and `equity-curve.json`
+are all written **newest-first** — the most recent entry is at index 0 /
+the top of the file, not the bottom. Requested so you don't have to
+scroll through months of history to see what the bot just did.
+
+If you're writing your own tooling against these files, don't assume
+chronological (oldest-first) order — `weekly-summary.js`'s equity-curve
+math explicitly re-sorts by timestamp internally for exactly this reason
+rather than trusting the stored order, which is the safer pattern if you
+add your own reader. `backtest-report.json` is **not** affected — it's a
+complete, freshly-regenerated report each run (not an incrementally
+growing log), and reads better as a chronological trade-by-trade replay,
+so it stays oldest-first.
+
+---
+
 ## File Structure
 
 ```
@@ -514,8 +590,10 @@ mvs-bot/
 │
 └── (auto-generated at runtime)
     ├── state.json          # Last scan result per symbol + signal cooldown state
-    ├── signals.log.json    # Rolling log of last 500 signals (used by weekly summary)
-    ├── diag.log.json       # Per-bar diagnostic log for offline tuning
+    ├── signals.log.json    # Rolling log of last 500 signals, NEWEST-FIRST (v10.9)
+    ├── diag.log.json       # Per-bar diagnostic log, NEWEST-FIRST (v10.9)
+    ├── equity-curve.json   # Weekly equity snapshots, NEWEST-FIRST (v10.9) — not yet
+    │                        #   populated live; see weekly-summary.js HONESTY NOTE
     ├── tg-offset.json      # Telegram update offset (prevents duplicate command processing)
     ├── .ping.json          # Timestamp touched every scan (keeps repo "active")
     └── .github/keepalive/  # Heartbeat file touched daily by keepalive.yml
