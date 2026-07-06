@@ -165,6 +165,26 @@
  *      weekly-summary.js v10.9 notes for every place that reading code
  *      had to be updated to match (there were three — equity-curve math,
  *      "latest snapshot" lookup, and the displayed entry list).
+ *
+ *  v10.10 — FIVE-TIMEFRAME VOTE, 3-OF-5 (2026-07-06, explicitly requested:
+ *  "FROM NOW WE ARE USING 5 TIMEFRAMES: 15MN, 30MN, 1H, 4H, 1D. VOTE OF 3
+ *  OVER 5. WHEN 3 TF's AGREE ON 1 DIRECTION OUT OF THE 5 TF's, BOT SHOULD
+ *  FIRE."):
+ *   1. Added 1D and 30m as two new independent bias votes, using the exact
+ *      same POC/VAH/VAL/Fib50 4-pillar vote as the other three timeframes
+ *      (see core.js tfBiasVote — fully generic, unchanged).
+ *   2. core.resolveDirection() now takes an explicit minAgree count (was
+ *      hardcoded to 2). MIN_TF_AGREE below = 3, checked against all 5 TFs.
+ *   3. 1H still supplies the structural zone, 15m still supplies the
+ *      trigger candle — UNCHANGED. Only the direction-agreement vote
+ *      gained two more independent opinions.
+ *   4. /status (commands.js) now shows direction + full per-TF bias
+ *      breakdown + vote tally — required saving those fields into
+ *      state.json (previously only existed in diag.log.json), plus
+ *      Telegram message-chunking so a 13-symbol × 5-TF status message
+ *      can't hit Telegram's 4096-char hard limit.
+ *   5. weekly-summary.js groups identical repeated entries with a "×N"
+ *      count instead of printing N near-identical blocks in a row.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -182,15 +202,28 @@ module.exports = {
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────
-  // Three-way vote. 4H = macro bias. 1H = structure (zone/Fib pocket).
-  // 15m = trigger (the actual rejection candle that fires the signal).
+  // v10.10: FIVE-WAY VOTE. 1D = macro-macro bias. 4H = macro bias.
+  // 1H = structure (zone/Fib pocket, UNCHANGED). 30m = mid-rung bias.
+  // 15m = trigger (the actual rejection candle that fires the signal,
+  // UNCHANGED). Direction needs MIN_TF_AGREE (3) of these 5 to agree —
+  // see core.js resolveDirection().
+  DAILY_TIMEFRAME:   '1day',
   BIAS_TIMEFRAME:    '4hour',
   STRUCT_TIMEFRAME:  '1hour',
+  HALF_TIMEFRAME:    '30min',
   TRIGGER_TIMEFRAME: '15min',
 
+  // 3-of-5 direction vote (v10.10). Kept as a named constant, not a bare
+  // "3", so the threshold and the TF count it's checked against can never
+  // silently drift apart — see core.js resolveDirection(votes, minAgree).
+  MIN_TF_AGREE: 3,
+
   // Bar durations in seconds — used for cooldown math. Must match the
-  // timeframes above. KuCoin bar seconds: 15min=900, 1hour=3600, 4hour=14400.
+  // timeframes above. KuCoin bar seconds: 15min=900, 30min=1800,
+  // 1hour=3600, 4hour=14400, 1day=86400.
+  DAILY_BAR_SECONDS:   86400,
   STRUCT_BAR_SECONDS:  3600,
+  HALF_BAR_SECONDS:    1800,
   TRIGGER_BAR_SECONDS: 900,
 
   // ── Scan frequency ──────────────────────────────────────────────────────
@@ -209,6 +242,20 @@ module.exports = {
   // 4H macro bias — unchanged real-world calendar window from prior version.
   BIAS_VP_LOOKBACK:   200,   // 4H bars (≈ 33 days)
   BIAS_FIB_LOOKBACK:   90,   // 4H bars (≈ 15 days)
+
+  // 1D macro-macro bias (v10.10, NEW) — a wide, slow-moving window
+  // appropriate for a daily candle vote: 100 bars ≈ 100 days of history,
+  // roughly triple the 4H bias window's real-world span, since 1D is
+  // meant to catch multi-week/monthly structure the 4H vote is too fast
+  // to hold a durable opinion on.
+  DAILY_VP_LOOKBACK:  100,   // 1D bars (≈ 100 days)
+  DAILY_FIB_LOOKBACK:  60,   // 1D bars (≈ 60 days)
+
+  // 30m mid-rung bias (v10.10, NEW) — sits between 1H structure and 15m
+  // trigger. Lookback chosen to mirror the 15m trigger TF's real-world
+  // span (≈5 days) at half the bar count, since 30m bars are 2x as long.
+  HALF_VP_LOOKBACK:   250,   // 30m bars (≈ 5.2 days)
+  HALF_FIB_LOOKBACK:  100,   // 30m bars (≈ 2.1 days)
 
   // 15m trigger TF — its own independent vote + pattern detection window.
   TRIGGER_VP_LOOKBACK:  500,  // 15m bars (≈ 5.2 days)

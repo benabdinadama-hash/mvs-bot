@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v10.6)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v10.10)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.
@@ -49,8 +49,46 @@ const tgCall = async (method, params = {}, ms = 12000) => {
   }
 };
 
-const send = (text) =>
-  tgCall('sendMessage', { chat_id: config.TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' });
+// v10.10 FIX: Telegram's real hard limit is 4096 chars; a long /status
+// message (13 symbols × full 5-TF bias breakdown) can exceed that and
+// either get silently rejected or truncated by Telegram. send() now
+// splits on blank-line (paragraph) boundaries so a message is never cut
+// mid-symbol, and sends each chunk as its own message in order.
+const TELEGRAM_SAFE_LEN = 3800; // margin under the real 4096 limit
+
+const splitIntoChunks = (text, maxLen = TELEGRAM_SAFE_LEN) => {
+  if (text.length <= maxLen) return [text];
+  const paragraphs = text.split('\n\n');
+  const chunks = [];
+  let current = '';
+  for (const p of paragraphs) {
+    const candidate = current ? `${current}\n\n${p}` : p;
+    if (candidate.length > maxLen && current) {
+      chunks.push(current);
+      current = p;
+    } else {
+      current = candidate;
+    }
+    // A single paragraph longer than maxLen on its own (rare) — hard-split it.
+    while (current.length > maxLen) {
+      chunks.push(current.slice(0, maxLen));
+      current = current.slice(maxLen);
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+};
+
+const send = async (text) => {
+  const chunks = splitIntoChunks(text);
+  let lastRes = null;
+  for (let i = 0; i < chunks.length; i++) {
+    const prefix = chunks.length > 1 ? `_(${i + 1}/${chunks.length})_\n` : '';
+    lastRes = await tgCall('sendMessage', { chat_id: config.TELEGRAM_CHAT_ID, text: prefix + chunks[i], parse_mode: 'Markdown' });
+    if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 300)); // avoid Telegram rate-limit on rapid multi-send
+  }
+  return lastRes;
+};
 
 // ── State helpers ──────────────────────────────────────────────────────────
 const STATE_FILE  = path.join(__dirname, 'state.json');
@@ -86,24 +124,50 @@ const cmdHelp = async () => {
 };
 
 // ── /status ───────────────────────────────────────────────────────────────
+// v10.10 REWRITE: previously showed price/POC/VAH/VAL only — no direction,
+// no bias, no vote tally — even though diag.log.json had all of it. Root
+// cause was upstream (state.json never carried those fields; fixed in
+// strategy.js saveState() calls), not just a display gap. Also rewritten
+// for readability per direct feedback ("the screenshot shows the data
+// without order, I can't even read well") — each symbol is now a clearly
+// separated block with a fixed field order instead of one run-on line.
+const BIAS_ICON = { BULLISH: '🟢', BEARISH: '🔴', NEUTRAL: '⚪' };
+const biasStr = (b) => b ? `${BIAS_ICON[b] || ''}${b}` : '—';
+
 const cmdStatus = async () => {
   const state = loadJSON(STATE_FILE, null);
   if (!state) {
     return send('⚠️ No saved state yet. Run /scan or wait for the next scheduled scan.');
   }
 
-  let msg = `📊 *MVS Status*\nLast run: ${state._lastRunAt || 'unknown'}\n`;
+  let msg = `📊 *MVS Status*\nLast run: ${state._lastRunAt || 'unknown'}`;
+
   for (const sym of config.SYMBOLS) {
     const s = state[sym];
-    if (!s) { msg += `\n*${sym}*: no data yet`; continue; }
-    msg += `\n\n*${sym}* — ${s.signal}\nPrice: $${Number(s.price).toFixed(2)}`;
+    msg += `\n\n━━━━━━━━━━━━━━━━━━━━\n*${sym}*`;
+    if (!s) { msg += `\nno data yet`; continue; }
+
+    msg += ` — ${s.signal || 'unknown'}`;
+    if (s.direction) msg += ` (${s.direction})`;
+    msg += `\nPrice: $${Number(s.price).toFixed(4)}`;
+
     if (s.poc) {
-      msg += ` | POC: $${Number(s.poc).toFixed(2)} | VAH: $${Number(s.vah).toFixed(2)} | VAL: $${Number(s.val).toFixed(2)}`;
+      msg += `\nPOC $${Number(s.poc).toFixed(4)} · VAH $${Number(s.vah).toFixed(4)} · VAL $${Number(s.val).toFixed(4)}`;
     }
+
+    // v10.10: full 5-TF bias breakdown + vote tally, the actual ask.
+    if (s.bias1d || s.bias4h || s.bias1h || s.bias30m || s.bias15m) {
+      msg += `\nBias — 1D:${biasStr(s.bias1d)} 4H:${biasStr(s.bias4h)} 1H:${biasStr(s.bias1h)} 30m:${biasStr(s.bias30m)} 15m:${biasStr(s.bias15m)}`;
+    }
+    if (s.voteTally) {
+      msg += `\nVote: ${s.voteTally}${s.agreeing ? ` (${s.agreeing.join('+')} agree)` : ''}`;
+    }
+
     if (s.entryPrice) {
-      msg += `\nEntry: $${Number(s.entryPrice).toFixed(2)} | SL: $${Number(s.slPrice).toFixed(2)}`;
-      msg += `\nTP1 (${Math.round((config.PARTIAL_EXIT_PCT||0.5)*100)}% exit): $${Number(s.tp1Price).toFixed(2)} (R:R ${s.rr1}) | TP2 (runner): $${Number(s.tp2Price).toFixed(2)} (R:R ${s.rr2})`;
+      msg += `\nEntry: $${Number(s.entryPrice).toFixed(4)} · SL: $${Number(s.slPrice).toFixed(4)}`;
+      msg += `\nTP1 (${Math.round((config.PARTIAL_EXIT_PCT || 0.5) * 100)}% exit): $${Number(s.tp1Price).toFixed(4)} (R:R ${s.rr1}) · TP2 (runner): $${Number(s.tp2Price).toFixed(4)} (R:R ${s.rr2})`;
     }
+
     // v10.10: surface a fire whose Telegram alert failed to deliver — see
     // strategy.js sendSafe/flushPendingAlerts. Without this, a signal could
     // be sitting here as FIRED with no indication you never actually got
@@ -161,11 +225,11 @@ const cmdScan = async () => {
 // ── /about ───────────────────────────────────────────────────────────────
 const cmdAbout = async () => {
   await send(
-`📊 *MVS — Monthly Value Sniper* (v10.6)
+`📊 *MVS — Monthly Value Sniper* (v10.10)
 
 Crypto signal bot built on one tendency: *price tends to revisit where the most volume was traded.* That's a real market pattern, not a guarantee about any single trade.
 
-*Strategy:* Volume Profile (POC + VAH + VAL) + Fibonacci (61.8–78.6% pocket) across three timeframes — 4H macro bias, 1H structure, 15m trigger. Needs 2-of-3 timeframes to agree on direction before anything fires.
+*Strategy:* Volume Profile (POC + VAH + VAL) + Fibonacci (61.8–78.6% pocket) across five timeframes — 1D + 4H macro bias, 1H structure, 30m mid-rung bias, 15m trigger. Needs 3-of-5 timeframes to agree on direction before anything fires (1H still supplies the structural zone, 15m still supplies the trigger candle).
 
 No hardcoded win-rate claim here. This bot does not target or achieve a 100% (or "near 100%") win rate — no trading system does. Run \`node backtest.js\` in the repo yourself for current, honest numbers over a window you haven't tuned against, and read the full funnel diagnostics, not just the headline win rate.
 
@@ -198,7 +262,7 @@ const cmdSignal = async () => {
 When MVS fires, you'll receive:
 
 🟢 *BUY* (or 🔴 *SELL*)
-• *TF Vote:* which of 4H/1H/15m agreed, and the tally (2/3 or 3/3)
+• *TF Vote:* which of 1D/4H/1H/30m/15m agreed, and the tally (e.g. 3/5, 4/5, 5/5)
 • *Entry:* the 1H Fib/POC/VAH/VAL confluence level
 • *SL:* stop loss — 1H swing wick ± 0.25×ATR
 • *TP1 / TP2:* a 2-stage exit — TP1 closes ${Math.round((config.PARTIAL_EXIT_PCT||0.5)*100)}% and moves the rest to breakeven; TP2 (the value-area edge) is the runner's target for the remaining ${Math.round((1-(config.PARTIAL_EXIT_PCT||0.5))*100)}%

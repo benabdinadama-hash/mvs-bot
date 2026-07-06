@@ -17,7 +17,7 @@
  *  A shared module makes that entire class of bug impossible: fix it
  *  once, it's fixed everywhere.
  *
- *  THREE-TIMEFRAME ARCHITECTURE (v10.0):
+ *  THREE-TIMEFRAME ARCHITECTURE (v10.0) — SUPERSEDED BY v10.10, SEE BELOW:
  *  ┌─────────────────────────────────────────────────────────────────────┐
  *  │  4H   → macro bias vote  (POC/VAH/VAL/Fib50 — same as before)       │
  *  │  1H   → structure TF: swing, Fib golden pocket, POC/VAH/VAL zone    │
@@ -28,6 +28,22 @@
  *  │  Fib50 structural vote). This is what "1H + 15m combo, confirmed    │
  *  │  by 4H" means mechanically: no single timeframe can force a trade   │
  *  │  on its own.                                                        │
+ *  └─────────────────────────────────────────────────────────────────────┘
+ *
+ *  FIVE-TIMEFRAME ARCHITECTURE (v10.10, current):
+ *  ┌─────────────────────────────────────────────────────────────────────┐
+ *  │  1D   → macro-macro bias vote (NEW)                                 │
+ *  │  4H   → macro bias vote                                             │
+ *  │  1H   → structure TF: swing, Fib golden pocket, POC/VAH/VAL zone    │
+ *  │  30m  → mid-rung bias vote (NEW)                                    │
+ *  │  15m  → trigger TF: the actual rejection candle that fires entry    │
+ *  │                                                                     │
+ *  │  Direction requires MIN_TF_AGREE (3) of these 5 timeframes to       │
+ *  │  agree — same tfBiasVote() 4-pillar vote as before, just cast by    │
+ *  │  two more independent timeframes now. 1H still supplies the         │
+ *  │  structural zone and 15m still supplies the trigger candle —        │
+ *  │  ONLY the direction-agreement vote changed. See resolveDirection()  │
+ *  │  below, now generalized to accept any minAgree/total, not just 2/3. │
  *  └─────────────────────────────────────────────────────────────────────┘
  *
  *  HONESTY NOTE: nothing in here targets or claims a specific win rate.
@@ -302,17 +318,24 @@ const isNearZone = (price, fib, atr, padMult) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────
-//  2-OF-3 TIMEFRAME DIRECTION RESOLUTION
+//  N-OF-M TIMEFRAME DIRECTION RESOLUTION
 //  votes: [{ tf: '4H', result: <tfBiasVote output or null> }, ...]
-//  Returns { direction, agreeing: [tf,...], tally } or null if no 2-of-3.
+//  minAgree: how many of votes.length must agree (v10.10: explicit param,
+//  was hardcoded to 2). Defaults to 2 for <=3 votes (preserves the original
+//  2-of-3 behavior for any caller that doesn't pass one) or 3 for 4+ votes
+//  (matches the 3-of-5 vote requested in v10.10) — but callers should pass
+//  it explicitly (config.MIN_TF_AGREE) rather than rely on the default.
+//  Returns { direction, agreeing: [tf,...], tally } or null if no majority.
 // ─────────────────────────────────────────────────────────────────────────
-const resolveDirection = (votes) => {
+const resolveDirection = (votes, minAgree) => {
+  const total = votes.length;
+  const need  = minAgree != null ? minAgree : (total >= 4 ? 3 : 2);
   const usable = votes.filter(v => v.result && v.result.bias !== 'NEUTRAL');
   const bulls  = usable.filter(v => v.result.bias === 'BULLISH').map(v => v.tf);
   const bears  = usable.filter(v => v.result.bias === 'BEARISH').map(v => v.tf);
 
-  if (bulls.length >= 2) return { direction: 'BUY',  agreeing: bulls, tally: `${bulls.length}/3` };
-  if (bears.length >= 2) return { direction: 'SELL', agreeing: bears, tally: `${bears.length}/3` };
+  if (bulls.length >= need) return { direction: 'BUY',  agreeing: bulls, tally: `${bulls.length}/${total}` };
+  if (bears.length >= need) return { direction: 'SELL', agreeing: bears, tally: `${bears.length}/${total}` };
   return null;
 };
 
