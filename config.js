@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — Monthly Value Sniper v10.6
+ *  MVS — Monthly Value Sniper v10.9
  *  KuCoin API Configuration
  *
  *  FOUNDATION: POC + VAH + VAL + FIBO. No lagging indicators.
@@ -116,6 +116,55 @@
  *      of what was asked for this round ("maintain the signal firing
  *      system active as it is"). News filter also explicitly declined by
  *      the user directly.
+ *
+ *  v10.7 — EXPERIMENTAL, OFF BY DEFAULT (2026-07-04). Every SL across two
+ *  fresh backtests (9 of 9 in a 360-day window, 15 of 15 in a 720-day
+ *  window) was POC pivot. Rather than cut POC volume (costs frequency,
+ *  the opposite of the ask), testing whether POC's SL is partly noise —
+ *  POC is a single point that can shift bar to bar as volume rolls
+ *  through the lookback, unlike VAH/VAL which are stable range
+ *  boundaries — by widening ONLY POC's stop and shrinking size to match,
+ *  so $ risk per trade is unchanged. See SL_ATR_MULT_MATRIX below and
+ *  core.js computeRiskMultiplier() v10.7 note. Explicitly not trusted
+ *  until backtested — SL_ATR_MULT_MATRIX_ENABLED defaults to false, and
+ *  turning it on requires either an env var (for a one-off backtest run)
+ *  or actually editing this file (for anything to change live).
+ *
+ *  v10.8 — EXPERIMENTAL, ALL OFF BY DEFAULT (2026-07-04). Three more
+ *  testable theories for the same "every SL is POC" finding, chosen
+ *  because they're mechanistically DIFFERENT from v10.7's SL-width test
+ *  and from each other — each targets a different reason POC specifically
+ *  (not VAH/VAL) might be a noisier level:
+ *   #1 POC_PROMINENCE — POC is the most-CONTESTED price (most volume
+ *      from both sides), not necessarily the strongest. If it only
+ *      barely beats its neighbor price rows, it's a weak "winner" of a
+ *      crowded zone rather than a level the market clearly agreed on.
+ *   #2 POC_MIGRATION — is POC drifting toward the trade direction across
+ *      recent windows (real, forming consensus) or static/noisy (no
+ *      consensus yet)?
+ *   #3 NAKED_POC — does an untested prior-window POC (never revisited
+ *      since) sit near the current POC? Two profiles agreeing is
+ *      stronger than one.
+ *  All three: size-only, never gates, never reduce frequency, and are
+ *  complete no-ops for VAH/VAL pivots regardless of whether they're
+ *  enabled. See core.js for the functions and config below for the
+ *  test-without-touching-live-behavior instructions.
+ *
+ *  v10.9 — (2026-07-05) two changes, explicitly requested:
+ *   1. All three v10.8 POC quality factors (PROMINENCE / MIGRATION /
+ *      NAKED_POC) flipped from off-by-default to ON by default — applied
+ *      live directly rather than gated behind a backtest-first
+ *      requirement. SL_ATR_MULT_MATRIX (v10.7) is a separate mechanism
+ *      and was NOT included in this instruction — it stays off by
+ *      default until asked for separately.
+ *   2. signals.log.json and diag.log.json are now written NEWEST-FIRST
+ *      (unshift, not push) instead of oldest-first, so the most recent
+ *      activity is at the top of the file rather than requiring a scroll
+ *      to the bottom of an ever-growing log. equity-curve.json (weekly
+ *      snapshots) follows the same convention. See strategy.js and
+ *      weekly-summary.js v10.9 notes for every place that reading code
+ *      had to be updated to match (there were three — equity-curve math,
+ *      "latest snapshot" lookup, and the displayed entry list).
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -270,6 +319,87 @@ module.exports = {
 
   // ── Risk management ─────────────────────────────────────────────────────
   SL_ATR_MULT: 0.25,          // SL = swing wick ± 0.25×ATR(1H)
+
+  // ── EXPERIMENTAL (v10.7) — per-pivot SL width test, OFF by default ──────
+  // Hypothesis: POC is a single price point (unlike VAH/VAL, which are
+  // range boundaries), so it may be more prone to brief overshoot-then-
+  // reverse noise tagging the SL before price does what the setup
+  // predicted. This widens POC's stop so it can survive that overshoot,
+  // and scales position size down proportionally (via
+  // computeRiskMultiplier) so $ risk per trade stays exactly the same as
+  // the unwidened baseline — NOT validated, this is here to be backtested,
+  // not to be trusted yet.
+  //
+  // HOW TO TEST WITHOUT TOUCHING LIVE BEHAVIOR:
+  //   SL_ATR_MULT_MATRIX_ENABLED=true node backtest.js
+  // Compare the resulting SL count / win rate / total R against a normal
+  // run (env var unset). Only flip the line below to `true` if the
+  // backtest actually supports it — this file is what both strategy.js
+  // (live) and backtest.js read, so changing the default here changes
+  // live behavior the next time the bot runs.
+  SL_ATR_MULT_MATRIX_ENABLED: process.env.SL_ATR_MULT_MATRIX_ENABLED === 'true' ? true : false,
+  SL_ATR_MULT_MATRIX: {
+    POC: 0.4,   // vs baseline 0.25 — first guess to test, not a tuned value
+  },
+
+  // ── POC QUALITY FACTORS (v10.8, applied LIVE as of v10.9) ──────────────
+  // Three independent, testable hypotheses about why POC underperforms
+  // VAH/VAL — every SL across two fresh backtests (9/9 in a 360-day
+  // window, 15/15 in a 720-day window) was POC pivot. Each is a bounded,
+  // size-only multiplier on top of everything else above — none of these
+  // are gates, none can reduce signal frequency. Applied live directly
+  // (per explicit instruction) rather than gated behind a backtest-first
+  // requirement — unlike SL_ATR_MULT_MATRIX above, which is a SEPARATE,
+  // still-experimental mechanism that hasn't been asked to go live yet
+  // and stays off by default. See core.js computePOCProminence() /
+  // computePOCMigration() / computeNakedPOC() / computePOCQualityMultiplier()
+  // for the full mechanism behind each.
+  //
+  // #1 — POC PROMINENCE: is POC's volume a clear, singular peak, or does
+  // it barely edge out its immediate neighbor price rows — a contested,
+  // ambiguous "winner" rather than a level the market clearly agreed on?
+  // Theory: POC is the most-CONTESTED price (most volume from BOTH
+  // buyers and sellers), not necessarily the strongest one — unlike
+  // VAH/VAL, which are range boundaries that see more decisive rejection.
+  // v10.9: applied LIVE per explicit instruction — not gated behind a
+  // backtest-first requirement the way SL_ATR_MULT_MATRIX above still is.
+  // Env var can still force it off for an A/B comparison run if you want
+  // one: POC_PROMINENCE_ENABLED=false node backtest.js
+  POC_PROMINENCE_ENABLED: process.env.POC_PROMINENCE_ENABLED === 'false' ? false : true,
+  POC_PROMINENCE_MIN_RATIO: 1.5,      // POC vol must beat avg-neighbor vol by 50%+ to count as decisive
+  POC_PROMINENCE_PENALTY_MULT: 0.8,   // applied when POC is "contested" (ratio below the line above)
+
+  // #2 — POC MIGRATION: has POC been drifting toward the trade direction
+  // across recent windows (real, forming consensus / fair value moving),
+  // or is it static / jumping around (balance, not trend)?
+  // v10.9: applied LIVE per explicit instruction. Env var can still force
+  // it off for an A/B comparison run: POC_MIGRATION_ENABLED=false node backtest.js
+  POC_MIGRATION_ENABLED: process.env.POC_MIGRATION_ENABLED === 'false' ? false : true,
+  POC_MIGRATION_OFFSET_BARS: 250,     // ~10.4 days of 1H bars back, for the "past POC" comparison window
+  POC_MIGRATION_MIN_ATR: 0.5,         // minimum drift (in ATR) before it counts as "migrating," not noise
+  POC_MIGRATION_BOOST_MULT: 1.2,      // migrating WITH the trade direction
+  POC_MIGRATION_PENALTY_MULT: 0.8,    // migrating AGAINST the trade direction
+
+  // #3 — NAKED / UNTESTED POC: does an earlier, now-closed window's POC
+  // — never revisited by price since — sit close to the CURRENT POC?
+  // Two independently-computed profiles agreeing on the same price is
+  // stacked evidence, not just one profile's opinion.
+  // v10.9: applied LIVE per explicit instruction. Env var can still force
+  // it off for an A/B comparison run: NAKED_POC_ENABLED=false node backtest.js
+  NAKED_POC_ENABLED: process.env.NAKED_POC_ENABLED === 'false' ? false : true,
+  NAKED_POC_TOLERANCE_ATR: 0.5,       // how close current POC must sit to the naked historical POC
+  NAKED_POC_BOOST_MULT: 1.15,
+
+  // ALL THREE ARE LIVE BY DEFAULT AS OF v10.9. To run an A/B comparison
+  // against them being off (recommended at some point, even though it
+  // wasn't required before shipping):
+  //   POC_PROMINENCE_ENABLED=false node backtest.js
+  //   POC_MIGRATION_ENABLED=false NAKED_POC_ENABLED=false node backtest.js
+  // MIGRATION and NAKED_POC both make the bot fetch more 1H history than
+  // it otherwise would (750-1000 bars vs the usual 500) — see strategy.js
+  // v10.8 notes for how the fetch size adapts automatically to whatever
+  // these flags are set to.
+
   RISK_PER_TRADE_PCT: 1.5,    // % of capital risked per trade in backtest sim
   SLIPPAGE_PCT: 0.001,        // 0.1% slippage/spread assumption
 

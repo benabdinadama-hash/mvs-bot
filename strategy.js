@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.6  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.9  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -21,6 +21,28 @@
  *  Telegram send retries 3x (1s/2s/3s backoff), KuCoin fetch retries 2x
  *  (0.8s backoff). If it still fails after that, it's a genuine outage on
  *  their end, not this bot, and it's logged loudly either way.
+ *
+ *  v10.7 EXPERIMENTAL NOTE (2026-07-04): SL_ATR_MULT_MATRIX support added
+ *  — OFF by default. See config.js for what it does and how to backtest
+ *  it before ever considering turning it on live. If enabled, the
+ *  Telegram message's SL line and suggested-size line both reflect the
+ *  actual widened value used — nothing is hidden if you do turn it on.
+ *
+ *  v10.8 NOTE (2026-07-04): three more POC-quality tests added
+ *  (prominence, migration, naked POC) — logged to signals.log.json
+ *  regardless of on/off state, so there's a real history to check.
+ *  NAKED_POC and POC_MIGRATION make this file request more 1H history
+ *  from KuCoin (750-1000 bars vs the usual 500), but ONLY when their flag
+ *  is actually on — zero extra API load otherwise. See config.js for the
+ *  reasoning behind each.
+ *
+ *  v10.9 (2026-07-05): all three v10.8 factors above flipped from off-by-
+ *  default to ON by default — applied live per explicit instruction,
+ *  not gated behind a backtest-first requirement (SL_ATR_MULT_MATRIX,
+ *  v10.7, is a separate mechanism and stays off by default — that
+ *  instruction didn't cover it). Also: signals.log.json and
+ *  diag.log.json now write NEWEST-FIRST (unshift, not push) so the most
+ *  recent activity is at the top of the file, not the bottom.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -73,16 +95,24 @@ const saveState = (symbol, data) => {
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 };
 
+// v10.9: both logs are now NEWEST-FIRST (unshift + slice from the front)
+// instead of oldest-first (push + slice from the back) — requested so the
+// most recent activity is at the top of the file when opened, instead of
+// requiring a scroll to the bottom of an increasingly long log. Any code
+// that reads these files and assumes chronological (oldest-first) order
+// needs updating to match — see weekly-summary.js v10.9 notes for the
+// three spots that assumption lived in (equity curve math, "latest
+// snapshot" lookup, and the displayed entry list).
 const logSignal = (symbol, entry) => {
   const log = loadJSON(LOG_FILE, []);
-  log.push({ symbol, ...entry, time: new Date().toISOString() });
-  fs.writeFileSync(LOG_FILE, JSON.stringify(log.slice(-500), null, 2));
+  log.unshift({ symbol, ...entry, time: new Date().toISOString() });
+  fs.writeFileSync(LOG_FILE, JSON.stringify(log.slice(0, 500), null, 2));
 };
 
 const logDiag = (entry) => {
   const log = loadJSON(DIAG_FILE, []);
-  log.push({ ...entry, ts: new Date().toISOString() });
-  fs.writeFileSync(DIAG_FILE, JSON.stringify(log.slice(-2000), null, 2));
+  log.unshift({ ...entry, ts: new Date().toISOString() });
+  fs.writeFileSync(DIAG_FILE, JSON.stringify(log.slice(0, 2000), null, 2));
 };
 
 // ── KuCoin data fetch ────────────────────────────────────────────────────────
@@ -148,7 +178,7 @@ const isDuplicateRun = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v10.6 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v10.9 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -158,9 +188,17 @@ const runStrategy = async (symbol) => {
 
   try {
     // ── STEP 1: FETCH ALL THREE TIMEFRAMES ──────────────────────────────
+    // v10.8: POC_MIGRATION and NAKED_POC both need more 1H history than
+    // the bot normally fetches (750 and 1000 bars respectively, vs the
+    // usual 500) — but ONLY when those experimental flags are actually
+    // on, so there's zero extra KuCoin API load in the default (off) case.
+    let struct1hLimit = config.STRUCT_VP_LOOKBACK;
+    if (config.NAKED_POC_ENABLED) struct1hLimit = Math.max(struct1hLimit, config.STRUCT_VP_LOOKBACK * 2);
+    if (config.POC_MIGRATION_ENABLED) struct1hLimit = Math.max(struct1hLimit, config.STRUCT_VP_LOOKBACK + config.POC_MIGRATION_OFFSET_BARS);
+
     const [data4h, data1h, data15m] = await Promise.all([
       getKlines(symbol, config.BIAS_TIMEFRAME,    config.BIAS_VP_LOOKBACK),
-      getKlines(symbol, config.STRUCT_TIMEFRAME,  config.STRUCT_VP_LOOKBACK),
+      getKlines(symbol, config.STRUCT_TIMEFRAME,  struct1hLimit),
       getKlines(symbol, config.TRIGGER_TIMEFRAME, config.TRIGGER_VP_LOOKBACK),
     ]);
 
@@ -341,9 +379,16 @@ const runStrategy = async (symbol) => {
     }
 
     // ── STEP 9: SL / TP CALCULATION ───────────────────────────────────────
+    // v10.7 EXPERIMENTAL (off by default — see config.js SL_ATR_MULT_MATRIX):
+    // per-pivot SL width test. slAtrMult falls back to the normal
+    // config.SL_ATR_MULT whenever the feature is disabled OR this pivot
+    // has no override, so this is a no-op unless explicitly turned on.
+    const slAtrMult = config.SL_ATR_MULT_MATRIX_ENABLED && config.SL_ATR_MULT_MATRIX[bestPivot.name] != null
+      ? config.SL_ATR_MULT_MATRIX[bestPivot.name]
+      : config.SL_ATR_MULT;
     const levels = core.computeTradeLevels({
       direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
-      slAtrMult: config.SL_ATR_MULT, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
+      slAtrMult, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
       tp2MinExtensionRR: config.TP2_MIN_EXTENSION_RR,
     });
     if (!levels) {
@@ -363,22 +408,65 @@ const runStrategy = async (symbol) => {
     const td9 = config.TD9_ENABLED ? core.computeTDSequential(data1h) : { buy9: false, sell9: false };
     const td9Confirms = (direction === 'BUY' && td9.buy9) || (direction === 'SELL' && td9.sell9);
 
-    // v10.3/v10.4/v10.5/v10.6: risk-tiered sizing — see core.js
+    // v10.8/v10.9 (live by default — see config.js): three
+    // independent POC-quality tests. Each function internally no-ops
+    // (returns a neutral/empty result) when its data requirement isn't
+    // met or its flag is off, so these calls are always safe to make.
+    const prominence = core.computePOCProminence(vp1h);
+    const migration = core.computePOCMigration(
+      data1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
+      config.POC_MIGRATION_OFFSET_BARS, atr1h, config.POC_MIGRATION_MIN_ATR
+    );
+    const nakedPOC = core.computeNakedPOC(
+      data1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
+      atr1h, vp1h.pocPrice, config.NAKED_POC_TOLERANCE_ATR
+    );
+
+    // v10.3/v10.4/v10.5/v10.6/v10.7: risk-tiered sizing — see core.js
     // computeRiskMultiplier() for the backtest evidence behind this. Not a
     // filter: this signal fires regardless of tier, only the suggested
     // size changes.
-    const riskMult = core.computeRiskMultiplier(
+    let riskMult = core.computeRiskMultiplier(
       bestPivot.name, resolved.agreeing, rejection.patterns,
       config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT,
-      td9Confirms, config.TD9_BOOST_MULT
+      td9Confirms, config.TD9_BOOST_MULT,
+      slAtrMult, config.SL_ATR_MULT
     );
+    // v10.8: applied as a separate multiplicative step (not folded into
+    // computeRiskMultiplier itself) so each factor stays independently
+    // switchable and its effect stays easy to isolate when reading a
+    // backtest report. Always 1.0 (no-op) for VAH/VAL pivots regardless
+    // of the inputs above, or if any/all of these flags get turned off.
+    riskMult *= core.computePOCQualityMultiplier(bestPivot.name, direction, prominence, migration, nakedPOC, config);
+    riskMult = Math.max(0.1, Math.min(1.0, riskMult));
+
+    const slWidened = slAtrMult !== config.SL_ATR_MULT;
     const weakReasons = [];
     if (!resolved.agreeing.includes('1H')) weakReasons.push('1H not in the confirming vote');
     if (rejection.patterns.includes('POC_RECLAIM')) weakReasons.push('POC_RECLAIM pattern');
     const td9Suffix = td9Confirms ? ' | TD9 exhaustion confirms +boost' : '';
+    // v10.7: SL-widening (when enabled) can push riskMult below 1.0 even
+    // for an otherwise "strongest segment" trade — this is a size cut for
+    // risk normalization, not a quality discount, so it's called out
+    // separately rather than folded into weakReasons.
+    const slWidenSuffix = slWidened ? ` | SL widened ${config.SL_ATR_MULT}→${slAtrMult}×ATR (EXPERIMENTAL, size cut to hold $ risk flat)` : '';
+    // v10.8: same pattern — called out separately from weakReasons since
+    // these are a distinct, independently-testable set of factors.
+    const pocQualityNotes = [];
+    if (config.POC_PROMINENCE_ENABLED && prominence.computed && prominence.prominenceRatio < config.POC_PROMINENCE_MIN_RATIO) {
+      pocQualityNotes.push(`contested POC (ratio ${prominence.prominenceRatio.toFixed(2)} < ${config.POC_PROMINENCE_MIN_RATIO})`);
+    }
+    if (config.POC_MIGRATION_ENABLED && migration.migrating) {
+      const confirms = (direction === 'BUY' && migration.direction === 'UP') || (direction === 'SELL' && migration.direction === 'DOWN');
+      pocQualityNotes.push(`POC migrating ${migration.direction} (${confirms ? 'confirms' : 'against'} direction)`);
+    }
+    if (config.NAKED_POC_ENABLED && nakedPOC.aligned) {
+      pocQualityNotes.push(`aligned with naked prior POC @ $${nakedPOC.priorPOC.toFixed(4)}`);
+    }
+    const pocQualitySuffix = pocQualityNotes.length ? ` | ${pocQualityNotes.join(', ')}` : '';
     const sizeLine = riskMult < 1
-      ? `⚖️ *Suggested size:* ${Math.round(riskMult * 100)}% of normal (${bestPivot.name} pivot, ${weakReasons.join(' + ')} — historically weaker segment, see README${td9Suffix})`
-      : `⚖️ *Suggested size:* 100% of normal (${bestPivot.name} pivot, 1H confirms — historically strongest segment${td9Suffix})`;
+      ? `⚖️ *Suggested size:* ${Math.round(riskMult * 100)}% of normal (${bestPivot.name} pivot${weakReasons.length ? ', ' + weakReasons.join(' + ') + ' — historically weaker segment, see README' : ''}${td9Suffix}${slWidenSuffix}${pocQualitySuffix})`
+      : `⚖️ *Suggested size:* 100% of normal (${bestPivot.name} pivot, 1H confirms — historically strongest segment${td9Suffix}${slWidenSuffix}${pocQualitySuffix})`;
     const td9Line = (td9.buy9 || td9.sell9)
       ? `\n🔢 *TD Sequential:* ${td9.buy9 ? 'Buy 9 just completed' : 'Sell 9 just completed'} (1H)${td9Confirms ? ' ✅ agrees with direction' : ' — opposite direction, informational only'}`
       : '';
@@ -392,7 +480,7 @@ ${voteLine}
 
 ━━━━━━━━━━━━━━━━━━━━
 💵 *Entry:* \`$${bestFibLevel.toFixed(4)}\` (1H Fib ${fibPct} ↔ ${bestPivot.name})
-🛑 *SL:* \`$${levels.slPrice.toFixed(4)}\` (1H swing wick ± 0.25×ATR)
+🛑 *SL:* \`$${levels.slPrice.toFixed(4)}\` (1H swing wick ± ${slAtrMult}×ATR)
 ━━━━━━━━━━━━━━━━━━━━
 🎯 *TP1 (exit ${Math.round(config.PARTIAL_EXIT_PCT * 100)}%, move SL to entry):* \`$${levels.tp1Price.toFixed(4)}\`  R:R ${levels.rr1.toFixed(2)}:1
 🏁 *TP2 (runner, remaining ${Math.round((1 - config.PARTIAL_EXIT_PCT) * 100)}%, ${direction === 'BUY' ? 'VAH' : 'VAL'}):* \`$${levels.tp2Price.toFixed(4)}\`  R:R ${levels.rr2.toFixed(2)}:1
@@ -406,7 +494,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v10.6*
+⚡ *MVS v10.9*
     `.trim();
 
     await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -425,6 +513,8 @@ risk capital you can't afford to lose on a single position.
       confluencePivot: bestPivot.name, fibPct, patterns: rejection.patterns,
       voteTally: resolved.tally, agreeing: resolved.agreeing, riskMult,
       bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias,
+      // v10.8/v10.9 — logged for full record-keeping alongside everything else.
+      td9Confirms, slAtrMult, prominence, migration, nakedPOC,
     });
 
   } catch (err) {
@@ -438,7 +528,7 @@ risk capital you can't afford to lose on a single position.
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v10.6                          ║');
+console.log('║   MVS — Monthly Value Sniper v10.9                          ║');
 console.log('║   4H bias + 1H structure + 15m trigger — 2-of-3 vote         ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);

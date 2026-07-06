@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — CORE STRATEGY LOGIC (core.js)  v10.6
+ *  MVS — CORE STRATEGY LOGIC (core.js)  v10.9
  *
  *  Every pure function used to decide BUY/SELL/NO-TRADE lives here, and
  *  ONLY here. strategy.js (live/Telegram) and backtest.js (simulation)
@@ -121,6 +121,17 @@
  *  v10.6 notes for what else was evaluated from the same source and
  *  explicitly declined (Pi-target TPs, 4H VA/Fib, ADX/volume/news
  *  filters).
+ *
+ *  v10.7 — EXPERIMENTAL, OFF BY DEFAULT. Hypothesis under test: POC is a
+ *  single price point (unlike VAH/VAL, which are range boundaries), so it
+ *  may be more prone to brief overshoot-then-reverse noise tagging the SL
+ *  before price does what the setup predicted. computeRiskMultiplier()
+ *  now accepts an optional SL-width risk-normalization factor: if a
+ *  pivot's SL is deliberately widened (see config.js SL_ATR_MULT_MATRIX),
+ *  position size is scaled down proportionally so $ risk per trade stays
+ *  flat. This is NOT validated — it's a mechanism to test the hypothesis
+ *  via backtest, not a conclusion. Has zero effect while
+ *  SL_ATR_MULT_MATRIX_ENABLED is false (the default).
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -232,7 +243,12 @@ const calcVolumeProfile = (data, lookback, rows = 100, valueAreaPct = 0.70) => {
   const valPrice = low + (loIdx + 0.5) * rowSize;
   const vahPrice = low + (hiIdx + 0.5) * rowSize;
 
-  return { pocPrice, vahPrice, valPrice, maxVol, totalVol, barCount: workingBars.length };
+  // v10.8: pocIdx/volArr added (purely additive — every existing caller
+  // that only reads pocPrice/vahPrice/valPrice/maxVol/totalVol/barCount is
+  // completely unaffected). Needed by computePOCProminence() below, so it
+  // can reuse this histogram instead of rebuilding it from scratch (which
+  // would risk two implementations silently drifting apart over time).
+  return { pocPrice, vahPrice, valPrice, maxVol, totalVol, barCount: workingBars.length, pocIdx, volArr };
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -489,7 +505,124 @@ const computeTDSequential = (bars) => {
   return { buyCount, sellCount, buy9, sell9 };
 };
 
-const computeRiskMultiplier = (pivotName, agreeing, patterns, riskTierMatrix, patternRiskMatrix, defaultMult = 1.0, td9Confirms = false, td9BoostMult = 1.0) => {
+// ─────────────────────────────────────────────────────────────────────────
+//  POC QUALITY FACTORS (v10.8, live by default as of v10.9)
+// ─────────────────────────────────────────────────────────────────────────
+//  Three independent, testable hypotheses about why POC-pivot trades
+//  underperform VAH/VAL. Each is a bounded, size-only multiplier — none
+//  of them are gates, none of them can reduce signal frequency. Applied
+//  live directly per explicit instruction rather than gated behind a
+//  backtest-first requirement — see config.js v10.9 notes.
+// ─────────────────────────────────────────────────────────────────────────
+
+//  #1 — POC PROMINENCE. POC is "whichever price got the single highest
+//  volume" — but if the rows immediately next to it got almost as much
+//  volume, POC only narrowly "won" a crowded, contested price zone rather
+//  than being a level the market clearly, decisively agreed on. This is
+//  the theory that POC is the most-CONTESTED price, not necessarily the
+//  strongest one. Computed as POC's volume vs the average of its two
+//  immediate neighbor rows — the higher this ratio, the more POC's volume
+//  actually stands out, rather than just narrowly edging out its
+//  neighbors. Reuses the histogram calcVolumeProfile() already built
+//  (via the pocIdx/volArr fields added in v10.8) rather than rebuilding
+//  it — one source of truth for the volume distribution, not two.
+const computePOCProminence = (vp) => {
+  if (!vp || !Array.isArray(vp.volArr) || vp.pocIdx == null) return { prominenceRatio: 1, computed: false };
+  const { volArr, pocIdx } = vp;
+  const lo = pocIdx > 0 ? volArr[pocIdx - 1] : null;
+  const hi = pocIdx < volArr.length - 1 ? volArr[pocIdx + 1] : null;
+  const neighbors = [lo, hi].filter(v => v != null);
+  if (!neighbors.length) return { prominenceRatio: 1, computed: false };
+  const avgNeighbor = neighbors.reduce((a, b) => a + b, 0) / neighbors.length;
+  const pocVol = volArr[pocIdx];
+  const prominenceRatio = avgNeighbor > 0 ? pocVol / avgNeighbor : (pocVol > 0 ? Infinity : 1);
+  return { prominenceRatio, computed: true };
+};
+
+//  #2 — POC MIGRATION. A POC that has been drifting steadily in one
+//  direction across recent windows reflects the market progressively
+//  accepting new fair value — real conviction. A POC that's static or
+//  jumping around between recalculations usually just means the market
+//  hasn't decided anything yet — balance, not trend. Compares the
+//  CURRENT window's POC against an earlier, non-overlapping window's POC
+//  computed the identical way (same vpLookback/rows), offset back by
+//  offsetBars. Requires the drift to clear a minimum ATR-relative
+//  distance before calling it "migrating" — otherwise ordinary bin-to-bin
+//  noise would trigger this on almost every scan.
+const computePOCMigration = (bars, vpLookback, rows, offsetBars, atr, minMigrationAtrMult) => {
+  const none = { migrating: false, direction: null, distance: 0, currentPOC: null, pastPOC: null };
+  if (!Array.isArray(bars) || bars.length < vpLookback + offsetBars) return none;
+
+  const currentVP = calcVolumeProfile(bars, vpLookback, rows);
+  const pastBars = bars.slice(0, bars.length - offsetBars);
+  const pastVP = calcVolumeProfile(pastBars, vpLookback, rows);
+  if (!currentVP || !pastVP) return none;
+
+  const distance = currentVP.pocPrice - pastVP.pocPrice;
+  const meaningful = atr > 0 && Math.abs(distance) >= (atr * minMigrationAtrMult);
+  return {
+    migrating: meaningful,
+    direction: meaningful ? (distance > 0 ? 'UP' : 'DOWN') : null,
+    distance,
+    currentPOC: currentVP.pocPrice,
+    pastPOC: pastVP.pocPrice,
+  };
+};
+
+//  #3 — NAKED / UNTESTED POC. A POC from an earlier, now-closed
+//  (non-overlapping) window that price has NOT traded back through since
+//  is treated in market-profile theory as a strong magnet — unfinished
+//  business the market tends to revisit. If that untested prior POC also
+//  sits close to the CURRENT window's POC, that's two separate profiles
+//  agreeing on the same price — stacked evidence, not just one profile's
+//  opinion. Needs bars.length >= vpLookback*2 (a prior window plus the
+//  current one); gracefully returns "not naked, not aligned" otherwise —
+//  this is a real data requirement (see config.js v10.8 notes on fetch
+//  size), not a bug, and the caller should treat the no-data case as a
+//  neutral no-op, never as a positive or negative signal.
+const computeNakedPOC = (bars, vpLookback, rows, atr, currentPOC, toleranceAtrMult) => {
+  const none = { naked: false, priorPOC: null, tested: null, aligned: false };
+  if (!Array.isArray(bars) || bars.length < vpLookback * 2 || currentPOC == null) return none;
+
+  const priorBars = bars.slice(0, bars.length - vpLookback);
+  const priorVP = calcVolumeProfile(priorBars, vpLookback, rows);
+  if (!priorVP) return none;
+  const priorPOC = priorVP.pocPrice;
+
+  const sinceBars = bars.slice(-vpLookback);
+  const tested = sinceBars.some(b => b.low <= priorPOC && b.high >= priorPOC);
+  const aligned = !tested && atr > 0 && Math.abs(currentPOC - priorPOC) <= (atr * toleranceAtrMult);
+
+  return { naked: !tested, priorPOC, tested, aligned };
+};
+
+//  Combines all three into one multiplier for the call site. Returns 1.0
+//  (complete no-op) for any pivot other than POC — VAH/VAL entries are
+//  entirely untouched by this function, always, regardless of which
+//  flags are enabled.
+const computePOCQualityMultiplier = (pivotName, direction, prominence, migration, nakedPOC, cfg) => {
+  if (pivotName !== 'POC') return 1.0;
+  let mult = 1.0;
+
+  if (cfg.POC_PROMINENCE_ENABLED && prominence && prominence.computed) {
+    const decisive = prominence.prominenceRatio >= cfg.POC_PROMINENCE_MIN_RATIO;
+    if (!decisive) mult *= cfg.POC_PROMINENCE_PENALTY_MULT;
+  }
+
+  if (cfg.POC_MIGRATION_ENABLED && migration && migration.migrating) {
+    const confirms = (direction === 'BUY' && migration.direction === 'UP') ||
+                      (direction === 'SELL' && migration.direction === 'DOWN');
+    mult *= confirms ? cfg.POC_MIGRATION_BOOST_MULT : cfg.POC_MIGRATION_PENALTY_MULT;
+  }
+
+  if (cfg.NAKED_POC_ENABLED && nakedPOC && nakedPOC.aligned) {
+    mult *= cfg.NAKED_POC_BOOST_MULT;
+  }
+
+  return mult;
+};
+
+const computeRiskMultiplier = (pivotName, agreeing, patterns, riskTierMatrix, patternRiskMatrix, defaultMult = 1.0, td9Confirms = false, td9BoostMult = 1.0, slAtrMultUsed = null, baselineSlAtrMult = null) => {
   const confirmKey = (Array.isArray(agreeing) && agreeing.includes('1H')) ? '1H' : 'NO1H';
   const key = `${pivotName}_${confirmKey}`;
   let mult = (riskTierMatrix && riskTierMatrix[key] != null) ? riskTierMatrix[key] : defaultMult;
@@ -503,6 +636,18 @@ const computeRiskMultiplier = (pivotName, agreeing, patterns, riskTierMatrix, pa
   // discount, never push size past 1.0 (the clamp below is unconditional,
   // not just documentation).
   if (td9Confirms) mult *= td9BoostMult;
+  // v10.7 (EXPERIMENTAL, off by default — see config.js SL_ATR_MULT_MATRIX):
+  // if this trade's SL is wider than the baseline (per-pivot test to see
+  // whether POC's SL rate is partly noise/overshoot rather than genuine
+  // invalidation), scale size down proportionally so $ risk per trade
+  // stays the same as it would've been at the baseline SL distance. This
+  // is NOT a quality discount like the factors above — it's pure risk
+  // normalization, applied on top of whatever the quality tiering above
+  // already decided. Has no effect at all when slAtrMultUsed equals
+  // baselineSlAtrMult (the default, unwidened case).
+  if (slAtrMultUsed != null && baselineSlAtrMult != null && slAtrMultUsed > 0) {
+    mult *= (baselineSlAtrMult / slAtrMultUsed);
+  }
   return Math.max(0.1, Math.min(1.0, mult));
 };
 
@@ -564,4 +709,5 @@ module.exports = {
   calcATR, calcFib, calcVolumeProfile, tfBiasVote, isNearZone, resolveDirection,
   confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
   detectRejection, computeTradeLevels, computeRiskMultiplier, computeTDSequential,
+  computePOCProminence, computePOCMigration, computeNakedPOC, computePOCQualityMultiplier,
 };
