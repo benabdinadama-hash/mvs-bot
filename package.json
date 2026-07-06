@@ -1,7 +1,7 @@
 {
   "name": "mvs-monthly-value-sniper",
-  "version": "10.9.0",
-  "description": "MVS — Monthly Value Sniper v10.9. KuCoin API for Ghana. Three-timeframe (4H bias + 1H structure + 15min trigger, 2-of-3 vote, scanned every 15min), 13 symbols, POC+VAH+VAL+FIBO, zero lagging indicators. Shared core.js logic between live bot and backtester. Public repo, unlimited GitHub Actions minutes.",
+  "version": "10.10.0",
+  "description": "MVS — Monthly Value Sniper v10.10. KuCoin API for Ghana. Five-timeframe (1D + 4H macro bias, 1H structure, 30m mid-rung bias, 15min trigger; 3-of-5 vote, scanned every 15min), 13 symbols, POC+VAH+VAL+FIBO, zero lagging indicators. Shared core.js logic between live bot and backtester. Public repo, unlimited GitHub Actions minutes.",
   "main": "strategy.js",
   "scripts": {
     "start": "node strategy.js",

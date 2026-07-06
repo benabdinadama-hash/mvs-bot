@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.9-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.10-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -108,6 +108,24 @@ and `config.js` if you want the exact numbers behind each change.
   `strategy.js` / `weekly-summary.js` v10.9 header notes for the three
   spots that needed updating (equity-curve math, "latest snapshot"
   lookup, displayed entry list).
+- **v10.10 — FIVE-TIMEFRAME VOTE, 3-of-5** (explicitly requested: "FROM
+  NOW WE ARE USING 5 TIMEFRAMES: 15MN, 30MN, 1H, 4H, 1D. VOTE OF 3 OVER
+  5."). Added 1D and 30m as two new independent bias votes alongside the
+  existing 4H/1H/15m — same POC/VAH/VAL/Fib50 4-pillar vote, cast by two
+  more timeframes. `core.resolveDirection()` now takes an explicit
+  `minAgree` count (`config.MIN_TF_AGREE = 3`) instead of a hardcoded 2.
+  1H still supplies the structural zone and 15m still supplies the
+  trigger candle — unchanged. Also fixed two separately-reported bugs:
+  `/status` now shows direction + full per-TF bias breakdown + vote
+  tally (state.json previously never carried those fields at all, only
+  `diag.log.json` did — a display fix alone couldn't have solved it), and
+  Telegram messages now chunk automatically instead of risking the
+  4096-char hard limit. Weekly summary entries are now grouped (`×N`)
+  instead of repeating near-identical blocks. **The backtest numbers
+  throughout this README (and `setup-bot.js`'s bot description) predate
+  this change — they describe the OLD 3-TF/2-of-3 ruleset and need a
+  fresh `node backtest.js` run against the new 5-TF/3-of-5 ruleset
+  before being trusted or republished.**
 
 ---
 
@@ -168,17 +186,22 @@ Fibonacci, cross-checked across three timeframes.
 | **VAL** | Value Area Low (bottom of 70%) | Demand defense line — buyers stack here |
 | **FIBO** | Fibonacci Retracement | Mathematical gravity well — 60–80% pocket guides entries |
 
-### Three-Timeframe Architecture (v10.0)
+### Five-Timeframe Architecture (v10.10, current — was Three-Timeframe/2-of-3 through v10.9)
 
 ```
-4H  → Macro bias vote   (POC + VAH + VAL + Fib50% — 3-of-4 vote: BULLISH/BEARISH/NEUTRAL)
+1D  → Macro-macro bias  (POC + VAH + VAL + Fib50% — 3-of-4 vote: BULLISH/BEARISH/NEUTRAL) [NEW v10.10]
+4H  → Macro bias vote   (same 4-pillar vote)
 1H  → Structure         (same 4-pillar vote + the actual zone: swing, Fib 60–80% pocket, POC/VAH/VAL)
+30m → Mid-rung bias     (same 4-pillar vote) [NEW v10.10]
 15m → Trigger           (same 4-pillar vote + the rejection candle that fires entry)
 
-Direction requires 2-of-3 timeframes to agree (see core.js: resolveDirection()).
-The 1H zone still has to align with a 4H structural level (HTF zone cross-check),
-and the 15m candle still has to show a real rejection pattern in that 1H zone —
-the vote is an added agreement gate, not a replacement for the structural checks.
+Direction requires 3-of-5 timeframes to agree (see core.js: resolveDirection(),
+config.MIN_TF_AGREE). The 1H zone still has to align with a 4H structural level
+(HTF zone cross-check), and the 15m candle still has to show a real rejection
+pattern in that 1H zone — the vote is an added agreement gate, not a
+replacement for the structural checks. 1H still supplies the structural zone
+and 15m still supplies the trigger candle, exactly as before — only the
+direction-agreement vote gained two more independent timeframes.
 ```
 
 This is the mechanical form of "1H + 15m, confirmed by 4H": no single
@@ -237,8 +260,8 @@ actually happens — 15m only sharpens *when* inside that zone.
 
 | Signal | Condition | Action |
 |--------|-----------|--------|
-| **BUY** | 2-of-3 TF vote BULLISH + 4H zone aligned + 1H confluence + 2-of-5 15m rejection patterns | Signal alert sent with entry/SL/TP. You decide position size. |
-| **SELL** | 2-of-3 TF vote BEARISH + 4H zone aligned + 1H confluence + 2-of-5 15m rejection patterns | Signal alert sent with entry/SL/TP. You decide position size. |
+| **BUY** | 3-of-5 TF vote BULLISH + 4H zone aligned + 1H confluence + 2-of-5 15m rejection patterns | Signal alert sent with entry/SL/TP. You decide position size. |
+| **SELL** | 3-of-5 TF vote BEARISH + 4H zone aligned + 1H confluence + 2-of-5 15m rejection patterns | Signal alert sent with entry/SL/TP. You decide position size. |
 
 > There is no built-in risk-per-trade percentage baked into a live order —
 > this bot does not place trades for you, it alerts. Decide your own
@@ -272,7 +295,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **D2** Sharp Breakout | Price slices through zone without pausing | Do NOT fade. Trend continuation. |
 | **D3** Shallow Retrace | Rejects at 23.6/38.2 before reaching 60–80% pocket | Ignore. Trend too strong. |
 | **D4** Over-Extended | Price already beyond 88.6% Fib | Skip. Swing invalidated. |
-| **D5** No 2-of-3 Vote | Fewer than 2 of {4H, 1H, 15m} agree on direction | Skip. Timeframes disagree. |
+| **D5** No 3-of-5 Vote | Fewer than 3 of {1D, 4H, 1H, 30m, 15m} agree on direction | Skip. Timeframes disagree. |
 | **D6** 4H Zone Mismatch | 1H entry price doesn't sit near any 4H structural level | Skip. No multi-timeframe confluence. |
 
 ---
@@ -327,7 +350,8 @@ functions in `core.js` — the backtest replays the identical sequence.
 STEP 1:  Fetch 4H (200 bars), 1H (500 bars), and 15m (500 bars) klines from KuCoin.
 STEP 2:  Three-way bias vote — each timeframe casts BULLISH/BEARISH/NEUTRAL
          via the same POC+VAH+VAL+Fib50 4-pillar vote (core.tfBiasVote).
-         Resolve direction: need 2-of-3 timeframes to agree (core.resolveDirection).
+         Resolve direction: need 3-of-5 timeframes to agree (core.resolveDirection,
+         config.MIN_TF_AGREE — v10.10: 1D/4H/1H/30m/15m, was 4H/1H/15m 2-of-3).
          < 2 agree → D5 stop. No entry this scan.
 STEP 3:  1H structure: get the swing/Fib pocket this vote's timeframes used.
          Price broke the 1H swing entirely → structural remap alert, stop.
@@ -464,7 +488,7 @@ replace this table rather than trust it past its date.
 
 ## Why MVS Works (and where its limits are)
 
-1. **Three-Timeframe Confirmation** — 4H macro bias, 1H structure, 15m trigger, each casting an independent POC+VAH+VAL+Fib50 vote. 2-of-3 must agree before anything is even considered.
+1. **Five-Timeframe Confirmation (v10.10)** — 1D + 4H macro bias, 1H structure, 30m mid-rung bias, 15m trigger, each casting an independent POC+VAH+VAL+Fib50 vote. 3-of-5 must agree before anything is even considered.
 2. **4H Zone Cross-Check** — The 1H entry must also sit near an actual 4H structural level. Two independent timeframes pointing to the same price is real confluence, not coincidence — but it is still not certainty.
 3. **Full Value Area (POC + VAH + VAL)** — Both supply (VAH) and demand (VAL) walls are tracked, symmetrically for BUY and SELL.
 4. **ATR-Relative Confluence** — Tolerance scales with current volatility instead of a fixed percentage that goes stale as volatility regimes change.
@@ -605,7 +629,7 @@ mvs-bot/
 
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|
-| No signals after several days | Confluence or 2-of-3 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_2OF3_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (current default is `0.85`; try `1.0`) |
+| No signals after several days | Confluence or 3-of-5 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_3OF5_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working, and stricter with 5 TFs than the old 3); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (current default is `0.85`; try `1.0`) |
 | Too many signals (noise) | Confluence/rejection too loose | Lower `CONFLUENCE_ATR_MULT` (current default `0.85`; try `0.65`) or raise `REJECTION_MIN_PATTERNS` to `3` |
 | Commands not responding | `tg-offset.json` not committed yet | Go to **Actions → MVS Commands → Run workflow** once manually to bootstrap the offset |
 | `/health` shows "Last scan run: never" | `state.json` not yet committed | Go to Actions → MVS Scan → Run workflow manually once to bootstrap |
