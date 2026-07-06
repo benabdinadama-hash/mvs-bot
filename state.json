@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-06T15:00:50.041Z",
+  "_lastRunAt": "2026-07-06T15:15:38.948Z",
   "SOL-USDT": {
     "signal": "SCANNED",
     "price": 80.78,
@@ -43,15 +43,20 @@
   },
   "XRP-USDT": {
     "signal": "SCANNED",
-    "price": 1.04188,
-    "poc": 1.0465677,
-    "vah": 1.0545141,
-    "val": 1.0406079,
-    "swingHigh": 1.07736,
-    "swingLow": 1.01114,
-    "atr": 0.006656664254861902,
-    "direction": "BUY",
-    "updatedAt": "2026-06-30T11:00:20.879Z"
+    "price": 1.12872,
+    "direction": "SELL",
+    "voteTally": "2/3",
+    "agreeing": [
+      "1H",
+      "15m"
+    ],
+    "poc": 1.1362277,
+    "vah": 1.1835046999999999,
+    "val": 1.1089121,
+    "swingHigh": 1.18403,
+    "swingLow": 1.07897,
+    "atr1h": 0.009802350079446178,
+    "updatedAt": "2026-07-06T15:15:18.997Z"
   },
   "BTC-USDT": {
     "signal": "SCANNED",
@@ -72,11 +77,10 @@
   },
   "POL-USDT": {
     "signal": "SCANNED",
-    "price": 0.0733,
-    "direction": "SELL",
-    "voteTally": "3/3",
+    "price": 0.0741,
+    "direction": "BUY",
+    "voteTally": "2/3",
     "agreeing": [
-      "4H",
       "1H",
       "15m"
     ],
@@ -85,8 +89,8 @@
     "val": 0.07331,
     "swingHigh": 0.0752,
     "swingLow": 0.0724,
-    "atr1h": 0.0005847621912002179,
-    "updatedAt": "2026-07-06T14:00:47.820Z"
+    "atr1h": 0.0006383416162201382,
+    "updatedAt": "2026-07-06T15:15:38.945Z"
   },
   "DOGE-USDT": {
     "signal": "SCANNED",
@@ -125,20 +129,20 @@
   },
   "LTC-USDT": {
     "signal": "SCANNED",
-    "price": 44.28,
-    "direction": "SELL",
+    "price": 44.52,
+    "direction": "BUY",
     "voteTally": "2/3",
     "agreeing": [
-      "1H",
-      "15m"
+      "4H",
+      "1H"
     ],
-    "poc": 44.7973,
-    "vah": 46.1333,
-    "val": 44.2629,
+    "poc": 44.27985,
+    "vah": 45.57075,
+    "val": 44.11435,
     "swingHigh": 46.15,
-    "swingLow": 42.81,
-    "atr1h": 0.41145914531554517,
-    "updatedAt": "2026-07-06T14:45:33.897Z"
+    "swingLow": 42.84,
+    "atr1h": 0.3991970609316633,
+    "updatedAt": "2026-07-06T15:15:34.529Z"
   },
   "TRX-USDT": {
     "signal": "SCANNED",
