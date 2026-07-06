@@ -104,6 +104,13 @@ const cmdStatus = async () => {
       msg += `\nEntry: $${Number(s.entryPrice).toFixed(2)} | SL: $${Number(s.slPrice).toFixed(2)}`;
       msg += `\nTP1 (${Math.round((config.PARTIAL_EXIT_PCT||0.5)*100)}% exit): $${Number(s.tp1Price).toFixed(2)} (R:R ${s.rr1}) | TP2 (runner): $${Number(s.tp2Price).toFixed(2)} (R:R ${s.rr2})`;
     }
+    // v10.10: surface a fire whose Telegram alert failed to deliver — see
+    // strategy.js sendSafe/flushPendingAlerts. Without this, a signal could
+    // be sitting here as FIRED with no indication you never actually got
+    // the alert for it.
+    if (s.signal === 'FIRED' && s.alertDelivered === false) {
+      msg += `\n⚠️ *Alert was NOT delivered when this fired — queued for retry next scan.*`;
+    }
     msg += `\nUpdated: ${s.updatedAt}`;
   }
   await send(msg);

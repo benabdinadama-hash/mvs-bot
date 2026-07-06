@@ -60,6 +60,17 @@ const core   = require('./core');
 // a short backoff before giving up, and only THEN does it fail silently
 // (logged loudly either way).
 const TG = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
+// v10.10 FIX: sendSafe used to swallow a total delivery failure (all
+// retries exhausted) and just return undefined/null. The caller had no
+// way to tell "delivered" apart from "silently dropped" — so a signal
+// could fire, get written to state.json/signals.log.json as FIRED (both
+// happen unconditionally right after this call), and yet the live
+// Telegram alert never actually reached the user. The bug only surfaced
+// later, when the weekly digest read the log and reported the signal as
+// fired — the first the user heard of it. Now sendSafe always returns an
+// explicit { success, data|error } so the caller can react honestly, and
+// the FIRED block below queues a failed alert for automatic redelivery
+// on the next run instead of just recording success it never delivered.
 const sendSafe = async (chatId, text, opts = {}, ms = 10000, maxRetries = 3) => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const result = await Promise.race([
@@ -67,12 +78,13 @@ const sendSafe = async (chatId, text, opts = {}, ms = 10000, maxRetries = 3) => 
       new Promise((_, rej) => setTimeout(() => rej(new Error('Telegram send timed out')), ms)),
     ]).catch((e) => ({ __failed: true, message: e.message }));
 
-    if (!result || !result.__failed) return result;
+    if (!result || !result.__failed) return { success: true, data: result?.data };
 
     console.error(`  ⚠️ Telegram send failed/timed out (attempt ${attempt}/${maxRetries}): ${result.message}`);
     if (attempt < maxRetries) await new Promise(r => setTimeout(r, 1000 * attempt));
   }
   console.error(`  ❌ Telegram send FAILED after ${maxRetries} attempts — this alert was NOT delivered.`);
+  return { success: false, error: 'Telegram send failed after all retries' };
   return null;
 };
 
@@ -113,6 +125,40 @@ const logDiag = (entry) => {
   const log = loadJSON(DIAG_FILE, []);
   log.unshift({ ...entry, ts: new Date().toISOString() });
   fs.writeFileSync(DIAG_FILE, JSON.stringify(log.slice(0, 2000), null, 2));
+};
+
+// ── Pending-alert queue (v10.10) ─────────────────────────────────────────────
+// A signal that fires but fails all 3 Telegram delivery attempts still gets
+// written to state.json/signals.log.json (we don't want to lose the trade
+// record). This queue is the other half of the fix: it remembers the exact
+// message text so the NEXT scan run — before it does anything else — tries
+// once to deliver it. This is a best-effort recovery for a genuine outage
+// window, not a guarantee; if Telegram is down for the whole cooldown period
+// the alert is still lost, but that's now a rare double-failure instead of
+// the default behavior for any single-scan hiccup.
+const PENDING_FILE = path.join(__dirname, 'pending-alerts.json');
+
+const queuePendingAlert = (symbol, message) => {
+  const pending = loadJSON(PENDING_FILE, []);
+  pending.push({ symbol, message, queuedAt: new Date().toISOString() });
+  fs.writeFileSync(PENDING_FILE, JSON.stringify(pending, null, 2));
+};
+
+const flushPendingAlerts = async () => {
+  const pending = loadJSON(PENDING_FILE, []);
+  if (!pending.length) return;
+  console.log(`\n📬 ${pending.length} undelivered alert(s) from a previous run — retrying delivery first...`);
+  const stillPending = [];
+  for (const item of pending) {
+    const result = await sendSafe(config.TELEGRAM_CHAT_ID, item.message, { parse_mode: 'Markdown' });
+    if (result.success) {
+      console.log(`  ✅ Redelivered queued alert for ${item.symbol} (originally queued ${item.queuedAt}).`);
+    } else {
+      console.error(`  ❌ Still undelivered: ${item.symbol} (queued ${item.queuedAt}). Will retry again next run.`);
+      stillPending.push(item);
+    }
+  }
+  fs.writeFileSync(PENDING_FILE, JSON.stringify(stillPending, null, 2));
 };
 
 // ── KuCoin data fetch ────────────────────────────────────────────────────────
@@ -497,14 +543,26 @@ risk capital you can't afford to lose on a single position.
 ⚡ *MVS v10.9*
     `.trim();
 
-    await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
-    console.log(`  ✅ SIGNAL FIRED: ${symbol} | ${direction} @ $${bestFibLevel.toFixed(2)} | ${patternStr}`);
+    const sendResult = await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
+    const alertDelivered = sendResult.success;
+    if (alertDelivered) {
+      console.log(`  ✅ SIGNAL FIRED: ${symbol} | ${direction} @ $${bestFibLevel.toFixed(2)} | ${patternStr}`);
+    } else {
+      // v10.10 FIX: previously this branch didn't exist — a failed send was
+      // indistinguishable from a successful one to everything downstream.
+      // Now it's queued for automatic redelivery next run AND flagged in
+      // both state.json and signals.log.json, so /status and the weekly
+      // digest can honestly show which fires actually reached Telegram.
+      console.error(`  ⚠️ SIGNAL FIRED but alert NOT delivered: ${symbol} | ${direction} @ $${bestFibLevel.toFixed(2)} | ${patternStr} — queued for retry.`);
+      queuePendingAlert(symbol, message);
+    }
 
     saveState(symbol, {
       signal: 'FIRED', direction,
       entryPrice: bestFibLevel, ...levels,
       patterns: rejection.patterns, riskMult,
       lastSignalBar: barTime, lastSignalDir: direction,
+      alertDelivered,
     });
 
     logSignal(symbol, {
@@ -515,6 +573,8 @@ risk capital you can't afford to lose on a single position.
       bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias,
       // v10.8/v10.9 — logged for full record-keeping alongside everything else.
       td9Confirms, slAtrMult, prominence, migration, nakedPOC,
+      // v10.10 — honest delivery flag (see sendSafe/flushPendingAlerts above).
+      alertDelivered,
     });
 
   } catch (err) {
@@ -543,6 +603,11 @@ console.log('');
       `(cron-job.org and the GitHub schedule backup likely overlapped). Exiting cleanly, no state changed.`);
     process.exit(0);
   }
+
+  // v10.10: retry any alert that fired last run but failed all 3 delivery
+  // attempts (see sendSafe/queuePendingAlert above), before doing anything
+  // else this run.
+  await flushPendingAlerts();
 
   for (const sym of config.SYMBOLS) {
     await runStrategy(sym);
