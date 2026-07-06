@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.6
+ *  MVS — BACKTESTER (backtest.js)  v10.9
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -18,6 +18,16 @@
  *    node backtest.js SOL-USDT              ← single symbol
  *    node backtest.js SOL-USDT 180          ← single symbol, 180 days
  *    node backtest.js SOL-USDT,BTC-USDT 360 ← explicit multi-symbol
+ *
+ *    SL_ATR_MULT_MATRIX_ENABLED=true node backtest.js
+ *      ← v10.7 EXPERIMENTAL: test the per-pivot SL-width variant (see
+ *        config.js) without touching the committed config. Compare the
+ *        resulting SL count / win rate / total R against a normal run.
+ *
+ *    POC_PROMINENCE_ENABLED=false POC_MIGRATION_ENABLED=false NAKED_POC_ENABLED=false node backtest.js
+ *      ← v10.8/v10.9: these three are LIVE by default (see config.js) —
+ *        use these env vars to run an A/B comparison against them being
+ *        off, individually or together.
  *
  *  HONESTY NOTE: nothing in this report should be read as a promise about
  *  live performance. Backtests are always somewhat optimistic (no real
@@ -285,7 +295,22 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
       const window1h = data1h.slice(w1Start, ptr1h + 1);
       const bias1h = core.tfBiasVote(window1h, config.STRUCT_VP_LOOKBACK, config.STRUCT_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
       const atr1h = core.calcATR(window1h, config.ATR_PERIOD);
-      cached1h = bias1h && atr1h ? { bias1h, atr1h, window1h } : null;
+      // v10.8/v10.9 (live by default): POC_MIGRATION and NAKED_POC both
+      // need more
+      // history than window1h carries (750/1000 bars vs window1h's ~519)
+      // — computed here, alongside window1h, so it's recomputed on the
+      // same 1H-bar-close cadence rather than every 15m tick. Left equal
+      // to window1h (free — no extra slicing) whenever both flags are
+      // off, which is the default.
+      let pocWideWindow1h = window1h;
+      if (config.NAKED_POC_ENABLED || config.POC_MIGRATION_ENABLED) {
+        let requiredBars = config.STRUCT_VP_LOOKBACK;
+        if (config.NAKED_POC_ENABLED) requiredBars = Math.max(requiredBars, config.STRUCT_VP_LOOKBACK * 2);
+        if (config.POC_MIGRATION_ENABLED) requiredBars = Math.max(requiredBars, config.STRUCT_VP_LOOKBACK + config.POC_MIGRATION_OFFSET_BARS);
+        const wWideStart = Math.max(0, ptr1h + 1 - requiredBars);
+        pocWideWindow1h = data1h.slice(wWideStart, ptr1h + 1);
+      }
+      cached1h = bias1h && atr1h ? { bias1h, atr1h, window1h, pocWideWindow1h } : null;
     }
     // ── Recompute 4H bias only when a new 4H bar closed ──────────────────
     if (advanced4h || !cached4h) {
@@ -314,7 +339,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
     if (resolved.direction === 'BUY') funnel.bullVote++; else funnel.bearVote++;
 
     const direction = resolved.direction;
-    const { bias1h, atr1h, window1h } = cached1h;
+    const { bias1h, atr1h, window1h, pocWideWindow1h } = cached1h;
     const swing1h = bias1h.swing;
     const price1h = data1h[ptr1h].close;
 
@@ -363,9 +388,15 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
     if (!rejection.valid) continue;
     funnel.triggerOk++;
 
+    // v10.7 EXPERIMENTAL (off by default — see config.js SL_ATR_MULT_MATRIX):
+    // identical lookup to strategy.js, same reasoning: no live/backtest
+    // drift on this the way earlier versions drifted on the near-zone gate.
+    const slAtrMult = config.SL_ATR_MULT_MATRIX_ENABLED && config.SL_ATR_MULT_MATRIX[bestPivot.name] != null
+      ? config.SL_ATR_MULT_MATRIX[bestPivot.name]
+      : config.SL_ATR_MULT;
     const levels = core.computeTradeLevels({
       direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
-      slAtrMult: config.SL_ATR_MULT, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
+      slAtrMult, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
       tp2MinExtensionRR: config.TP2_MIN_EXTENSION_RR,
     });
     if (!levels) continue;
@@ -379,6 +410,19 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
     const td9 = config.TD9_ENABLED ? core.computeTDSequential(window1h) : { buy9: false, sell9: false };
     const td9Confirms = (direction === 'BUY' && td9.buy9) || (direction === 'SELL' && td9.sell9);
 
+    // v10.8 (live as of v10.9) — same three computations as strategy.js,
+    // using pocWideWindow1h (cached alongside window1h — see the 1H cache
+    // block above) so live and backtest can never drift on this either.
+    const prominence = core.computePOCProminence(vp1h);
+    const migration = core.computePOCMigration(
+      pocWideWindow1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
+      config.POC_MIGRATION_OFFSET_BARS, atr1h, config.POC_MIGRATION_MIN_ATR
+    );
+    const nakedPOC = core.computeNakedPOC(
+      pocWideWindow1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
+      atr1h, vp1h.pocPrice, config.NAKED_POC_TOLERANCE_ATR
+    );
+
     cooldownMap[direction] = bar.time;
     openTrade = {
       symbol, direction,
@@ -388,7 +432,8 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
       rr1: parseFloat(levels.rr1.toFixed(2)), rr2: parseFloat(levels.rr2.toFixed(2)),
       patterns: rejection.patterns, pivot: bestPivot.name,
       voteTally: resolved.tally, agreeing: resolved.agreeing,
-      confluenceScore: bestScore, td9Confirms,
+      confluenceScore: bestScore, td9Confirms, slAtrMult,
+      prominence, migration, nakedPOC,
     };
   }
 
@@ -441,10 +486,19 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   let capital = config.STARTING_CAPITAL, peak = capital, maxDD = 0;
   for (const t of closed) {
-    // v10.3/v10.4/v10.6: position size scaled by computeRiskMultiplier —
-    // see config.js RISK_TIER_MATRIX / PATTERN_RISK_MATRIX / TD9_BOOST_MULT
-    // for the backing data.
-    const riskMult = core.computeRiskMultiplier(t.pivot, t.agreeing, t.patterns, config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT, t.td9Confirms, config.TD9_BOOST_MULT);
+    // v10.3/v10.4/v10.6/v10.7/v10.9: position size scaled by
+    // computeRiskMultiplier — see config.js RISK_TIER_MATRIX /
+    // PATTERN_RISK_MATRIX / TD9_BOOST_MULT / SL_ATR_MULT_MATRIX for the
+    // backing data (SL_ATR_MULT_MATRIX is still experimental/off by
+    // default — t.slAtrMult equals config.SL_ATR_MULT for every trade
+    // unless it was explicitly enabled for this run).
+    let riskMult = core.computeRiskMultiplier(t.pivot, t.agreeing, t.patterns, config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT, t.td9Confirms, config.TD9_BOOST_MULT, t.slAtrMult, config.SL_ATR_MULT);
+    // v10.8/v10.9: POC quality factors (prominence/migration/naked POC),
+    // live by default — same combination logic as strategy.js, applied
+    // here so the backtest's $ P&L simulation reflects live sizing
+    // exactly, not an approximation of it.
+    riskMult *= core.computePOCQualityMultiplier(t.pivot, t.direction, t.prominence, t.migration, t.nakedPOC, config);
+    riskMult = Math.max(0.1, Math.min(1.0, riskMult));
     const riskAmt  = capital * (config.RISK_PER_TRADE_PCT / 100) * riskMult;
     const slipCost = capital * (config.SLIPPAGE_PCT || 0);
     capital += riskAmt * t.rr - slipCost;
@@ -505,7 +559,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ' MVS v10.6 — BACKTEST REPORT',
+    ' MVS v10.9 — BACKTEST REPORT',
     ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
     ' 4H bias + 1H structure + 15m trigger, 2-of-3 timeframe vote',
     '═══════════════════════════════════════════════════════════════════',
@@ -591,7 +645,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 //  MAIN
 // ─────────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`\n🔬 MVS v10.6 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
+  console.log(`\n🔬 MVS v10.9 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
 
   const allTrades = [];
   const funnelsBySymbol = {};

@@ -68,8 +68,20 @@ const updateEquityCurve = (log) => {
   const SLIP    = config.SLIPPAGE_PCT       || 0.001;
   const START   = 1000;
 
-  // Use closed trade entries that have an rr field (logged on trade close)
-  const closedEntries = log.filter(e => e.rr !== undefined && e.rr !== null && e.exitTime);
+  // Use closed trade entries that have an rr field (logged on trade close).
+  // v10.9 FIX: explicitly sorted ascending by exitTime here, regardless of
+  // what order `log` arrives in. This function's cumulative-equity math
+  // below (capital/peak/drawdown/cumulativeR) only makes sense processed
+  // oldest-to-newest — and as of v10.9, signals.log.json itself is stored
+  // NEWEST-first (see strategy.js logSignal()), so without this explicit
+  // sort here this would silently simulate trades in reverse chronological
+  // order the moment closedEntries ever actually contains data (it's
+  // currently always empty — see the HONESTY NOTE above — but this fixes
+  // the ordering assumption now rather than leaving a landmine for later).
+  const closedEntries = log
+    .filter(e => e.rr !== undefined && e.rr !== null && e.exitTime)
+    .slice()
+    .sort((a, b) => a.exitTime - b.exitTime);
   if (!closedEntries.length) return curve;
 
   // Build cumulative equity from scratch so the curve is always consistent
@@ -109,10 +121,15 @@ const updateEquityCurve = (log) => {
     equityPoints:  points,
   };
 
-  // Append or replace the snapshot for this week
+  // Append or replace the snapshot for this week.
+  // v10.9: unshift (not push) — equity-curve.json is now newest-first,
+  // same convention as signals.log.json / diag.log.json (see strategy.js
+  // v10.9 notes). Replacing an existing week's entry keeps it at whatever
+  // index it's already at rather than moving it, which is correct — only
+  // a genuinely NEW week should end up at the front.
   const idx = curve.findIndex(s => s.week === weekLabel);
   if (idx >= 0) curve[idx] = snapshot;
-  else curve.push(snapshot);
+  else curve.unshift(snapshot);
 
   fs.writeFileSync(EQUITY_FILE, JSON.stringify(curve, null, 2));
   console.log(`✅ Equity curve updated → ${EQUITY_FILE} (${closedEntries.length} trades, capital $${latest.capital})`);
@@ -124,7 +141,11 @@ const updateEquityCurve = (log) => {
 
   // ── Update equity curve first (writes equity-curve.json) ────────────────
   const curve  = updateEquityCurve(log);
-  const latest = curve.length ? curve[curve.length - 1] : null;
+  // v10.9 FIX: curve is now newest-first (see updateEquityCurve above), so
+  // the latest snapshot is curve[0], not curve[curve.length-1] — the old
+  // code would have silently reported last WEEK's numbers as "latest" the
+  // moment the curve had 2+ entries stored in the new order.
+  const latest = curve.length ? curve[0] : null;
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const recent  = log.filter(e => new Date(e.time).getTime() >= weekAgo);
@@ -158,7 +179,13 @@ const updateEquityCurve = (log) => {
   const entries = recent.filter(e => e.signal === 'FIRED');
   if (entries.length) {
     msg += `\n\n🎯 *Entries (${entries.length}):*`;
-    for (const e of entries.slice(-10)) {
+    // v10.9 FIX: signals.log.json is now newest-first (see strategy.js
+    // logSignal()), so `entries` (derived from it via .filter, which
+    // preserves order) is newest-first too — slice(0, 10) is the 10 most
+    // recent, already in the right order to display top-to-bottom. The
+    // old slice(-10) would have shown the 10 OLDEST entries in the past
+    // week instead, the instant the underlying file's order flipped.
+    for (const e of entries.slice(0, 10)) {
       msg += `\n${e.symbol} ${e.direction} @ $${Number(e.entryPrice).toFixed(4)}`;
       msg += `\n  SL $${Number(e.slPrice).toFixed(4)} | TP1 $${Number(e.tp1Price).toFixed(4)} | TP2 (runner) $${Number(e.tp2Price).toFixed(4)}`;
       msg += `\n  Patterns: ${(e.patterns || []).join(' + ')} | R:R ${e.rr1}/${e.rr2}`;
