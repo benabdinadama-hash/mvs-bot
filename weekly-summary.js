@@ -1,8 +1,13 @@
 /**
- * MVS — Weekly Summary  (v10.6 — pure axios, no node-telegram-bot-api)
+ * MVS — Weekly Summary  (v10.10 — pure axios, no node-telegram-bot-api)
  *
  * Reads signals.log.json, summarises the last 7 days, sends to Telegram.
  * Triggered every Monday 07:00 UTC by mvs-weekly.yml.
+ *
+ * v10.10: entries are grouped (×N) instead of repeated block-for-block —
+ * see the "Entries" section below — and send() now chunks any message
+ * over ~3800 chars into multiple sequential sends instead of risking
+ * Telegram's 4096-char hard limit.
  */
 
 const axios  = require('axios');
@@ -12,23 +17,48 @@ const config = require('./config');
 
 const TG = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
 
-const send = async (text) => {
-  try {
-    const res = await Promise.race([
-      axios.post(`${TG}/sendMessage`, {
-        chat_id:    config.TELEGRAM_CHAT_ID,
-        text,
-        parse_mode: 'Markdown',
-      }),
-      new Promise((_, rej) =>
-        setTimeout(() => rej(new Error('sendMessage timed out')), 12000)
-      ),
-    ]);
-    return res.data;
-  } catch (e) {
-    console.error(`⚠️  Telegram sendMessage failed: ${e.message}`);
-    return null;
+// v10.10: same message-chunking fix as commands.js — a weekly summary
+// with several unique grouped setups plus the equity snapshot can exceed
+// Telegram's 4096-char hard limit.
+const TELEGRAM_SAFE_LEN = 3800;
+const splitIntoChunks = (text, maxLen = TELEGRAM_SAFE_LEN) => {
+  if (text.length <= maxLen) return [text];
+  const paragraphs = text.split('\n\n');
+  const chunks = [];
+  let current = '';
+  for (const p of paragraphs) {
+    const candidate = current ? `${current}\n\n${p}` : p;
+    if (candidate.length > maxLen && current) { chunks.push(current); current = p; }
+    else current = candidate;
+    while (current.length > maxLen) { chunks.push(current.slice(0, maxLen)); current = current.slice(maxLen); }
   }
+  if (current) chunks.push(current);
+  return chunks;
+};
+
+const send = async (text) => {
+  const chunks = splitIntoChunks(text);
+  let lastRes = null;
+  for (let i = 0; i < chunks.length; i++) {
+    const prefix = chunks.length > 1 ? `_(${i + 1}/${chunks.length})_\n` : '';
+    try {
+      const res = await Promise.race([
+        axios.post(`${TG}/sendMessage`, {
+          chat_id:    config.TELEGRAM_CHAT_ID,
+          text:       prefix + chunks[i],
+          parse_mode: 'Markdown',
+        }),
+        new Promise((_, rej) =>
+          setTimeout(() => rej(new Error('sendMessage timed out')), 12000)
+        ),
+      ]);
+      lastRes = res.data;
+    } catch (e) {
+      console.error(`⚠️  Telegram sendMessage failed: ${e.message}`);
+    }
+    if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 300));
+  }
+  return lastRes;
 };
 
 const LOG_FILE    = path.join(__dirname, 'signals.log.json');
@@ -178,17 +208,38 @@ const updateEquityCurve = (log) => {
   // entries. Fixed to show the actual TP1/TP2 two-stage structure.
   const entries = recent.filter(e => e.signal === 'FIRED');
   if (entries.length) {
-    msg += `\n\n🎯 *Entries (${entries.length}):*`;
-    // v10.9 FIX: signals.log.json is now newest-first (see strategy.js
-    // logSignal()), so `entries` (derived from it via .filter, which
-    // preserves order) is newest-first too — slice(0, 10) is the 10 most
-    // recent, already in the right order to display top-to-bottom. The
-    // old slice(-10) would have shown the 10 OLDEST entries in the past
-    // week instead, the instant the underlying file's order flipped.
-    for (const e of entries.slice(0, 10)) {
-      msg += `\n${e.symbol} ${e.direction} @ $${Number(e.entryPrice).toFixed(4)}`;
-      msg += `\n  SL $${Number(e.slPrice).toFixed(4)} | TP1 $${Number(e.tp1Price).toFixed(4)} | TP2 (runner) $${Number(e.tp2Price).toFixed(4)}`;
-      msg += `\n  Patterns: ${(e.patterns || []).join(' + ')} | R:R ${e.rr1}/${e.rr2}`;
+    // v10.10 FIX: this used to print every FIRED entry as its own full
+    // block — the actual cause of the "wall of unreadable repeated text"
+    // reported from screenshots (POL-USDT SELL @ $0.0735 printed 5-6
+    // times in a row with only the SL/patterns differing by a cent).
+    // Entries sharing symbol+direction+entryPrice+TP1+TP2+patterns are
+    // now grouped into ONE line with a "×N" count and a time range,
+    // instead of N near-identical blocks.
+    const groups = [];
+    for (const e of entries) {
+      const key = `${e.symbol}|${e.direction}|${Number(e.entryPrice).toFixed(4)}|${Number(e.tp1Price).toFixed(4)}|${Number(e.tp2Price).toFixed(4)}|${(e.patterns || []).join('+')}`;
+      let g = groups.find(g => g.key === key);
+      if (!g) { g = { key, sample: e, times: [] }; groups.push(g); }
+      g.times.push(e.time);
+    }
+
+    msg += `\n\n🎯 *Entries (${entries.length}${groups.length !== entries.length ? `, ${groups.length} unique setup${groups.length === 1 ? '' : 's'}` : ''}):*`;
+    // v10.9 FIX (still applies): signals.log.json is newest-first, so
+    // `entries` (and therefore `groups`, built in the same order) is
+    // newest-first too — showing the 10 most recent unique setups.
+    for (const g of groups.slice(0, 10)) {
+      const e = g.sample;
+      const n = g.times.length;
+      msg += `\n\n${e.symbol} ${e.direction} @ $${Number(e.entryPrice).toFixed(4)}${n > 1 ? `  ×${n}` : ''}`;
+      msg += `\n  SL $${Number(e.slPrice).toFixed(4)} · TP1 $${Number(e.tp1Price).toFixed(4)} · TP2 (runner) $${Number(e.tp2Price).toFixed(4)}`;
+      msg += `\n  Patterns: ${(e.patterns || []).join(' + ')} · R:R ${e.rr1}/${e.rr2}`;
+      if (n > 1) {
+        const oldest = g.times[g.times.length - 1];
+        const newest = g.times[0];
+        msg += `\n  Fired ${n}× between ${new Date(oldest).toISOString().slice(0, 16).replace('T', ' ')} and ${new Date(newest).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+      } else {
+        msg += `\n  ${new Date(e.time).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+      }
     }
   }
 

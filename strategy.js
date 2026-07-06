@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.9  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.10  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -43,6 +43,15 @@
  *  instruction didn't cover it). Also: signals.log.json and
  *  diag.log.json now write NEWEST-FIRST (unshift, not push) so the most
  *  recent activity is at the top of the file, not the bottom.
+ *
+ *  v10.10 (2026-07-06): FIVE-TIMEFRAME VOTE, 3-OF-5 — see config.js and
+ *  core.js v10.10 notes for the full architecture. This file now fetches
+ *  1D and 30m candles alongside the existing 4H/1H/15m, casts 5 bias
+ *  votes instead of 3, and requires config.MIN_TF_AGREE (3) to agree
+ *  before a direction resolves. Also fixed: state.json now carries the
+ *  full bias breakdown (was diag.log.json-only before), and every scan
+ *  updates state.json even when no direction resolves, so /status can
+ *  never be more than one scan stale.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -224,7 +233,7 @@ const isDuplicateRun = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v10.9 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v10.10 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -233,7 +242,7 @@ const runStrategy = async (symbol) => {
   }
 
   try {
-    // ── STEP 1: FETCH ALL THREE TIMEFRAMES ──────────────────────────────
+    // ── STEP 1: FETCH ALL FIVE TIMEFRAMES (v10.10) ──────────────────────
     // v10.8: POC_MIGRATION and NAKED_POC both need more 1H history than
     // the bot normally fetches (750 and 1000 bars respectively, vs the
     // usual 500) — but ONLY when those experimental flags are actually
@@ -242,9 +251,11 @@ const runStrategy = async (symbol) => {
     if (config.NAKED_POC_ENABLED) struct1hLimit = Math.max(struct1hLimit, config.STRUCT_VP_LOOKBACK * 2);
     if (config.POC_MIGRATION_ENABLED) struct1hLimit = Math.max(struct1hLimit, config.STRUCT_VP_LOOKBACK + config.POC_MIGRATION_OFFSET_BARS);
 
-    const [data4h, data1h, data15m] = await Promise.all([
+    const [data1d, data4h, data1h, data30m, data15m] = await Promise.all([
+      getKlines(symbol, config.DAILY_TIMEFRAME,   config.DAILY_VP_LOOKBACK),
       getKlines(symbol, config.BIAS_TIMEFRAME,    config.BIAS_VP_LOOKBACK),
       getKlines(symbol, config.STRUCT_TIMEFRAME,  struct1hLimit),
+      getKlines(symbol, config.HALF_TIMEFRAME,    config.HALF_VP_LOOKBACK),
       getKlines(symbol, config.TRIGGER_TIMEFRAME, config.TRIGGER_VP_LOOKBACK),
     ]);
 
@@ -259,11 +270,21 @@ const runStrategy = async (symbol) => {
       return;
     }
 
-    // ── STEP 2: THREE-TIMEFRAME BIAS VOTE ───────────────────────────────
+    // ── STEP 2: FIVE-TIMEFRAME BIAS VOTE (v10.10: 3-of-5) ───────────────
+    // 1D and 4H are treated as optional (null if not enough history yet,
+    // same tolerant handling the old code already gave 4H) — a short
+    // symbol listing shouldn't crash the scan, it just has fewer possible
+    // agreeing votes that scan.
+    const bias1d  = data1d.length >= 50
+      ? core.tfBiasVote(data1d, config.DAILY_VP_LOOKBACK, config.DAILY_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT)
+      : null;
     const bias4h  = data4h.length >= 50
       ? core.tfBiasVote(data4h, config.BIAS_VP_LOOKBACK, config.BIAS_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT)
       : null;
     const bias1h  = core.tfBiasVote(data1h, config.STRUCT_VP_LOOKBACK, config.STRUCT_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
+    const bias30m = data30m.length >= 50
+      ? core.tfBiasVote(data30m, config.HALF_VP_LOOKBACK, config.HALF_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT)
+      : null;
     const bias15m = core.tfBiasVote(data15m, config.TRIGGER_VP_LOOKBACK, config.TRIGGER_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
 
     if (!bias1h) {
@@ -273,18 +294,35 @@ const runStrategy = async (symbol) => {
     }
 
     const resolved = core.resolveDirection([
+      { tf: '1D',  result: bias1d },
       { tf: '4H',  result: bias4h },
       { tf: '1H',  result: bias1h },
+      { tf: '30m', result: bias30m },
       { tf: '15m', result: bias15m },
-    ]);
+    ], config.MIN_TF_AGREE);
 
     console.log(
-      `  📡 VOTE: 4H=${bias4h ? bias4h.bias : 'N/A'} | 1H=${bias1h.bias} | 15m=${bias15m ? bias15m.bias : 'N/A'}` +
-      (resolved ? ` → ${resolved.direction} (${resolved.tally}: ${resolved.agreeing.join('+')})` : ' → NO 2-OF-3 AGREEMENT')
+      `  📡 VOTE: 1D=${bias1d ? bias1d.bias : 'N/A'} | 4H=${bias4h ? bias4h.bias : 'N/A'} | 1H=${bias1h.bias} | 30m=${bias30m ? bias30m.bias : 'N/A'} | 15m=${bias15m ? bias15m.bias : 'N/A'}` +
+      (resolved ? ` → ${resolved.direction} (${resolved.tally}: ${resolved.agreeing.join('+')})` : ` → NO ${config.MIN_TF_AGREE}-OF-5 AGREEMENT`)
     );
 
     if (!resolved) {
-      logDiag({ symbol, bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias, fired: false, reason: 'NO_2OF3_AGREEMENT' });
+      logDiag({
+        symbol, bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
+        bias30m: bias30m?.bias, bias15m: bias15m?.bias,
+        fired: false, reason: `NO_${config.MIN_TF_AGREE}OF5_AGREEMENT`,
+      });
+      // v10.10 FIX: previously nothing was saved to state.json when the
+      // vote didn't resolve, so /status kept showing whatever the LAST
+      // successful scan wrote — stale bias/direction, or nothing at all
+      // for a symbol that had never once resolved. Now every scan updates
+      // state.json with the current bias breakdown even when no signal
+      // direction is decided, so /status is never more than one scan old.
+      saveState(symbol, {
+        signal: 'NO_AGREEMENT', direction: null, price: data1h[data1h.length - 1]?.close,
+        bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
+        bias30m: bias30m?.bias, bias15m: bias15m?.bias,
+      });
       return;
     }
 
@@ -335,6 +373,8 @@ const runStrategy = async (symbol) => {
     saveState(symbol, {
       signal: 'SCANNED', price, direction,
       voteTally: resolved.tally, agreeing: resolved.agreeing,
+      bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
+      bias30m: bias30m?.bias, bias15m: bias15m?.bias,
       poc: vp1h.pocPrice, vah: vp1h.vahPrice, val: vp1h.valPrice,
       swingHigh: swing1h.high, swingLow: swing1h.low, atr1h,
     });
@@ -407,7 +447,8 @@ const runStrategy = async (symbol) => {
 
     logDiag({
       symbol, barTime, price,
-      bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias,
+      bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
+      bias30m: bias30m?.bias, bias15m: bias15m?.bias,
       voteTally: resolved.tally, agreeing: resolved.agreeing,
       htfAligned: htfCheck.aligned, confluenceScore: bestScore, confluenceLevel: fibPct, confluencePivot: bestPivot.name,
       patterns: rejection.patterns, absorptionVeto: rejection.absorptionVeto,
@@ -446,7 +487,8 @@ const runStrategy = async (symbol) => {
     const emoji = direction === 'BUY' ? '🟢' : '🔴';
     const patternStr = rejection.patterns.join(' + ');
     const voteLine = `🗳️ *TF Vote (${resolved.tally}):* ${resolved.agreeing.join(' + ')} agree ${direction === 'BUY' ? 'BULLISH' : 'BEARISH'}` +
-      (bias4h ? ` | 4H:${bias4h.bias}` : '') + ` 1H:${bias1h.bias}` + (bias15m ? ` 15m:${bias15m.bias}` : '');
+      (bias1d ? ` | 1D:${bias1d.bias}` : '') + (bias4h ? ` | 4H:${bias4h.bias}` : '') + ` 1H:${bias1h.bias}` +
+      (bias30m ? ` 30m:${bias30m.bias}` : '') + (bias15m ? ` 15m:${bias15m.bias}` : '');
 
     // v10.6: TD Sequential "9" — independent, additive-only evidence. See
     // core.js computeTDSequential() header for the full reasoning. Only
@@ -540,7 +582,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v10.9*
+⚡ *MVS v10.10*
     `.trim();
 
     const sendResult = await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -561,6 +603,9 @@ risk capital you can't afford to lose on a single position.
       signal: 'FIRED', direction,
       entryPrice: bestFibLevel, ...levels,
       patterns: rejection.patterns, riskMult,
+      voteTally: resolved.tally, agreeing: resolved.agreeing,
+      bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
+      bias30m: bias30m?.bias, bias15m: bias15m?.bias,
       lastSignalBar: barTime, lastSignalDir: direction,
       alertDelivered,
     });
@@ -570,7 +615,8 @@ risk capital you can't afford to lose on a single position.
       entryPrice: bestFibLevel, ...levels,
       confluencePivot: bestPivot.name, fibPct, patterns: rejection.patterns,
       voteTally: resolved.tally, agreeing: resolved.agreeing, riskMult,
-      bias4h: bias4h?.bias, bias1h: bias1h.bias, bias15m: bias15m?.bias,
+      bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
+      bias30m: bias30m?.bias, bias15m: bias15m?.bias,
       // v10.8/v10.9 — logged for full record-keeping alongside everything else.
       td9Confirms, slAtrMult, prominence, migration, nakedPOC,
       // v10.10 — honest delivery flag (see sendSafe/flushPendingAlerts above).
@@ -588,11 +634,11 @@ risk capital you can't afford to lose on a single position.
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v10.9                          ║');
-console.log('║   4H bias + 1H structure + 15m trigger — 2-of-3 vote         ║');
+console.log('║   MVS — Monthly Value Sniper v10.10                         ║');
+console.log('║   1D+4H+1H+30m+15m — 3-of-5 vote (1H zone, 15m trigger)      ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);
-console.log(`   TFs     : 4H(${config.BIAS_VP_LOOKBACK}) / 1H(${config.STRUCT_VP_LOOKBACK}) / 15m(${config.TRIGGER_VP_LOOKBACK})`);
+console.log(`   TFs     : 1D(${config.DAILY_VP_LOOKBACK}) / 4H(${config.BIAS_VP_LOOKBACK}) / 1H(${config.STRUCT_VP_LOOKBACK}) / 30m(${config.HALF_VP_LOOKBACK}) / 15m(${config.TRIGGER_VP_LOOKBACK})`);
 console.log(`   Trigger : ${config.REJECTION_MIN_PATTERNS}-of-5 patterns min | solo=${config.ALLOW_SOLO_TRIGGER}`);
 console.log(`   Cooldown: ${config.SIGNAL_COOLDOWN_BARS} × 1H bars`);
 console.log('');
