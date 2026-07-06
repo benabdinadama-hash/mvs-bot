@@ -1,21 +1,21 @@
 {
-  "_lastRunAt": "2026-07-06T15:30:43.298Z",
+  "_lastRunAt": "2026-07-06T15:45:40.079Z",
   "SOL-USDT": {
     "signal": "SCANNED",
-    "price": 80.78,
-    "direction": "SELL",
+    "price": 81.32,
+    "direction": "BUY",
     "voteTally": "2/3",
     "agreeing": [
-      "1H",
+      "4H",
       "15m"
     ],
-    "poc": 80.82,
-    "vah": 82.08,
-    "val": 80.4,
+    "poc": 80.82455,
+    "vah": 82.05435,
+    "val": 80.35154999999999,
     "swingHigh": 83.97,
-    "swingLow": 77.97,
-    "atr1h": 0.5890352120272458,
-    "updatedAt": "2026-07-06T11:30:17.226Z"
+    "swingLow": 79.24,
+    "atr1h": 0.7730107657501696,
+    "updatedAt": "2026-07-06T15:45:12.350Z"
   },
   "ETH-USDT": {
     "signal": "SCANNED",
@@ -31,15 +31,21 @@
   },
   "LINK-USDT": {
     "signal": "SCANNED",
-    "price": 7.455,
-    "poc": 7.3057099999999995,
-    "vah": 7.555102,
-    "val": 7.243361999999999,
-    "swingHigh": 7.5575,
-    "swingLow": 7.0779,
-    "atr": 0.07005354548376563,
-    "direction": "SELL",
-    "updatedAt": "2026-07-02T07:45:30.233Z"
+    "price": 7.9632,
+    "direction": "BUY",
+    "voteTally": "3/3",
+    "agreeing": [
+      "4H",
+      "1H",
+      "15m"
+    ],
+    "poc": 7.859498,
+    "vah": 8.173142,
+    "val": 7.8169699999999995,
+    "swingHigh": 8.1758,
+    "swingLow": 7.6442,
+    "atr1h": 0.07162290460422202,
+    "updatedAt": "2026-07-06T15:45:29.080Z"
   },
   "XRP-USDT": {
     "signal": "SCANNED",
@@ -60,24 +66,25 @@
   },
   "BTC-USDT": {
     "signal": "SCANNED",
-    "price": 62050.1,
-    "direction": "SELL",
-    "voteTally": "2/3",
+    "price": 62886.2,
+    "direction": "BUY",
+    "voteTally": "3/3",
     "agreeing": [
+      "4H",
       "1H",
       "15m"
     ],
-    "poc": 62745.403999999995,
-    "vah": 63975.115999999995,
-    "val": 61805.036,
+    "poc": 62496.11,
+    "vah": 63978.941999999995,
+    "val": 61982.822,
     "swingHigh": 63993.2,
-    "swingLow": 60376.4,
-    "atr1h": 349.52295540816743,
-    "updatedAt": "2026-07-06T12:30:19.897Z"
+    "swingLow": 61141.6,
+    "atr1h": 444.1469139153499,
+    "updatedAt": "2026-07-06T15:45:14.555Z"
   },
   "POL-USDT": {
     "signal": "SCANNED",
-    "price": 0.074,
+    "price": 0.0744,
     "direction": "BUY",
     "voteTally": "2/3",
     "agreeing": [
@@ -89,8 +96,8 @@
     "val": 0.07331,
     "swingHigh": 0.0752,
     "swingLow": 0.0724,
-    "atr1h": 0.0006383416162201382,
-    "updatedAt": "2026-07-06T15:30:43.294Z"
+    "atr1h": 0.0006597701876487093,
+    "updatedAt": "2026-07-06T15:45:40.076Z"
   },
   "DOGE-USDT": {
     "signal": "SCANNED",
@@ -129,7 +136,7 @@
   },
   "LTC-USDT": {
     "signal": "SCANNED",
-    "price": 44.52,
+    "price": 44.75,
     "direction": "BUY",
     "voteTally": "2/3",
     "agreeing": [
@@ -141,8 +148,8 @@
     "val": 44.11435,
     "swingHigh": 46.15,
     "swingLow": 42.84,
-    "atr1h": 0.3991970609316633,
-    "updatedAt": "2026-07-06T15:30:39.028Z"
+    "atr1h": 0.41705420378880614,
+    "updatedAt": "2026-07-06T15:45:35.693Z"
   },
   "TRX-USDT": {
     "signal": "SCANNED",
@@ -162,37 +169,39 @@
     "updatedAt": "2026-07-03T09:45:34.194Z"
   },
   "AVAX-USDT": {
-    "signal": "SCANNED",
-    "price": 6.913,
+    "signal": "FIRED",
     "direction": "BUY",
-    "voteTally": "2/3",
-    "agreeing": [
-      "4H",
-      "1H"
+    "entryPrice": 6.795456,
+    "slPrice": 6.692670351073417,
+    "tp1Price": 6.918798778711899,
+    "tp2Price": 6.95746,
+    "risk": 0.1027856489265826,
+    "rr1": 1.2000000000000035,
+    "rr2": 1.5761344282188283,
+    "patterns": [
+      "ENGULFING",
+      "CLOSE_REJECTION"
     ],
-    "poc": 6.7988599999999995,
-    "vah": 6.95706,
-    "val": 6.771739999999999,
-    "swingHigh": 7.113,
-    "swingLow": 6.661,
-    "atr1h": 0.05666133135208597,
-    "updatedAt": "2026-07-06T08:30:30.088Z"
+    "riskMult": 0.75,
+    "lastSignalBar": 1783350000,
+    "lastSignalDir": "BUY",
+    "updatedAt": "2026-07-06T15:45:26.878Z"
   },
   "DOT-USDT": {
     "signal": "SCANNED",
-    "price": 0.8676,
-    "direction": "SELL",
+    "price": 0.8742,
+    "direction": "BUY",
     "voteTally": "2/3",
     "agreeing": [
       "1H",
       "15m"
     ],
-    "poc": 0.8679345,
-    "vah": 0.8994845,
-    "val": 0.8641485,
+    "poc": 0.8553145,
+    "vah": 0.8837095,
+    "val": 0.8546835,
     "swingHigh": 0.8998,
     "swingLow": 0.8367,
-    "atr1h": 0.0065180326222988956,
-    "updatedAt": "2026-07-06T11:45:30.606Z"
+    "atr1h": 0.008346266437435627,
+    "updatedAt": "2026-07-06T15:45:33.492Z"
   }
 }
