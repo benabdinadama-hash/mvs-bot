@@ -45,7 +45,7 @@ const call = async (method, params = {}) => {
   // the Action log for this step: a non-ok response logs "❌ setMyShort-
   // Description — {...}"). Trimmed with real margin this time.
   await call('setMyShortDescription', {
-    short_description: '🎯 Crypto signals, 13 KuCoin pairs. POC/VAH/VAL + Fib, 4H/1H/15m 2-of-3 vote. Built for Ghana.'
+    short_description: '🎯 Crypto signals, 13 KuCoin pairs. POC/VAH/VAL + Fib, 1D/4H/1H/30m/15m 3-of-5 vote. Built for Ghana.'
   });
 
   // 4. Set full description (shown when user first opens bot)
@@ -62,17 +62,26 @@ const call = async (method, params = {}) => {
   // presented with no caveat, tuned against the same window it reported
   // on). Update this snapshot whenever config.js changes meaningfully —
   // see README.md's "Reference snapshot" section for the source numbers.
+  //
+  // v10.10 HONESTY NOTE: the vote architecture changed from 3-timeframe
+  // (4H/1H/15m, 2-of-3) to 5-timeframe (1D/4H/1H/30m/15m, 3-of-5) in this
+  // pass. The v10.6 backtest numbers below were measured against the OLD
+  // 3-TF ruleset — they do NOT describe the current bot and are left here
+  // only until a fresh backtest can be run (this sandbox has no network
+  // access to api.kucoin.com). Run `node backtest.js` yourself after
+  // deploying and replace this snapshot with the new numbers before
+  // trusting or publishing them anywhere.
   await call('setMyDescription', {
     description:
 `Monthly Value Sniper (MVS) by Abdin — KuCoin, Ghana
 
-Volume Profile (POC/VAH/VAL) + Fibonacci, 4H/1H/15m, 2-of-3 vote to fire.
+Volume Profile (POC/VAH/VAL) + Fibonacci, 1D/4H/1H/30m/15m, 3-of-5 vote to fire.
 
-v10.6 backtest, 2026-07-04 (not a live guarantee):
+STALE v10.6 backtest (pre-5TF, needs re-run), 2026-07-04:
 720d: 62% WR, PF 8.47, +305% return, 2.3% max DD
 360d: 60% WR, PF 7.03, +96% return, 1.9% max DD
-Losses cluster in one segment already sized down. Run backtest.js
-yourself — these numbers age fast.
+Run backtest.js yourself for current numbers — architecture changed
+since this snapshot; treat it as historical, not current.
 
 13 KuCoin pairs. Auto-alerts here.
 github.com/benabdinadama-hash/mvs-bot`
