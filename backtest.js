@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.9
+ *  MVS — BACKTESTER (backtest.js)  v10.10
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -10,8 +10,10 @@
  *  before the other — every backtest report before v10.0 was testing a
  *  ruleset that wasn't quite what the live bot actually ran).
  *
- *  Replays 4H bias + 1H structure + 15m trigger candles tick-by-tick on
- *  the 15m clock (no lookahead — every check only sees bars up to "now").
+ *  Replays 1D + 4H + 1H + 30m + 15m bias votes (3-of-5 direction, v10.10)
+ *  tick-by-tick on the 15m clock (no lookahead — every check only sees
+ *  bars up to "now"). 1H still supplies the structural zone, 15m still
+ *  supplies the trigger candle — unchanged from the prior 3-TF version.
  *
  *  USAGE:
  *    node backtest.js                       ← all symbols, config.BACKTEST_DAYS
@@ -52,7 +54,7 @@ const days = parseInt(rawArgs[1] || rawArgs[0]) || config.BACKTEST_DAYS;
 
 // ── KuCoin paged history fetch ───────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const BAR_SECONDS = { '15min': 900, '1hour': 3600, '4hour': 14400 };
+const BAR_SECONDS = { '15min': 900, '30min': 1800, '1hour': 3600, '4hour': 14400, '1day': 86400 };
 const FETCH_MAX_RETRIES = 5;
 
 // v10.4 FIX: fetchKlines used to catch every error (network blip, timeout,
@@ -146,7 +148,7 @@ const fetchHistory = async (symbol, interval, historyDays) => {
 // extra buffer of history for warmup, then only evaluate/open trades
 // within the actual requested `days` window — see backtestSymbol().
 const WARMUP_BUFFER_DAYS = 40; // covers the 34.2-day 4H warmup with margin
-const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTime = 0) => {
+const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, evalWindowStartTime = 0) => {
   const trades = [];
   const cooldownMap = {};
   let openTrade = null;
@@ -157,26 +159,34 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
     triggerOk: 0, tp2RangeOk: 0, opened: 0,
   };
 
-  const warmup1h = config.STRUCT_VP_LOOKBACK + config.ATR_PERIOD + 5;
-  const warmup4h = config.BIAS_VP_LOOKBACK + 5;
+  const warmup1h  = config.STRUCT_VP_LOOKBACK + config.ATR_PERIOD + 5;
+  const warmup4h  = config.BIAS_VP_LOOKBACK + 5;
   const warmup15m = config.TRIGGER_VP_LOOKBACK + 5;
+  // v10.10: two more warmup floors, same pattern as 1H/4H/15m above.
+  const warmup1d  = config.DAILY_VP_LOOKBACK + 5;
+  const warmup30m = config.HALF_VP_LOOKBACK + 5;
 
-  // Find the first 15m index where all three timeframes have enough warmup data.
-  let ptr1h = 0, ptr4h = 0;
-  while (ptr1h < data1h.length - 1 && data1h[ptr1h + 1].time <= data15m[0].time) ptr1h++;
-  while (ptr4h < data4h.length - 1 && data4h[ptr4h + 1].time <= data15m[0].time) ptr4h++;
+  // Find the first 15m index where all five timeframes have enough warmup data.
+  let ptr1h = 0, ptr4h = 0, ptr1d = 0, ptr30m = 0;
+  while (ptr1h  < data1h.length  - 1 && data1h[ptr1h + 1].time   <= data15m[0].time) ptr1h++;
+  while (ptr4h  < data4h.length  - 1 && data4h[ptr4h + 1].time   <= data15m[0].time) ptr4h++;
+  while (ptr1d  < data1d.length  - 1 && data1d[ptr1d + 1].time   <= data15m[0].time) ptr1d++;
+  while (ptr30m < data30m.length - 1 && data30m[ptr30m + 1].time <= data15m[0].time) ptr30m++;
 
   let startIdx = warmup15m;
   while (startIdx < data15m.length) {
     const t = data15m[startIdx].time;
-    let p1 = 0, p4 = 0;
-    while (p1 < data1h.length - 1 && data1h[p1 + 1].time <= t) p1++;
-    while (p4 < data4h.length - 1 && data4h[p4 + 1].time <= t) p4++;
+    let p1 = 0, p4 = 0, pD = 0, p30 = 0;
+    while (p1  < data1h.length  - 1 && data1h[p1 + 1].time   <= t) p1++;
+    while (p4  < data4h.length  - 1 && data4h[p4 + 1].time   <= t) p4++;
+    while (pD  < data1d.length  - 1 && data1d[pD + 1].time   <= t) pD++;
+    while (p30 < data30m.length - 1 && data30m[p30 + 1].time <= t) p30++;
     // v10.5 FIX: warmup satisfied is no longer sufficient on its own —
     // also require we've reached the actual requested evaluation window,
     // so the extra WARMUP_BUFFER_DAYS of history feeds warmup ONLY, and
     // never gets counted as part of the days the user asked to evaluate.
-    if (p1 >= warmup1h && p4 >= warmup4h && t >= evalWindowStartTime) break;
+    // v10.10: 1D and 30m warmup floors added to the same check.
+    if (p1 >= warmup1h && p4 >= warmup4h && pD >= warmup1d && p30 >= warmup30m && t >= evalWindowStartTime) break;
     startIdx++;
   }
   if (startIdx >= data15m.length) {
@@ -186,16 +196,21 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
 
   console.log(`\n  Replaying ${data15m.length - startIdx} × 15m bars for ${symbol}...`);
 
-  ptr1h = 0; ptr4h = 0;
-  let cached1h = null, cached4h = null;
+  ptr1h = 0; ptr4h = 0; ptr1d = 0; ptr30m = 0;
+  let cached1h = null, cached4h = null, cached1d = null, cached30m = null;
 
   for (let i = startIdx; i < data15m.length; i++) {
     const bar = data15m[i];
 
-    // Advance pointers to the latest CLOSED 1H / 4H bar as of this 15m tick
-    let advanced1h = false, advanced4h = false;
-    while (ptr1h < data1h.length - 1 && data1h[ptr1h + 1].time <= bar.time) { ptr1h++; advanced1h = true; }
-    while (ptr4h < data4h.length - 1 && data4h[ptr4h + 1].time <= bar.time) { ptr4h++; advanced4h = true; }
+    // Advance pointers to the latest CLOSED bar as of this 15m tick, for
+    // every timeframe that isn't recomputed every tick (1D/4H/1H/30m —
+    // 15m itself is recomputed every tick below since its own window
+    // slides every bar).
+    let advanced1h = false, advanced4h = false, advanced1d = false, advanced30m = false;
+    while (ptr1h  < data1h.length  - 1 && data1h[ptr1h + 1].time   <= bar.time) { ptr1h++;  advanced1h  = true; }
+    while (ptr4h  < data4h.length  - 1 && data4h[ptr4h + 1].time   <= bar.time) { ptr4h++;  advanced4h  = true; }
+    while (ptr1d  < data1d.length  - 1 && data1d[ptr1d + 1].time   <= bar.time) { ptr1d++;  advanced1d  = true; }
+    while (ptr30m < data30m.length - 1 && data30m[ptr30m + 1].time <= bar.time) { ptr30m++; advanced30m = true; }
 
     // ── OPEN TRADE MANAGEMENT (checked every 15m tick for tighter fills) ──
     // v10.5 REDESIGN — see core.js/backtest.js header for the full story.
@@ -319,6 +334,18 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
       const bias4h = core.tfBiasVote(window4h, config.BIAS_VP_LOOKBACK, config.BIAS_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
       cached4h = bias4h;
     }
+    // ── Recompute 1D bias only when a new 1D bar closed (v10.10, NEW) ────
+    if (advanced1d || !cached1d) {
+      const wDStart = Math.max(0, ptr1d + 1 - (config.DAILY_VP_LOOKBACK + 5));
+      const windowD = data1d.slice(wDStart, ptr1d + 1);
+      cached1d = data1d.length ? core.tfBiasVote(windowD, config.DAILY_VP_LOOKBACK, config.DAILY_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT) : null;
+    }
+    // ── Recompute 30m bias only when a new 30m bar closed (v10.10, NEW) ──
+    if (advanced30m || !cached30m) {
+      const w30Start = Math.max(0, ptr30m + 1 - (config.HALF_VP_LOOKBACK + 5));
+      const window30 = data30m.slice(w30Start, ptr30m + 1);
+      cached30m = data30m.length ? core.tfBiasVote(window30, config.HALF_VP_LOOKBACK, config.HALF_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT) : null;
+    }
     if (!cached1h) continue;
 
     // ── 15m bias recomputed every tick (its window slides every bar) ────
@@ -329,11 +356,15 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, evalWindowStartTi
     const window15m = data15m.slice(win15mStart, i + 1);
     const bias15m = core.tfBiasVote(window15m, config.TRIGGER_VP_LOOKBACK, config.TRIGGER_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
 
+    // v10.10: 5-way vote (1D/4H/1H/30m/15m), 3-of-5 required — see
+    // config.MIN_TF_AGREE and core.js resolveDirection().
     const resolved = core.resolveDirection([
-      { tf: '4H', result: cached4h },
-      { tf: '1H', result: cached1h.bias1h },
+      { tf: '1D',  result: cached1d },
+      { tf: '4H',  result: cached4h },
+      { tf: '1H',  result: cached1h.bias1h },
+      { tf: '30m', result: cached30m },
       { tf: '15m', result: bias15m },
-    ]);
+    ], config.MIN_TF_AGREE);
     if (!resolved) continue;
     funnel.voteOk++;
     if (resolved.direction === 'BUY') funnel.bullVote++; else funnel.bearVote++;
@@ -559,9 +590,9 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ' MVS v10.9 — BACKTEST REPORT',
+    ' MVS v10.10 — BACKTEST REPORT',
     ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
-    ' 4H bias + 1H structure + 15m trigger, 2-of-3 timeframe vote',
+    ' 1D+4H+1H+30m+15m — 3-of-5 timeframe vote (1H zone, 15m trigger)',
     '═══════════════════════════════════════════════════════════════════',
     '',
     '⚠️  This is a backtest, not a live-performance guarantee. No setting',
@@ -645,7 +676,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 //  MAIN
 // ─────────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`\n🔬 MVS v10.9 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
+  console.log(`\n🔬 MVS v10.10 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
 
   const allTrades = [];
   const funnelsBySymbol = {};
@@ -657,17 +688,24 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
   const evalWindowStartTime = Math.floor(Date.now() / 1000) - days * 86400;
 
   for (const symbol of symbols) {
+    const data1d  = await fetchHistory(symbol, config.DAILY_TIMEFRAME, fetchDays);
     const data4h  = await fetchHistory(symbol, config.BIAS_TIMEFRAME, fetchDays);
     const data1h  = await fetchHistory(symbol, config.STRUCT_TIMEFRAME, fetchDays);
+    const data30m = await fetchHistory(symbol, config.HALF_TIMEFRAME, fetchDays);
     const data15m = await fetchHistory(symbol, config.TRIGGER_TIMEFRAME, fetchDays);
 
-    if (data4h.length < 50 || data1h.length < 50 || data15m.length < 50) {
-      console.log(`  ⚠️ ${symbol}: insufficient data, skipping.`);
+    // v10.10: 1D and 30m are treated as optional/best-effort here, same
+    // tolerance strategy.js gives 1D/4H — a thin or gappy history on
+    // either just means fewer possible agreeing votes for that symbol,
+    // not a hard skip. 1H and 15m remain the two REQUIRED timeframes,
+    // since 1H still supplies the structural zone and 15m the trigger.
+    if (data1h.length < 50 || data15m.length < 50) {
+      console.log(`  ⚠️ ${symbol}: insufficient 1H/15m data, skipping.`);
       funnelsBySymbol[symbol] = null;
       continue;
     }
 
-    const { trades, funnel } = await backtestSymbol(symbol, data15m, data1h, data4h, evalWindowStartTime);
+    const { trades, funnel } = await backtestSymbol(symbol, data15m, data1h, data4h, data1d, data30m, evalWindowStartTime);
     allTrades.push(...trades);
     funnelsBySymbol[symbol] = funnel;
   }
