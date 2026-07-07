@@ -1,26 +1,38 @@
 {
-  "_lastRunAt": "2026-07-07T21:15:51.133Z",
+  "_lastRunAt": "2026-07-07T21:30:48.650Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 81.27,
+    "price": 80.84,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "BEARISH",
     "bias30m": "NEUTRAL",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-07T21:15:26.920Z"
+    "updatedAt": "2026-07-07T21:30:25.103Z"
   },
   "ETH-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 1785.33,
+    "signal": "SCANNED",
+    "price": 1777.37,
+    "direction": "SELL",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
-    "bias1h": "NEUTRAL",
-    "bias30m": "NEUTRAL",
+    "bias1h": "BEARISH",
+    "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-07T21:15:24.713Z"
+    "poc": 1793.16655,
+    "vah": 1833.05515,
+    "val": 1767.9737499999999,
+    "swingHigh": 1833.58,
+    "swingLow": 1728.61,
+    "atr1h": 16.267451613857933,
+    "updatedAt": "2026-07-07T21:30:22.959Z"
   },
   "LINK-USDT": {
     "signal": "SCANNED",
@@ -59,13 +71,13 @@
   "BTC-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 63522.5,
+    "price": 63499.3,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
     "bias30m": "NEUTRAL",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-07T19:15:15.253Z"
+    "updatedAt": "2026-07-07T21:30:27.236Z"
   },
   "POL-USDT": {
     "signal": "SCANNED",
@@ -102,15 +114,27 @@
     "updatedAt": "2026-07-07T02:15:21.532Z"
   },
   "BNB-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 580.679,
+    "signal": "SCANNED",
+    "price": 578.931,
+    "direction": "SELL",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
     "bias1d": "BEARISH",
     "bias4h": "BULLISH",
-    "bias1h": "BULLISH",
-    "bias30m": "NEUTRAL",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-07T21:15:42.325Z"
+    "poc": 571.79688,
+    "vah": 584.73288,
+    "val": 571.02072,
+    "swingHigh": 593.4,
+    "swingLow": 567.528,
+    "atr1h": 3.5169968509570757,
+    "updatedAt": "2026-07-07T21:30:40.133Z"
   },
   "LTC-USDT": {
     "signal": "NO_AGREEMENT",
