@@ -425,6 +425,14 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     if (!rejection.valid) continue;
     funnel.triggerOk++;
 
+    // v10.13: POC prominence gate — computed here (once) so it can both
+    // gate the trade AND be reused below without recomputing. Mirrors the
+    // live gate in strategy.js — see config.js POC_PROMINENCE_REQUIRE_DECISIVE
+    // for the per-trade evidence behind this.
+    const prominenceForGate = core.computePOCProminence(vp1h);
+    if (!core.isPOCProminenceTrusted(bestPivot.name, prominenceForGate, config)) continue;
+    funnel.prominenceOk = (funnel.prominenceOk || 0) + 1;
+
     // v10.7 EXPERIMENTAL (off by default — see config.js SL_ATR_MULT_MATRIX):
     // identical lookup to strategy.js, same reasoning: no live/backtest
     // drift on this the way earlier versions drifted on the near-zone gate.
@@ -450,7 +458,9 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     // v10.8 (live as of v10.9) — same three computations as strategy.js,
     // using pocWideWindow1h (cached alongside window1h — see the 1H cache
     // block above) so live and backtest can never drift on this either.
-    const prominence = core.computePOCProminence(vp1h);
+    // prominence reuses the value already computed at the gate above
+    // (v10.13) rather than calling computePOCProminence() twice.
+    const prominence = prominenceForGate;
     const migration = core.computePOCMigration(
       pocWideWindow1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
       config.POC_MIGRATION_OFFSET_BARS, atr1h, config.POC_MIGRATION_MIN_ATR

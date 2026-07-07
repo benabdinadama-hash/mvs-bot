@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.12-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.13-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -157,6 +157,48 @@ and `config.js` if you want the exact numbers behind each change.
   they describe the OLD 3-TF/2-of-3 ruleset with looser POC gating and
   need a fresh `node backtest.js` run before being trusted or
   republished.**
+- **v10.13 — (2026-07-07) requested: find a better way to use POC to
+  avoid SLs and raise signal quality.** Instead of more theory, went back
+  to the actual per-trade data already sitting in `backtest-report.json`
+  (720-day: 207 POC trades, 360-day: 94 POC trades — the 360-day set is a
+  subset of the 720-day one, so treat this as one replicated check, not
+  two independent samples) and split POC trades by each v10.8 quality
+  factor to see which ones actually predicted the outcome:
+  - **POC_PROMINENCE confirmed correct, upgraded to a gate.** Decisive
+    POC (prominenceRatio ≥ 1.5): 59.7%/60.3% WR. Contested POC (< 1.5):
+    48.3%/50.0% WR. ~10pp gap, same direction both windows — comparable
+    to the 1H-confirm gap that justified v10.12's gate. New flag
+    `POC_PROMINENCE_REQUIRE_DECISIVE` (on by default) now skips contested
+    POC entries entirely (`POC_PROMINENCE_GATED`) instead of just taking
+    them at 80% size.
+  - **POC_MIGRATION was backwards — fixed.** The v10.8 theory was
+    "migrating WITH the trade direction = forming consensus = good," and
+    rewarded it with a 1.2x size boost. The data says the opposite:
+    migration-confirms-direction trades scored 53.3%/54.8% WR, while
+    static-or-against-direction trades scored 62.5%/64.7% WR — both
+    windows, same direction. Plausible read: a POC that's already
+    migrated toward the trade direction is a level that's already been
+    "spent" — chasing a re-rated level rather than catching a fresh one.
+    The boost is removed; migration-confirms-direction now gets the
+    PENALTY multiplier instead, against/static stays neutral.
+  - **NAKED_POC left untouched — no data to check it against.** Both
+    backtest windows showed `nakedPOC.aligned` as `false` on every single
+    POC trade (the data-availability requirement — 2× the VP lookback in
+    bars — wasn't met often enough in these windows to produce a single
+    aligned case). Not confirmed, not refuted; flagged rather than
+    guessed at.
+  - Both fixes are wired identically into `strategy.js` (live) and
+    `backtest.js` (simulation) — same drift-prevention discipline as
+    every other gate in this repo. **Not yet re-backtested on this box**
+    (no network access to api.kucoin.com here) — run `node backtest.js`
+    and check the new `POC_PROMINENCE_GATED` count plus the POC-pivot WR
+    in the BY PIVOT section against the numbers above.
+  - **Combined signal, for context (not yet gated on, small sample):**
+    POC trades where 1H confirms AND prominence is decisive scored
+    87.5% WR (n=8) in the 360-day set vs 47.8% WR (n=23) where neither
+    holds. Worth watching as a possible future "trusted POC" tier once
+    more trades accumulate — 8 trades is too few to gate a whole tier on
+    by itself.
 
 ---
 
@@ -329,6 +371,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **D5** No 3-of-5 Vote | Fewer than 3 of {1D, 4H, 1H, 30m, 15m} agree on direction | Skip. Timeframes disagree. |
 | **D6** 4H Zone Mismatch | 1H entry price doesn't sit near any 4H structural level | Skip. No multi-timeframe confluence. |
 | **D7** POC / No-1H-Confirm (v10.12) | Pivot is POC AND 1H isn't one of the 3+ agreeing timeframes | Skip (`POC_NO1H_GATED`). Confirmed weakest segment in every backtest to date — see changelog. Toggle: `config.POC_REQUIRE_1H_CONFIRM`. |
+| **D8** POC Contested / Prominence (v10.13) | Pivot is POC AND its volume peak doesn't clearly beat neighboring price rows (ratio < 1.5) | Skip (`POC_PROMINENCE_GATED`). ~10pp WR gap vs. decisive POC, replicated across two backtest windows — see changelog. Toggle: `config.POC_PROMINENCE_REQUIRE_DECISIVE`. |
 
 ---
 
@@ -401,6 +444,13 @@ STEP 6a: POC / 1H-confirm gate (v10.12) — if the pivot is POC AND 1H is
          it's a hard skip now, since this segment owned 15 of 18 total
          SLs (83%) in the report that surfaced it. Toggle:
          `config.POC_REQUIRE_1H_CONFIRM`.
+STEP 6b: POC prominence gate (v10.13) — if the pivot is POC AND its
+         volume peak doesn't clearly beat its neighboring price rows
+         (prominenceRatio < 1.5), stop here (`POC_PROMINENCE_GATED`).
+         Was previously just an 0.8x size cut; per-trade analysis of two
+         backtest windows showed a ~10pp win-rate gap (decisive ≈60% WR
+         vs. contested ≈49% WR), so it's a hard skip now too. Toggle:
+         `config.POC_PROMINENCE_REQUIRE_DECISIVE`.
 STEP 7:  4H Zone Cross-Check — is the 1H entry price near a 4H structural
          level (POC/VAH/VAL/Fib50%, tolerance ATR×4.0, same both directions)?
          No → D6 block, stop.
@@ -417,17 +467,24 @@ STEP 11: TD Sequential "9" check (v10.6, informational/sizing only) — does
          comparison, non-lagging) agree with this direction on 1H? If yes,
          suggested position size gets a bounded upward adjustment (never
          above 100%, never a gate — see config.js TD9_BOOST_MULT).
-STEP 11a: POC quality checks (v10.8, live by default as of v10.9,
-         sizing-only, POC pivot only — VAH/VAL untouched) — three
-         independent tests, each a bounded position-size multiplier:
+STEP 11a: POC quality checks (v10.8, live by default as of v10.9, POC
+         pivot only — VAH/VAL untouched):
            • Prominence: is POC's volume a clear peak vs its neighbor
-             rows, or a barely-won, contested price?
+             rows, or a barely-won, contested price? As of v10.13 this is
+             a GATE (see STEP 6b above), not just sizing — already
+             screened out by the time execution reaches here.
            • Migration: has POC drifted toward this trade's direction
-             across recent windows, or is it static/noisy?
+             across recent windows, or is it static/noisy? As of v10.13
+             this is now a PENALTY when it confirms direction (the v10.8
+             theory had this backwards — see changelog) — still
+             size-only, not a gate.
            • Naked POC: does an untested prior-window POC sit near the
-             current one (two profiles agreeing)?
+             current one (two profiles agreeing)? Unchanged, still
+             size-only — no data yet to confirm or refute this one (see
+             v10.13 changelog note).
          See config.js POC_PROMINENCE_*/POC_MIGRATION_*/NAKED_POC_* and
-         core.js computePOCQualityMultiplier() for the exact mechanism.
+         core.js computePOCQualityMultiplier() / isPOCProminenceTrusted()
+         for the exact mechanism.
 STEP 12: Calculate SL / TP (v10.5: two real targets, not three — see below)
          Entry: best 1H Fib/POC/VAH/VAL confluence level
          SL:    1H swing wick ± 0.25 × ATR (or ± SL_ATR_MULT_MATRIX's
@@ -702,7 +759,7 @@ mvs-bot/
 
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|
-| No signals after several days | Confluence or 3-of-5 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_3OF5_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working, and stricter with 5 TFs than the old 3); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (current default is `0.85`; try `1.0`); `POC_NO1H_GATED` dominating (v10.12) means most of your recent candidate setups were POC pivot without 1H confirmation — that's the gate working as designed (it's the confirmed weakest segment), not a bug, but if frequency drops too far below target, set `POC_REQUIRE_1H_CONFIRM: false` in `config.js` to fall back to the old size-only treatment and re-backtest to compare |
+| No signals after several days | Confluence or 3-of-5 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_3OF5_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working, and stricter with 5 TFs than the old 3); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (current default is `0.85`; try `1.0`); `POC_NO1H_GATED` dominating (v10.12) means most of your recent candidate setups were POC pivot without 1H confirmation — that's the gate working as designed (it's the confirmed weakest segment), not a bug, but if frequency drops too far below target, set `POC_REQUIRE_1H_CONFIRM: false` in `config.js` to fall back to the old size-only treatment and re-backtest to compare; `POC_PROMINENCE_GATED` dominating (v10.13) means POC pivot but a contested (non-decisive) volume peak — same idea, toggle `POC_PROMINENCE_REQUIRE_DECISIVE: false` to fall back to size-only if frequency needs it |
 | Too many signals (noise) | Confluence/rejection too loose | Lower `CONFLUENCE_ATR_MULT` (current default `0.85`; try `0.65`) or raise `REJECTION_MIN_PATTERNS` to `3` |
 | Commands not responding | `tg-offset.json` not committed yet | Go to **Actions → MVS Commands → Run workflow** once manually to bootstrap the offset |
 | `/health` shows "Last scan run: never" | `state.json` not yet committed | Go to Actions → MVS Scan → Run workflow manually once to bootstrap |
