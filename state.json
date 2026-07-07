@@ -1,26 +1,38 @@
 {
-  "_lastRunAt": "2026-07-07T09:15:37.144Z",
+  "_lastRunAt": "2026-07-07T09:30:41.864Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 81.46,
+    "price": 81.17,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "BEARISH",
     "bias30m": "NEUTRAL",
     "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-07T09:15:12.972Z"
+    "updatedAt": "2026-07-07T09:30:17.869Z"
   },
   "ETH-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 1774.35,
+    "signal": "SCANNED",
+    "price": 1773.01,
+    "direction": "SELL",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
-    "bias1h": "NEUTRAL",
+    "bias1h": "BEARISH",
     "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-07T09:15:09.833Z"
+    "poc": 1793.1589,
+    "vah": 1832.9767,
+    "val": 1759.3741,
+    "swingHigh": 1833.58,
+    "swingLow": 1712.92,
+    "atr1h": 14.208105648168157,
+    "updatedAt": "2026-07-07T09:30:15.677Z"
   },
   "LINK-USDT": {
     "signal": "SCANNED",
@@ -72,27 +84,26 @@
   },
   "BTC-USDT": {
     "signal": "SCANNED",
-    "price": 63249.4,
+    "price": 63154.7,
     "direction": "BUY",
-    "voteTally": "4/5",
+    "voteTally": "3/5",
     "agreeing": [
       "4H",
       "1H",
-      "30m",
-      "15m"
+      "30m"
     ],
-    "bias1d": "NEUTRAL",
+    "bias1d": "BEARISH",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
     "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
+    "bias15m": "NEUTRAL",
     "poc": 62076.1525,
     "vah": 63261.5675,
     "val": 61974.5455,
     "swingHigh": 64701,
     "swingLow": 61314.1,
     "atr1h": 390.8463799382416,
-    "updatedAt": "2026-07-07T09:15:15.153Z"
+    "updatedAt": "2026-07-07T09:30:20.035Z"
   },
   "POL-USDT": {
     "signal": "SCANNED",
@@ -130,7 +141,7 @@
   },
   "BNB-USDT": {
     "signal": "SCANNED",
-    "price": 577.923,
+    "price": 577.356,
     "direction": "SELL",
     "voteTally": "3/5",
     "agreeing": [
@@ -149,7 +160,7 @@
     "swingHigh": 593.4,
     "swingLow": 561.19,
     "atr1h": 3.080164313823727,
-    "updatedAt": "2026-07-07T09:15:28.306Z"
+    "updatedAt": "2026-07-07T09:30:33.123Z"
   },
   "LTC-USDT": {
     "signal": "SCANNED",
