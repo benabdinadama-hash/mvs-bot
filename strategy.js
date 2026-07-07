@@ -521,6 +521,15 @@ const runStrategy = async (symbol) => {
       atr1h, vp1h.pocPrice, config.NAKED_POC_TOLERANCE_ATR
     );
 
+    // v10.13: POC prominence gate — see config.js POC_PROMINENCE_REQUIRE_DECISIVE
+    // for the per-trade evidence. Contested (non-decisive) POC entries are
+    // skipped entirely now, not just taken at reduced size.
+    if (!core.isPOCProminenceTrusted(bestPivot.name, prominence, config)) {
+      console.log(`  ⚠️ POC contested (prominence ratio ${prominence.prominenceRatio.toFixed(2)} < ${config.POC_PROMINENCE_MIN_RATIO}) — historically the weaker POC segment. Skipping.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'POC_PROMINENCE_GATED' });
+      return;
+    }
+
     // v10.3/v10.4/v10.5/v10.6/v10.7: risk-tiered sizing — see core.js
     // computeRiskMultiplier() for the backtest evidence behind this. Not a
     // filter: this signal fires regardless of tier, only the suggested

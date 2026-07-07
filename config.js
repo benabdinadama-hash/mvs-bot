@@ -473,16 +473,46 @@ module.exports = {
   POC_PROMINENCE_MIN_RATIO: 1.5,      // POC vol must beat avg-neighbor vol by 50%+ to count as decisive
   POC_PROMINENCE_PENALTY_MULT: 0.8,   // applied when POC is "contested" (ratio below the line above)
 
+  // v10.13 (2026-07-07) NEW: upgraded from a size discount to an actual
+  // gate, per direct per-trade analysis of backtest-report.json (not just
+  // theory this time). Cross-checked 720-day (207 POC trades) and 360-day
+  // (94 POC trades, a subset of the 720-day set — same replication caveat
+  // as the migration note below, not two fully independent samples):
+  //   "Decisive" POC (ratio >= 1.5): 59.7% WR (720d) / 60.3% WR (360d)
+  //   "Contested" POC (ratio < 1.5): 48.3% WR (720d) / 50.0% WR (360d)
+  // ~10pp gap, same direction both times — comparable in size to the
+  // 1H-confirm gap that justified POC_REQUIRE_1H_CONFIRM as a gate in
+  // v10.12, so it gets the same treatment: contested POC entries are now
+  // skipped entirely (logged POC_PROMINENCE_GATED) rather than just taken
+  // at 80% size. Set to false to fall back to the old size-only discount.
+  POC_PROMINENCE_REQUIRE_DECISIVE: process.env.POC_PROMINENCE_REQUIRE_DECISIVE === 'false' ? false : true,
+
   // #2 — POC MIGRATION: has POC been drifting toward the trade direction
   // across recent windows (real, forming consensus / fair value moving),
   // or is it static / jumping around (balance, not trend)?
   // v10.9: applied LIVE per explicit instruction. Env var can still force
   // it off for an A/B comparison run: POC_MIGRATION_ENABLED=false node backtest.js
+  //
+  // v10.13 FIX (2026-07-07): the ORIGINAL THEORY WAS BACKWARDS. Checked
+  // against the same two backtest-report.json files, split by whether
+  // migration confirmed the trade direction:
+  //   Migration CONFIRMS direction: 53.3% WR (720d) / 54.8% WR (360d)
+  //   Migration AGAINST or static:  62.5% WR (720d) / 64.7% WR (360d)
+  // The exact opposite of what v10.8 assumed ("migrating with direction =
+  // forming consensus = good"). A plausible read: a POC that's already
+  // migrated toward the trade direction is a level that's already been
+  // "spent" — the value area re-rated before this entry arrived, so it's
+  // chasing a level rather than catching a fresh one. BOOST_MULT below is
+  // no longer applied to the confirming case (see core.js
+  // computePOCQualityMultiplier v10.13 note) — PENALTY_MULT now applies
+  // there instead, and the against/static case is left neutral. The
+  // constant is kept (not deleted) in case a future run wants to test
+  // rewarding the against-direction case specifically.
   POC_MIGRATION_ENABLED: process.env.POC_MIGRATION_ENABLED === 'false' ? false : true,
   POC_MIGRATION_OFFSET_BARS: 250,     // ~10.4 days of 1H bars back, for the "past POC" comparison window
   POC_MIGRATION_MIN_ATR: 0.5,         // minimum drift (in ATR) before it counts as "migrating," not noise
-  POC_MIGRATION_BOOST_MULT: 1.2,      // migrating WITH the trade direction
-  POC_MIGRATION_PENALTY_MULT: 0.8,    // migrating AGAINST the trade direction
+  POC_MIGRATION_BOOST_MULT: 1.2,      // kept for reference/future testing — no longer applied as of v10.13
+  POC_MIGRATION_PENALTY_MULT: 0.8,    // v10.13: now applied when migration CONFIRMS direction (was: against)
 
   // #3 — NAKED / UNTESTED POC: does an earlier, now-closed window's POC
   // — never revisited by price since — sit close to the CURRENT POC?

@@ -623,6 +623,23 @@ const computeNakedPOC = (bars, vpLookback, rows, atr, currentPOC, toleranceAtrMu
 //  (complete no-op) for any pivot other than POC — VAH/VAL entries are
 //  entirely untouched by this function, always, regardless of which
 //  flags are enabled.
+//
+//  v10.13 FIX (2026-07-07): POC_MIGRATION direction was BACKWARDS. Checked
+//  against actual per-trade data (720-day AND 360-day backtest-report.json,
+//  207 and 94 POC trades respectively — 360-day is a subset of 720-day, so
+//  treat as one replication, not two independent samples, but the direction
+//  held both times): trades where POC was migrating WITH the trade
+//  direction scored 53.3%/54.8% WR — WORSE than trades where it was static
+//  or migrating against direction (62.5%/64.7% WR, both windows). The
+//  original theory (migration = forming consensus = good) doesn't hold up;
+//  a plausible alternative is that a POC which has already migrated toward
+//  the trade direction represents a level that's already been "spent" —
+//  the value area re-rated before this entry, so the entry is chasing
+//  rather than catching a fresh level. Swapped: migration CONFIRMING
+//  direction now gets the PENALTY, migrating AGAINST (or static) is
+//  left at neutral 1.0 (the "against" bucket's outperformance is smaller
+//  and its sample thinner — not confident enough to reward it further,
+//  only confident enough to stop rewarding the confirming case).
 const computePOCQualityMultiplier = (pivotName, direction, prominence, migration, nakedPOC, cfg) => {
   if (pivotName !== 'POC') return 1.0;
   let mult = 1.0;
@@ -635,7 +652,8 @@ const computePOCQualityMultiplier = (pivotName, direction, prominence, migration
   if (cfg.POC_MIGRATION_ENABLED && migration && migration.migrating) {
     const confirms = (direction === 'BUY' && migration.direction === 'UP') ||
                       (direction === 'SELL' && migration.direction === 'DOWN');
-    mult *= confirms ? cfg.POC_MIGRATION_BOOST_MULT : cfg.POC_MIGRATION_PENALTY_MULT;
+    // v10.13: confirms → penalty (was boost); against → neutral (was penalty).
+    if (confirms) mult *= cfg.POC_MIGRATION_PENALTY_MULT;
   }
 
   if (cfg.NAKED_POC_ENABLED && nakedPOC && nakedPOC.aligned) {
@@ -643,6 +661,24 @@ const computePOCQualityMultiplier = (pivotName, direction, prominence, migration
   }
 
   return mult;
+};
+
+//  v10.13 NEW: hard gate (not a size multiplier) for POC prominence.
+//  Same per-trade data check as above: "contested" POC (prominenceRatio <
+//  MIN_RATIO) scored 48.3%/50.0% WR across the two windows vs 59.7%/60.3%
+//  for "decisive" POC — an ~10pp gap, replicated in direction both times
+//  (360-day is a subset of 720-day, same caveat as the migration note).
+//  That gap is comparable in size to the 1H-confirm gap that justified
+//  making POC_REQUIRE_1H_CONFIRM an outright gate in v10.12, so it gets
+//  the same treatment here rather than staying a partial size discount.
+//  Returns true (never blocks) for any pivot other than POC, or when the
+//  gate is disabled, or when prominence couldn't be computed (treated as
+//  a neutral no-data case, not a rejection).
+const isPOCProminenceTrusted = (pivotName, prominence, cfg) => {
+  if (pivotName !== 'POC') return true;
+  if (!cfg.POC_PROMINENCE_REQUIRE_DECISIVE) return true;
+  if (!prominence || !prominence.computed) return true; // no data → don't block
+  return prominence.prominenceRatio >= cfg.POC_PROMINENCE_MIN_RATIO;
 };
 
 const computeRiskMultiplier = (pivotName, agreeing, patterns, riskTierMatrix, patternRiskMatrix, defaultMult = 1.0, td9Confirms = false, td9BoostMult = 1.0, slAtrMultUsed = null, baselineSlAtrMult = null) => {
@@ -733,4 +769,5 @@ module.exports = {
   confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
   detectRejection, computeTradeLevels, computeRiskMultiplier, computeTDSequential,
   computePOCProminence, computePOCMigration, computeNakedPOC, computePOCQualityMultiplier,
+  isPOCProminenceTrusted,
 };
