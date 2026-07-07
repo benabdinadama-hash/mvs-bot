@@ -185,6 +185,33 @@
  *      can't hit Telegram's 4096-char hard limit.
  *   5. weekly-summary.js groups identical repeated entries with a "×N"
  *      count instead of printing N near-identical blocks in a row.
+ *
+ *  v10.11 — (2026-07-07) requested: investigate "bot isn't firing despite
+ *  3-of-5 agreement" (screenshot of diag.log.json), and separately cut
+ *  losses / raise win rate while holding 2-3 signals/week.
+ *   1. NO BUG FOUND in the vote/fire logic. Checked all 541 diag.log.json
+ *      entries programmatically: zero cases where reason was
+ *      NO_3OF5_AGREEMENT while 3+ of the 5 biases actually agreed. The
+ *      screenshot in question showed 2 BULLISH + 3 NEUTRAL (or 2
+ *      BULLISH + 1 BEARISH + 2 NEUTRAL) — genuinely only 2-of-5, correctly
+ *      not fired. NEUTRAL votes don't count toward either side; see
+ *      resolveDirection() in core.js. Left that function untouched.
+ *   2. The 383 "NO_2OF3_AGREEMENT" entries also visible in diag.log.json
+ *      are NOT a live bug either — timestamps show they were written
+ *      2026-07-03 to 2026-07-06 22:40, i.e. by the OLD 2-of-3 vote code
+ *      that ran before v10.10 (3-of-5) was deployed. NO_3OF5_AGREEMENT
+ *      entries only start at 2026-07-07 00:00, right after deploy. The
+ *      log is a running history across versions, not evidence of two
+ *      vote systems running at once.
+ *   3. Two evidence-based changes made to actually cut losses (see each
+ *      setting below for the full numbers): MIN_CONFLUENCE_POC reverted
+ *      1 → 2, and POC_RECLAIM removed from SOLO_ELIGIBLE_PATTERNS. Both
+ *      target the same confirmed weak point (POC-pivot / POC_RECLAIM
+ *      entries own the large majority of this system's SLs across every
+ *      backtest run to date) without touching the 3-of-5 vote itself,
+ *      so the 2-3/week target from v10.10 is expected to mostly hold.
+ *      NEITHER has been re-backtested on this box (no network access to
+ *      api.kucoin.com here) — run `node backtest.js` after deploying.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -313,7 +340,23 @@ module.exports = {
   // very likely pull win rate down further, on top of the drop already
   // expected from the other v10.2 changes. Set back to 2 if the next
   // backtest run shows POC-pivot win rate degrading past what's useful.
-  MIN_CONFLUENCE_POC: 1,
+  //
+  // v10.11 (2026-07-07) — REVERTED 1 → 2, to raise win rate / cut losses
+  // while holding ~2-3 signals/week. Evidence from the three backtest
+  // reports reviewed this session:
+  //  - 720-day: POC pivot 206 trades, 56.3% WR, 23 of 30 total SLs (77%)
+  //    landed on POC pivot. VAH/VAL combined: 82 trades, only 7 SLs.
+  //  - The v10.2 note above explicitly named this as the lever to revert
+  //    "if the next backtest run shows POC-pivot win rate degrading past
+  //    what's useful" — the 720-day report is that confirmation.
+  //  - Frequency cushion: even at the loosest (score>=1) setting, signal
+  //    count only averaged 2.4-2.8/week across 360/720-day windows —
+  //    comfortably inside the 2-3/week target, so there's room to trade
+  //    a little frequency for quality on this one gate.
+  //  NOT yet re-backtested on this box (no network access to
+  //  api.kucoin.com here) — run `node backtest.js` after deploying and
+  //  compare the new POC-pivot WR/SL numbers against the reports above.
+  MIN_CONFLUENCE_POC: 2,
 
   // ── Rejection / trigger candle (2-of-5 rule, on the 15m trigger TF) ────
   // Patterns: POC_RECLAIM, VAH_VAL_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION
@@ -339,7 +382,21 @@ module.exports = {
   // 1,126 htf/invalidation-passing ETH ticks, ~10.7%) is intentionally
   // left the most conservative gate in this pass — this is where "cheap"
   // frequency is easiest to get and easiest to regret.
-  SOLO_ELIGIBLE_PATTERNS: ['POC_RECLAIM', 'VAH_VAL_RECLAIM', 'CLOSE_REJECTION'],
+  // v10.11 (2026-07-07) — POC_RECLAIM REMOVED from this list. Per
+  // PATTERN_RISK_MATRIX's own comment (v10.4 backtest, 215 closed
+  // trades): setups where POC_RECLAIM was one of the firing patterns —
+  // 61 trades, 39.3% WR, 10 SL, +0.228R/trade avg. Setups without it —
+  // 154 trades, 72.7% WR, 5 SL, +0.770R/trade avg. That gap holds even
+  // inside the "1H-confirmed" tier (still only 38.5% WR there). Letting
+  // POC_RECLAIM fire ALONE was the biggest source of weak entries this
+  // pattern produces; now it still counts toward REJECTION_MIN_PATTERNS
+  // (2-of-2) and PATTERN_RISK_MATRIX still discounts its size when it
+  // does fire, but it can no longer single-handedly trigger a signal.
+  // Expected effect: fewer, better trades — not yet re-backtested here
+  // (no network access to api.kucoin.com on this box). Run
+  // `node backtest.js` after deploying and check the PATTERN FREQUENCY /
+  // BY outcome sections against the reports from this session.
+  SOLO_ELIGIBLE_PATTERNS: ['VAH_VAL_RECLAIM', 'CLOSE_REJECTION'],
 
   // ── Absorption veto ─────────────────────────────────────────────────────
   // Vetoes a trigger when an opposing full-body candle sits at the zone
@@ -467,6 +524,33 @@ module.exports = {
     // POC_1H, VAH_1H, VAH_NO1H, VAL_1H, VAL_NO1H all default to 1.0 below.
   },
   RISK_TIER_DEFAULT: 1.0,
+
+  // ── POC + no-1H-confirm: GATE, not just a size cut (v10.12, 2026-07-07) ──
+  // Requested: "definitely" solve the POC-SL problem. The evidence above
+  // (POC_NO1H segment: 168 trades, 58.3% WR, 15 of 18 total SLs = 83% of
+  // all losses in that 246-trade set) is exactly the same segment
+  // RISK_TIER_MATRIX has been discounting to 0.75x size since v10.3 — but
+  // discounting size still lets every one of those trades fire and still
+  // eats the loss, just a smaller one. This flag removes that segment
+  // from the entry funnel entirely: when the pivot is POC AND 1H is NOT
+  // one of the 3+ agreeing timeframes, the setup is skipped, full stop —
+  // same treatment POC already effectively gets from MIN_CONFLUENCE_POC
+  // and the SOLO_ELIGIBLE_PATTERNS change made earlier this session, just
+  // applied to the OTHER confirmed-weak POC segment instead of leaving it
+  // as a smaller bet.
+  // Cost: this is the biggest, most direct lever available and it WILL
+  // reduce signal frequency further, on top of the two changes already
+  // made today — POC_NO1H was 168 of 246 trades (68%) in the report that
+  // surfaced this. Expect fewer signals; the 2-3/week target may need
+  // revisiting once a fresh backtest shows where it actually lands.
+  // Not yet re-backtested on this box (no network access to
+  // api.kucoin.com here) — run `node backtest.js` after deploying and
+  // check the funnel diagnostics (new POC_NO1H_GATED reason in
+  // diag.log.json / backtest funnel) plus the BY PIVOT / BY CONFIDENCE
+  // TIER sections against the reports from this session.
+  // Set to false (or POC_REQUIRE_1H_CONFIRM=false env var for a one-off
+  // backtest) to fall back to the old size-only treatment above.
+  POC_REQUIRE_1H_CONFIRM: process.env.POC_REQUIRE_1H_CONFIRM === 'false' ? false : true,
 
   // ── Pattern risk tiering (v10.4) ────────────────────────────────────────
   // Second, independent multiplier — multiplies with RISK_TIER_MATRIX,

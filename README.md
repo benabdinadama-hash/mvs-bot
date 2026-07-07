@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.10-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.12-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -121,11 +121,42 @@ and `config.js` if you want the exact numbers behind each change.
   `diag.log.json` did — a display fix alone couldn't have solved it), and
   Telegram messages now chunk automatically instead of risking the
   4096-char hard limit. Weekly summary entries are now grouped (`×N`)
-  instead of repeating near-identical blocks. **The backtest numbers
-  throughout this README (and `setup-bot.js`'s bot description) predate
-  this change — they describe the OLD 3-TF/2-of-3 ruleset and need a
-  fresh `node backtest.js` run against the new 5-TF/3-of-5 ruleset
-  before being trusted or republished.**
+  instead of repeating near-identical blocks.
+- **v10.11 — (2026-07-07) investigated a reported "bot won't fire despite
+  3-of-5 agreement" bug, found none, and made two evidence-based changes
+  to cut losses.** Checked all 541 `diag.log.json` entries
+  programmatically: zero cases where 3+ of the 5 biases genuinely agreed
+  and `NO_3OF5_AGREEMENT` still fired — the reported screenshot showed 2
+  BULLISH votes plus NEUTRALs, correctly not fired (NEUTRAL doesn't count
+  toward either side). Separately confirmed the `NO_2OF3_AGREEMENT`
+  entries also visible in that log are stale history from the pre-v10.10
+  code, not a second vote system running in parallel — timestamps show
+  they stop the moment v10.10 deployed. Two real changes made:
+  `MIN_CONFLUENCE_POC` reverted `1 → 2` (the v10.2 frequency-pass note had
+  explicitly flagged this as the lever to revert once POC-pivot win rate
+  degraded — the 720-day report confirmed it had: 206 trades, 56.3% WR,
+  23 of 30 total SLs), and `POC_RECLAIM` removed from
+  `SOLO_ELIGIBLE_PATTERNS` (61 trades with it firing solo: 39.3% WR, 10
+  SL vs. 154 trades without it: 72.7% WR, 5 SL). It still counts toward
+  the 2-of-5 pattern requirement, it just can't fire alone.
+- **v10.12 — (2026-07-07) the POC/no-1H-confirm segment upgraded from a
+  size cut to an actual entry gate.** `RISK_TIER_MATRIX`'s `POC_NO1H: 0.75`
+  had been discounting this segment's position size since v10.3, but
+  every one of those trades still fired and still lost, just smaller —
+  and it's the single largest source of stop-losses in every backtest run
+  to date (168 of 246 trades in the report that surfaced it, 15 of 18
+  total SLs). New flag `POC_REQUIRE_1H_CONFIRM` (on by default) now skips
+  the setup entirely — logged as `POC_NO1H_GATED` — instead of just
+  sizing it down. Wired into both `strategy.js` (live) and `backtest.js`
+  (simulation) identically, to avoid this repo's own documented history of
+  live/backtest drift bugs. **This is the single biggest frequency-cutting
+  change made across v10.10-v10.12** — POC_NO1H was 68% of trades in the
+  report that flagged it, so expect a real hit to signals/week on top of
+  v10.11's changes. **The backtest numbers throughout this README (and
+  `setup-bot.js`'s bot description) predate v10.10, v10.11, AND v10.12 —
+  they describe the OLD 3-TF/2-of-3 ruleset with looser POC gating and
+  need a fresh `node backtest.js` run before being trusted or
+  republished.**
 
 ---
 
@@ -297,6 +328,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **D4** Over-Extended | Price already beyond 88.6% Fib | Skip. Swing invalidated. |
 | **D5** No 3-of-5 Vote | Fewer than 3 of {1D, 4H, 1H, 30m, 15m} agree on direction | Skip. Timeframes disagree. |
 | **D6** 4H Zone Mismatch | 1H entry price doesn't sit near any 4H structural level | Skip. No multi-timeframe confluence. |
+| **D7** POC / No-1H-Confirm (v10.12) | Pivot is POC AND 1H isn't one of the 3+ agreeing timeframes | Skip (`POC_NO1H_GATED`). Confirmed weakest segment in every backtest to date — see changelog. Toggle: `config.POC_REQUIRE_1H_CONFIRM`. |
 
 ---
 
@@ -314,7 +346,7 @@ A signal fires only if **at least 2 of these 5 patterns** appear on the last clo
 
 **Absorption Veto (overrides all):** If a high-volume 15m candle (body > 70% of range) closes strongly in the opposite direction, the signal is suppressed even if 2-of-5 patterns fire.
 
-**Solo trigger (ON by default — `ALLOW_SOLO_TRIGGER` in config.js):** a single pattern in `SOLO_ELIGIBLE_PATTERNS` (currently `POC_RECLAIM`, `VAH_VAL_RECLAIM`, `CLOSE_REJECTION`) can qualify alone if every other gate still passes. Applies identically to BUY and SELL. `PIN_BAR` and `ENGULFING` are deliberately excluded from solo eligibility — backtest data shows they're weakest exactly when they co-occur with each other, so letting either fire completely alone isn't supported by the data. Change the list in `config.js` (not here) if you want to test a different set — re-run `node backtest.js` before trusting live results against any change.
+**Solo trigger (ON by default — `ALLOW_SOLO_TRIGGER` in config.js):** a single pattern in `SOLO_ELIGIBLE_PATTERNS` (currently `VAH_VAL_RECLAIM`, `CLOSE_REJECTION` — `POC_RECLAIM` removed in v10.11, see changelog) can qualify alone if every other gate still passes. Applies identically to BUY and SELL. `PIN_BAR` and `ENGULFING` are deliberately excluded from solo eligibility — backtest data shows they're weakest exactly when they co-occur with each other, so letting either fire completely alone isn't supported by the data. `POC_RECLAIM` still counts toward the 2-of-5 pattern requirement below, it just can't fire alone anymore — trades where it fired solo ran 39.3% WR (10 SL / 61 trades) vs. 72.7% WR (5 SL / 154 trades) without it. Change the list in `config.js` (not here) if you want to test a different set — re-run `node backtest.js` before trusting live results against any change.
 
 ---
 
@@ -358,10 +390,17 @@ STEP 3:  1H structure: get the swing/Fib pocket this vote's timeframes used.
 STEP 4:  D4 check — price already beyond 1H Fib 88.6%? → over-extended, stop.
 STEP 5:  Early zone-proximity skip — save compute if price isn't near the pocket.
 STEP 6:  1H Confluence Check — does the 60–80% Fib pocket overlap 1H POC, VAH,
-         or VAL? Score >= 1 (within ATR×0.85) required; POC entries need
-         score >= 1 too as of v10.2 (was 2 — tightened POC alignment was
-         loosened deliberately for signal frequency; see config.js history).
+         or VAL? Score >= 1 (within ATR×0.85) required for VAH/VAL; POC
+         entries need score >= 2 (tight alignment — reverted back from
+         score >= 1 in v10.11 once the 720-day backtest confirmed POC's
+         win rate had degraded at the looser threshold; see changelog).
          No confluence → stop.
+STEP 6a: POC / 1H-confirm gate (v10.12) — if the pivot is POC AND 1H is
+         NOT one of the 3+ agreeing timeframes, stop here (`POC_NO1H_GATED`).
+         This was previously just a 0.75x size cut (`RISK_TIER_MATRIX`);
+         it's a hard skip now, since this segment owned 15 of 18 total
+         SLs (83%) in the report that surfaced it. Toggle:
+         `config.POC_REQUIRE_1H_CONFIRM`.
 STEP 7:  4H Zone Cross-Check — is the 1H entry price near a 4H structural
          level (POC/VAH/VAL/Fib50%, tolerance ATR×4.0, same both directions)?
          No → D6 block, stop.
@@ -437,15 +476,17 @@ have.
 
 ### Reference snapshot (v10.6, 2026-07-04 — a dated historical record, not a live performance guarantee)
 
-> **⚠️ This snapshot predates v10.7, v10.8, and v10.9.** It does not
-> reflect `SL_ATR_MULT_MATRIX` (still off by default, untested), or the
-> three POC-quality factors from v10.8 that are now live by default as of
-> v10.9 (prominence, migration, naked POC). Those factors change position
-> sizing on POC-pivot trades — they don't change which signals fire, so
-> frequency here should still hold, but the $ P&L numbers below will not
-> match a fresh run. **Run `node backtest.js` and replace this table**
-> once you've got a v10.9 backtest — that's the actual point of dating
-> every snapshot like this rather than just asserting a number.
+> **⚠️ This snapshot predates v10.7 through v10.12.** It does not
+> reflect `SL_ATR_MULT_MATRIX` (still off by default, untested), the
+> three POC-quality factors from v10.8 (live by default as of v10.9),
+> the 5-timeframe/3-of-5 vote from v10.10 (was 3-timeframe/2-of-3 here),
+> the `MIN_CONFLUENCE_POC` revert and `POC_RECLAIM` solo-trigger removal
+> from v10.11, or the POC/no-1H-confirm hard gate from v10.12 — the
+> single biggest frequency-cutting change made so far, since that
+> segment was 68% of trades in the report that flagged it. **Run
+> `node backtest.js` and replace this table** — the numbers below are a
+> dated historical record of a meaningfully looser ruleset, not a
+> current performance claim.
 
 Two overlapping windows, run back to back on the same ruleset. Kept here
 because consistency *between* windows is more informative than either
@@ -483,6 +524,38 @@ ETH, LINK, DOT, BTC — 720-day: ETH, AVAX, BTC, DOGE, POL, LTC); only
 of one point in time on one ruleset — it will go
 stale the moment `config.js` changes again. Re-run `node backtest.js` and
 replace this table rather than trust it past its date.
+
+### Reference snapshot (v10.10, 2026-07-07 — dated, and now itself superseded by v10.11/v10.12)
+
+> **⚠️ Same caveat as above, one version later.** These three runs were
+> on the 5-timeframe/3-of-5 vote (v10.10) but BEFORE the `MIN_CONFLUENCE_POC`
+> revert, the `POC_RECLAIM` solo-trigger removal, and the POC/no-1H-confirm
+> gate (all v10.11/v10.12). Kept here because the 720-day POC-pivot numbers
+> in this exact run are the direct evidence those later changes were made
+> from — not because these are today's numbers. Expect the next backtest to
+> show materially fewer signals and a cleaner POC-pivot segment.
+
+| Metric | 90 days | 360 days | 720 days |
+|---|---|---|---|
+| Signals fired | 9 (~0.47/wk) | 126 (~2.39/wk) | 291 (~2.80/wk) |
+| Closed trades | 6 | 123 | 288 |
+| Win rate | 16.7% (1W/5L) | 63.4% (78W/45L) | 61.1% (176W/112L) |
+| No-real-loss rate | 50.0% | 91.1% | 85.8% |
+| Profit factor | 0.10 | 9.05 | 6.44 |
+| Total R | -2.70R | 86.41R | 188.38R |
+| Avg win / avg loss | +0.30R / -0.60R | +1.25R / -0.24R | +1.27R / -0.31R |
+| $1,000 → | $975.19 (-2.5%) | $2,553.11 (+155.3%) | $7,551.47 (+655.1%) |
+| Max drawdown | 2.5% | 1.5% | 4.5% |
+| POC pivot SLs (of total) | 3 of 3 | not broken out separately this run | 23 of 30 (77%) |
+
+The 90-day window is 6 closed trades — not remotely enough to draw a
+conclusion from on its own, but it's also not nothing: it's the most
+recent quarter, and it's meaningfully worse than the two longer windows
+that contain it. Could be regime (a choppier recent market genuinely
+suits this system less), could be noise, could be some of both — worth
+watching the next few weeks of live results rather than either dismissing
+it or overreacting to it. The 720-day POC-pivot number (23 of 30 total
+SLs) is the evidence behind the v10.11/v10.12 changes described above.
 
 ---
 
@@ -629,7 +702,7 @@ mvs-bot/
 
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|
-| No signals after several days | Confluence or 3-of-5 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_3OF5_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working, and stricter with 5 TFs than the old 3); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (current default is `0.85`; try `1.0`) |
+| No signals after several days | Confluence or 3-of-5 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_3OF5_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working, and stricter with 5 TFs than the old 3); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (current default is `0.85`; try `1.0`); `POC_NO1H_GATED` dominating (v10.12) means most of your recent candidate setups were POC pivot without 1H confirmation — that's the gate working as designed (it's the confirmed weakest segment), not a bug, but if frequency drops too far below target, set `POC_REQUIRE_1H_CONFIRM: false` in `config.js` to fall back to the old size-only treatment and re-backtest to compare |
 | Too many signals (noise) | Confluence/rejection too loose | Lower `CONFLUENCE_ATR_MULT` (current default `0.85`; try `0.65`) or raise `REJECTION_MIN_PATTERNS` to `3` |
 | Commands not responding | `tg-offset.json` not committed yet | Go to **Actions → MVS Commands → Run workflow** once manually to bootstrap the offset |
 | `/health` shows "Last scan run: never" | `state.json` not yet committed | Go to Actions → MVS Scan → Run workflow manually once to bootstrap |
