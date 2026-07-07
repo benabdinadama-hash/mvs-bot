@@ -1,5 +1,5 @@
 /**
- * MVS — Weekly Summary  (v10.10 — pure axios, no node-telegram-bot-api)
+ * MVS — Weekly Summary  (v10.13.1 — pure axios, no node-telegram-bot-api)
  *
  * Reads signals.log.json, summarises the last 7 days, sends to Telegram.
  * Triggered every Monday 07:00 UTC by mvs-weekly.yml.

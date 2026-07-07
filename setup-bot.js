@@ -71,17 +71,23 @@ const call = async (method, params = {}) => {
   // access to api.kucoin.com). Run `node backtest.js` yourself after
   // deploying and replace this snapshot with the new numbers before
   // trusting or publishing them anywhere.
+  //
+  // v10.13 UPDATE (2026-07-07): fresh backtest now in hand — 360-day
+  // window, run AFTER the v10.11/v10.12/v10.13 changes (MIN_CONFLUENCE_POC
+  // revert, POC_RECLAIM solo-trigger removal, POC/no-1H-confirm gate,
+  // POC prominence gate, POC migration fix). Real numbers below, dated,
+  // replacing the stale v10.6 placeholder. Same standing rule applies:
+  // update this snapshot again the next time config.js changes
+  // meaningfully — see README.md's "Reference snapshot" section.
   await call('setMyDescription', {
     description:
 `Monthly Value Sniper (MVS) by Abdin — KuCoin, Ghana
 
 Volume Profile (POC/VAH/VAL) + Fibonacci, 1D/4H/1H/30m/15m, 3-of-5 vote to fire.
 
-STALE v10.6 backtest (pre-5TF, needs re-run), 2026-07-04:
-720d: 62% WR, PF 8.47, +305% return, 2.3% max DD
-360d: 60% WR, PF 7.03, +96% return, 1.9% max DD
-Run backtest.js yourself for current numbers — architecture changed
-since this snapshot; treat it as historical, not current.
+v10.13 backtest, 360d (2026-07-07):
+82.6% WR, PF 48.97, +87% return, 0.9% max DD, ~0.89 signals/wk.
+Not a live guarantee — run backtest.js yourself for current numbers.
 
 13 KuCoin pairs. Auto-alerts here.
 github.com/benabdinadama-hash/mvs-bot`
