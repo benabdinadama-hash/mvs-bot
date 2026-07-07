@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — CORE STRATEGY LOGIC (core.js)  v10.9
+ *  MVS — CORE STRATEGY LOGIC (core.js)  v10.13.1
  *
  *  Every pure function used to decide BUY/SELL/NO-TRADE lives here, and
  *  ONLY here. strategy.js (live/Telegram) and backtest.js (simulation)
@@ -409,7 +409,7 @@ const isZoneInvalidated = (closePrice, zoneRef, atr, direction, atrMult) => {
 //  that decides which patterns count as "strong enough alone" — no more
 //  editing core.js to change strategy behavior.
 // ─────────────────────────────────────────────────────────────────────────
-const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorptionBodyRatio, minPatterns = 2, allowSolo = false, soloPatterns = ['POC_RECLAIM', 'VAH_VAL_RECLAIM']) => {
+const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorptionBodyRatio, minPatterns = 2, allowSolo = false, soloPatterns = ['VAH_VAL_RECLAIM', 'CLOSE_REJECTION']) => {
   if (candles.length < 2) return { valid: false, patterns: [], absorptionVeto: false, score: 0, solo: false };
 
   const c = candles[candles.length - 1];

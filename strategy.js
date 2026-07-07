@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.10  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.13.1  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -560,6 +560,16 @@ const runStrategy = async (symbol) => {
     const slWidenSuffix = slWidened ? ` | SL widened ${config.SL_ATR_MULT}→${slAtrMult}×ATR (EXPERIMENTAL, size cut to hold $ risk flat)` : '';
     // v10.8: same pattern — called out separately from weakReasons since
     // these are a distinct, independently-testable set of factors.
+    // NOTE (found in v10.13 audit): the "contested POC" branch below can
+    // only ever fire for VAH/VAL-pivot trades when
+    // POC_PROMINENCE_REQUIRE_DECISIVE is at its default (true) — a POC
+    // pivot with contested prominence now returns early at the STEP 6b
+    // gate above, before execution ever reaches this point. Left in
+    // (not dead code, just conditionally unreachable for one pivot type)
+    // because: (a) it still fires correctly for VAH/VAL trades, where
+    // prominence is informational only and never gated, and (b) it
+    // becomes reachable for POC trades again the moment someone sets
+    // POC_PROMINENCE_REQUIRE_DECISIVE=false to fall back to size-only.
     const pocQualityNotes = [];
     if (config.POC_PROMINENCE_ENABLED && prominence.computed && prominence.prominenceRatio < config.POC_PROMINENCE_MIN_RATIO) {
       pocQualityNotes.push(`contested POC (ratio ${prominence.prominenceRatio.toFixed(2)} < ${config.POC_PROMINENCE_MIN_RATIO})`);

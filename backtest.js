@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.10
+ *  MVS — BACKTESTER (backtest.js)  v10.13.1
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -156,7 +156,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
   const funnel = {
     scanned: 0, voteOk: 0, bullVote: 0, bearVote: 0, structureOk: 0, notOverExtended: 0,
     nearZone: 0, confluenceOk: 0, htfAligned: 0, notInvalidated: 0, cooldownOk: 0,
-    triggerOk: 0, tp2RangeOk: 0, opened: 0,
+    triggerOk: 0, prominenceOk: 0, tp2RangeOk: 0, opened: 0,
   };
 
   const warmup1h  = config.STRUCT_VP_LOOKBACK + config.ATR_PERIOD + 5;
@@ -431,7 +431,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     // for the per-trade evidence behind this.
     const prominenceForGate = core.computePOCProminence(vp1h);
     if (!core.isPOCProminenceTrusted(bestPivot.name, prominenceForGate, config)) continue;
-    funnel.prominenceOk = (funnel.prominenceOk || 0) + 1;
+    funnel.prominenceOk++;
 
     // v10.7 EXPERIMENTAL (off by default — see config.js SL_ATR_MULT_MATRIX):
     // identical lookup to strategy.js, same reasoning: no live/backtest
@@ -668,7 +668,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
         `  ${sym}:`,
         `    scanned=${f.scanned}  voteOk=${f.voteOk}(bull=${f.bullVote}/bear=${f.bearVote})  structureOk=${f.structureOk}`,
         `    notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  confluenceOk=${f.confluenceOk}  htfAligned=${f.htfAligned}`,
-        `    notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}  triggerOk=${f.triggerOk}  tp2RangeOk=${f.tp2RangeOk}  opened=${f.opened}`,
+        `    notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}  triggerOk=${f.triggerOk}  prominenceOk=${f.prominenceOk}  tp2RangeOk=${f.tp2RangeOk}  opened=${f.opened}`,
       ];
     }),
     '',
