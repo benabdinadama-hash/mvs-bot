@@ -396,6 +396,12 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     }
     if (bestScore < 1) continue;
     if (bestPivot.name === 'POC' && bestScore < config.MIN_CONFLUENCE_POC) continue;
+    // v10.12: mirrors the live gate in strategy.js — see config.js
+    // POC_REQUIRE_1H_CONFIRM for rationale. Must stay in sync with the
+    // live file or the backtest stops meaning anything about live
+    // behavior (see this file's own v10.4 fix-log entry about exactly
+    // that class of drift).
+    if (bestPivot.name === 'POC' && config.POC_REQUIRE_1H_CONFIRM && !resolved.agreeing.includes('1H')) continue;
     funnel.confluenceOk++;
 
     const htfCheck = core.checkHTFZoneAlignment(bestFibLevel, cached4h, atr1h, direction, config.HTFZONE_ATR_MULT);

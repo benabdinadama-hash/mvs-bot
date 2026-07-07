@@ -407,6 +407,17 @@ const runStrategy = async (symbol) => {
       return;
     }
 
+    // v10.12: POC pivot without 1H in the agreeing vote is a confirmed
+    // weak segment (168 trades, 58.3% WR, 15 of 18 total SLs in the
+    // report that surfaced this) — gated out entirely now, not just
+    // downsized. See config.js POC_REQUIRE_1H_CONFIRM for the full
+    // rationale and how to A/B it.
+    if (bestPivot.name === 'POC' && config.POC_REQUIRE_1H_CONFIRM && !resolved.agreeing.includes('1H')) {
+      console.log(`  ⚠️ POC pivot without 1H confirmation — historically the weakest segment (83% of SLs in the confirming backtest). Skipping.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'POC_NO1H_GATED' });
+      return;
+    }
+
     const fibPct = bestFibLevel === fib.level618 ? '61.8%' : bestFibLevel === fib.level786 ? '78.6%' : '70% mid-pocket';
     console.log(`  ✅ CONFLUENCE (score ${bestScore}): Fib ${fibPct} ($${bestFibLevel.toFixed(2)}) ↔ ${bestPivot.name} ($${bestPivot.price.toFixed(2)})`);
 
