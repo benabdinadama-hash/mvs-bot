@@ -1,6 +1,50 @@
 [
   {
     "symbol": "BNB-USDT",
+    "barTime": 1783429200,
+    "price": 579.833,
+    "bias1d": "BEARISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
+    "htfAligned": true,
+    "confluenceScore": 2,
+    "confluenceLevel": "78.6%",
+    "confluencePivot": "VAH",
+    "patterns": [],
+    "absorptionVeto": false,
+    "fired": false,
+    "reason": "PATTERNS_0_OF_2",
+    "ts": "2026-07-07T13:15:32.415Z"
+  },
+  {
+    "symbol": "SOL-USDT",
+    "bias1d": "NEUTRAL",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "NEUTRAL",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-07-07T13:15:16.866Z"
+  },
+  {
+    "symbol": "ETH-USDT",
+    "barTime": 1783429200,
+    "price": 1777.03,
+    "fired": false,
+    "reason": "HTF_ZONE_MISMATCH",
+    "ts": "2026-07-07T13:15:14.662Z"
+  },
+  {
+    "symbol": "BNB-USDT",
     "bias1d": "BEARISH",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
