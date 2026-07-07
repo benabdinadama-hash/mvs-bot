@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.13-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.13.1-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -199,6 +199,66 @@ and `config.js` if you want the exact numbers behind each change.
     holds. Worth watching as a possible future "trusted POC" tier once
     more trades accumulate — 8 trades is too few to gate a whole tier on
     by itself.
+- **v10.13.1 — (2026-07-07) CONFIRMED: fresh 360-day backtest run against
+  the deployed v10.13 code — 48 signals (~0.89/wk), 82.6% WR, PF 48.97,
+  only 1 SL in 46 closed trades, +87.2% return at 0.9% max DD. This is
+  the first backtest run since the v10.11-v10.13 changes and confirms
+  the gates did what they were meant to do. Requested a full audit
+  ("every bug, error, mismatch") on top, explicitly to be run WITHOUT
+  touching any strategy threshold — nothing in this entry changes what
+  fires or how it's sized, only correctness/consistency of the code and
+  docs around it:**
+  - **Real bug: new funnel counter was invisible.** v10.13's
+    `funnel.prominenceOk` counter (backtest.js) was incremented via
+    `funnel.prominenceOk = (funnel.prominenceOk || 0) + 1` without ever
+    being declared in the funnel object's initializer, and was never
+    added to the printed funnel-diagnostics line — so the new POC-
+    prominence gate had zero visibility in every backtest report,
+    including the confirmation run above. Fixed: properly initialized
+    and now printed between `triggerOk` and `tp2RangeOk`.
+  - **Stale default parameter.** `core.js` `detectRejection()`'s
+    `soloPatterns` default was still the pre-v10.11 value
+    (`['POC_RECLAIM', 'VAH_VAL_RECLAIM']`) — inert today since both real
+    call sites explicitly pass `config.SOLO_ELIGIBLE_PATTERNS`, but a
+    landmine for any future call site that omits the argument. Updated
+    to match the current config.
+  - **Stale version labels, several files.** Every top-of-file "current
+    version" header (`core.js` still said v10.9, `config.js` v10.9,
+    `strategy.js`/`backtest.js` v10.10, `commands.js`/`weekly-summary.js`
+    v10.10) had been left behind through three full version bumps even
+    though each file's own changelog entries inside stayed current.
+    `package.json`'s version field and description string were also
+    still on v10.10. All bumped to v10.13.
+  - **User-facing stale version string.** The `/about` Telegram command
+    (`commands.js`) hardcoded "(v10.10)" in text actually sent to users —
+    fixed to v10.13.
+  - **Stale backtest numbers in the live bot's Telegram profile.**
+    `setup-bot.js`'s `setMyDescription` call still carried a "STALE v10.6
+    backtest (pre-5TF, needs re-run)" placeholder. Replaced with the real,
+    dated v10.13 360-day numbers from the confirmation run above.
+  - **Minor/cosmetic:** added a clarifying comment in `strategy.js` where
+    the "contested POC" quality-note text is now conditionally
+    unreachable for POC-pivot trades specifically (the v10.13 gate
+    already returns before that line runs, for that one pivot type) —
+    not deleted, since it's still correct and reachable for VAH/VAL
+    trades and for the `POC_PROMINENCE_REQUIRE_DECISIVE=false` fallback.
+  - **Known limitation, not a bug (left as-is):** `weekly-summary.js`'s
+    equity-curve section has been self-documented since v10.6 as
+    permanently empty — it depends on live exit-tracking (polling price
+    against open SL/TP between scans) that doesn't exist yet; this bot
+    alerts, it doesn't monitor open positions. Correctly fails silent
+    rather than fabricating numbers. Flagging again here since a full
+    audit should surface it, but building real exit-tracking is a new
+    feature, not a fix, and wasn't asked for in this pass.
+  - Full audit scope: every `.js` file syntax-checked and require-tested,
+    every cross-file function-call signature checked for drift (`core.js`
+    exports vs. every call site in `strategy.js`/`backtest.js`), every
+    `config.*` key referenced in `strategy.js` cross-checked against
+    `backtest.js` for anything read by one and not the other,
+    `state.json`'s actual saved fields cross-checked against everything
+    `commands.js`'s `/status` reads, `config.js` scanned for duplicate
+    top-level keys (none found). Everything not listed above checked out
+    clean.
 
 ---
 
@@ -613,6 +673,42 @@ suits this system less), could be noise, could be some of both — worth
 watching the next few weeks of live results rather than either dismissing
 it or overreacting to it. The 720-day POC-pivot number (23 of 30 total
 SLs) is the evidence behind the v10.11/v10.12 changes described above.
+
+### Reference snapshot (v10.13, 2026-07-07 — CONFIRMED, current code)
+
+This is the first backtest run against the actual deployed v10.13 code
+(`MIN_CONFLUENCE_POC` reverted to 2, `POC_RECLAIM` off solo-trigger,
+POC/no-1H-confirm gate, POC-prominence gate, POC-migration direction
+fixed) — not a projection, an actual run. 360-day window only (no fresh
+90/720-day runs yet).
+
+| Metric | 360 days |
+|---|---|
+| Signals fired | 48 (~0.89/wk) |
+| Closed trades | 46 (2 still open) |
+| Win rate | 82.6% (38W / 8L) |
+| No-real-loss rate | 97.8% (45 no-loss / 1 real SL, excl. 7 BE scratches) |
+| Profit factor | 48.97 |
+| Total R | 47.97R |
+| Avg win / avg loss | +1.29R / -0.13R |
+| $1,000 → | $1,872.48 (+87.2%) |
+| Max drawdown | 0.9% |
+| POC pivot | 14 trades, 78.6% WR, 1 SL |
+| VAH pivot | 21 trades, 90.5% WR, 0 SL |
+| VAL pivot | 11 trades, 72.7% WR, 0 SL |
+
+Frequency (~0.89/wk) sits below the original 2-3/week target — this is
+the direct, expected cost of stacking four quality gates in one session
+(v10.11's two changes plus v10.12's and v10.13's gates) on top of each
+other without re-checking in between. Only 1 real SL across 46 closed
+trades either means the gates are doing exactly their job, or that a
+0.89/wk sample is still too thin to fully trust yet, or (most likely)
+some of both — worth confirming against a fresh 90-day and 720-day run
+before treating 82.6% WR as the new normal. If frequency needs to come
+back up toward 2-3/week, the honest levers are the ones documented at
+each gate above (`POC_REQUIRE_1H_CONFIRM`, `POC_PROMINENCE_REQUIRE_DECISIVE`,
+`MIN_CONFLUENCE_POC`) — not a new gate, one of the existing ones dialed
+back with a fresh backtest to confirm the trade-off.
 
 ---
 
