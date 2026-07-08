@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-08T01:45:36.714Z",
+  "_lastRunAt": "2026-07-08T02:00:47.910Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
@@ -57,15 +57,27 @@
     "updatedAt": "2026-07-07T18:45:27.821Z"
   },
   "BTC-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 63163.9,
+    "signal": "SCANNED",
+    "price": 62993.4,
+    "direction": "SELL",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
     "bias1d": "BEARISH",
     "bias4h": "BULLISH",
-    "bias1h": "BULLISH",
-    "bias30m": "NEUTRAL",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-08T01:45:15.395Z"
+    "poc": 62076.1525,
+    "vah": 63532.5195,
+    "val": 62076.1525,
+    "swingHigh": 64701,
+    "swingLow": 61314.1,
+    "atr1h": 439.3757068622299,
+    "updatedAt": "2026-07-08T02:00:25.571Z"
   },
   "POL-USDT": {
     "signal": "SCANNED",
@@ -136,21 +148,15 @@
     "updatedAt": "2026-07-07T23:30:43.179Z"
   },
   "TRX-USDT": {
-    "signal": "SCANNED",
-    "price": 0.3197,
-    "direction": "BUY",
-    "voteTally": "2/3",
-    "agreeing": [
-      "1H",
-      "15m"
-    ],
-    "poc": 0.319656,
-    "vah": 0.324648,
-    "val": 0.317056,
-    "swingHigh": 0.3247,
-    "swingLow": 0.3143,
-    "atr1h": 0.0008442297757306338,
-    "updatedAt": "2026-07-03T09:45:34.194Z"
+    "signal": "NO_AGREEMENT",
+    "direction": null,
+    "price": 0.3302,
+    "bias1d": "NEUTRAL",
+    "bias4h": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "updatedAt": "2026-07-08T02:00:45.711Z"
   },
   "AVAX-USDT": {
     "signal": "SCANNED",
