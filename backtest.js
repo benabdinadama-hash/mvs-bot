@@ -44,6 +44,17 @@ const fs     = require('fs');
 const path   = require('path');
 const config = require('./config');
 const core   = require('./core');
+// v10.14: package.json is now the ONE place the version string lives.
+// Every report header / console log below reads MVS_VERSION instead of
+// its own hardcoded literal — this is the direct fix for a bug class
+// that kept recurring across v10.9-v10.13 (stale "v10.X" strings left
+// behind in half a dozen files after every version bump). Doesn't
+// eliminate the problem everywhere (strategy.js/core.js/config.js file
+// headers are still literal comments, since requiring package.json
+// there for a comment isn't worth the coupling) but it does fix it
+// permanently for the two places most likely to be visibly wrong to an
+// actual reader: the backtest report and its console log.
+const MVS_VERSION = require('./package.json').version;
 
 // ── CLI args ─────────────────────────────────────────────────────────────
 const rawArgs = process.argv.slice(2);
@@ -539,7 +550,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
-    ' MVS v10.10 — BACKTEST REPORT',
+    ` MVS v${MVS_VERSION} — BACKTEST REPORT`,
     ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
     ' 1D+4H+1H+30m+15m — 3-of-5 timeframe vote (1H zone, 15m trigger)',
     '═══════════════════════════════════════════════════════════════════',
@@ -625,7 +636,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
 //  MAIN
 // ─────────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`\n🔬 MVS v10.10 Backtest — ${symbols.length} symbol(s), ${days} days\n`);
+  console.log(`\n🔬 MVS v${MVS_VERSION} Backtest — ${symbols.length} symbol(s), ${days} days\n`);
 
   const allTrades = [];
   const funnelsBySymbol = {};

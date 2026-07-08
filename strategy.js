@@ -59,6 +59,9 @@ const axios  = require('axios');
 const fs     = require('fs');
 const path   = require('path');
 const config = require('./config');
+// v10.14: single source of truth for the version string — see backtest.js's
+// identical comment for why this exists (recurring stale-version-string bug).
+const MVS_VERSION = require('./package.json').version;
 const core   = require('./core');
 const { checkOpenPositions } = require('./position-tracker');
 
@@ -249,7 +252,7 @@ const isDuplicateRun = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v10.14 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v${MVS_VERSION} scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -666,7 +669,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v10.14*
+⚡ *MVS v${MVS_VERSION}*
     `.trim();
 
     const sendResult = await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -729,9 +732,20 @@ risk capital you can't afford to lose on a single position.
 //  BOOT
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('');
-console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v10.14                         ║');
-console.log('║   1D+4H+1H+30m+15m — 3-of-5 vote (1H zone, 15m trigger)      ║');
+const boxBorder = '╔══════════════════════════════════════════════════════════════╗';
+console.log(boxBorder);
+{
+  // v10.14: version is now dynamic (package.json) — width and padding
+  // both computed at runtime (from the border line's own length) instead
+  // of hand-counted, so the box can't silently misalign the next time
+  // the version string's length changes (e.g. "10.9.0" vs "10.14.0").
+  const interiorWidth = [...boxBorder].length - 2; // minus the ╔ and ╗ chars
+  const line1 = `MVS — Monthly Value Sniper v${MVS_VERSION}`;
+  const line2 = '1D+4H+1H+30m+15m — 3-of-5 vote (1H zone, 15m trigger)';
+  const pad = (s) => '   ' + s + ' '.repeat(Math.max(0, interiorWidth - 3 - [...s].length));
+  console.log(`║${pad(line1)}║`);
+  console.log(`║${pad(line2)}║`);
+}
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);
 console.log(`   TFs     : 1D(${config.DAILY_VP_LOOKBACK}) / 4H(${config.BIAS_VP_LOOKBACK}) / 1H(${config.STRUCT_VP_LOOKBACK}) / 30m(${config.HALF_VP_LOOKBACK}) / 15m(${config.TRIGGER_VP_LOOKBACK})`);
