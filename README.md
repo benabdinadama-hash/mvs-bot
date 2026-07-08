@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.13.1-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.14-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -259,6 +259,89 @@ and `config.js` if you want the exact numbers behind each change.
     `commands.js`'s `/status` reads, `config.js` scanned for duplicate
     top-level keys (none found). Everything not listed above checked out
     clean.
+- **v10.14 — (2026-07-07) live position tracking, MNT-USDT added, a full
+  second audit pass, and a direct answer on "close to 100% win rate."**
+  - **On the 100% win rate goal, directly:** no real trading system runs
+    at or near 100% WR — not this one, not any other, on any market. A
+    win rate that high on live/backtest data almost always means one of:
+    the sample is too small to have hit a loss yet (this bot's own
+    82.6%-WR run above is 46 closed trades — encouraging, not proof),
+    the backtest is curve-fit to its own history and will underperform on
+    new data, or the stop-loss is so wide that "wins" are actually just
+    small losses relabeled. This pass did NOT chase that number — every
+    change below is either a genuine bug/mismatch fix or a
+    change explicitly requested (position tracking, MNT-USDT), not a new
+    threshold tightened purely to inflate a backtest win rate. If a future
+    change trades real frequency for a shinier win-rate number without
+    replicated evidence behind it, that's the pattern to be suspicious of,
+    including from a future version of this bot.
+  - **Live position tracking, built.** New `position-tracker.js` — see
+    the dedicated "Live Position Tracking" section above for the full
+    mechanism. No dedicated server: it rides the existing 15-min scan
+    cron. `core.js` gained a new shared `evaluateOpenTrade()` function,
+    extracted from `backtest.js`'s inline trade-management loop so live
+    tracking and backtest simulation share one implementation instead of
+    two that could drift. New `MAX_HOLD_1H_BARS` config constant replaces
+    a bare `200` that was hardcoded in that loop. New file:
+    `open-positions.json`.
+  - **MNT-USDT (Mantle) added** to `config.js SYMBOLS` — 14 tracked pairs
+    now, up from 13. Every hardcoded "13" reference across
+    `commands.js`, `config.js` comments, `setup-bot.js`, `package.json`,
+    and this README updated to 14.
+  - **Two direct questions answered, and the docs fixed to match:**
+    - *"There are only 2 patterns?"* — no: 5 rejection patterns exist
+      (POC_RECLAIM, VAH_VAL_RECLAIM, PIN_BAR, ENGULFING,
+      CLOSE_REJECTION). `REJECTION_MIN_PATTERNS: 2` means 2-of-those-5
+      must show up on the trigger candle, not that only 2 patterns are
+      checked. The `PATTERNS_N_OF_2` diag-log reason was genuinely easy
+      to misread this way — N is how many of the 5 fired, not a total
+      count. Clarified in the walkthrough and Rejection Patterns section.
+    - *"Which TF does 'HTF' mean in the diag log?"* — 4H, specifically
+      (the STEP 5 zone cross-check). Fair question given the field name
+      alone didn't say — renamed `htfAligned` → `htf4hAligned`
+      (`strategy.js`, `diag.log.json` going forward) and the funnel
+      counter/reason string in `backtest.js`/`strategy.js` to match
+      (`HTF_ZONE_MISMATCH` → `HTF_4H_ZONE_MISMATCH`), instead of just
+      documenting the ambiguity and leaving the confusing name in place.
+  - **Real bug, found and fixed: dead code in `strategy.js`'s Telegram
+    send helper.** `sendSafe()` had `return null;` sitting immediately
+    after an unconditional `return { success: false, ... }` one line
+    above it — unreachable, harmless, but genuine leftover cruft from an
+    earlier edit. Removed.
+  - **Real bug, found and fixed: `/positions` told users the opposite of
+    what's now true.** It said "MVS is signal-only — it does not place or
+    track live trades," which was accurate through v10.13 but is
+    contradicted by the position-tracker.js this version ships. Rewritten
+    to show real tracked-position state and describe what tracking does
+    and doesn't mean (still no order placement — see "Live Position
+    Tracking" above for the exact boundary). Same fix applied to the
+    `/help` menu text and the command-list header comment, which had the
+    same stale claim.
+  - **Architecture fix: the STEP 4 / STEP 6b gate split was itself a
+    mismatch.** Auditing this pass surfaced that the v10.13 POC-prominence
+    gate had been sitting deep inside the Telegram-alert-building step
+    (after SL/TP calculation) in `strategy.js`, while its sibling gate
+    (POC_REQUIRE_1H_CONFIRM, v10.12) correctly sat right in the confluence
+    check step — meaning a contested-POC setup still paid for a full SL/TP
+    calculation before being thrown away, AND the two gates the docs
+    described as a matched pair actually lived in different parts of the
+    pipeline. Relocated the prominence gate to sit immediately next to its
+    sibling gate in both `strategy.js` AND `backtest.js` (which needed the
+    identical relocation to stay in sync) — pure reordering, no threshold
+    changed, so this does not affect which signals fire, only how early
+    a rejected one gets rejected. Funnel diagnostics reordered to match.
+  - **Full walkthrough rewrite.** The "Entry Logic (Step-by-Step)" section
+    below had drifted since roughly v10.10 — STEP 1 still described
+    fetching only 4H/1H/15m (pre-5TF), and by v10.12/v10.13 the STEP
+    numbers no longer matched `strategy.js`'s actual `STEP N` code
+    comments at all (a "STEP 6a/6b" existed against a "STEP 6" that
+    wasn't the code's real step 6). Rewritten to match the code exactly,
+    with a note on how to re-verify it (`grep -n "STEP [0-9]"
+    strategy.js`) the next time a gate moves.
+  - Not touched, on purpose: every backtest threshold, gate condition, and
+    config default from v10.11-v10.13 — this pass was fixes, tracking,
+    and documentation, not a strategy change, so the confirmed 82.6% WR /
+    360-day backtest from the previous entry should still be reproducible.
 
 ---
 
@@ -330,7 +413,7 @@ Fibonacci, cross-checked across three timeframes.
 
 Direction requires 3-of-5 timeframes to agree (see core.js: resolveDirection(),
 config.MIN_TF_AGREE). The 1H zone still has to align with a 4H structural level
-(HTF zone cross-check), and the 15m candle still has to show a real rejection
+(HTF — Higher TimeFrame, meaning 4H specifically — zone cross-check), and the 15m candle still has to show a real rejection
 pattern in that 1H zone — the vote is an added agreement gate, not a
 replacement for the structural checks. 1H still supplies the structural zone
 and 15m still supplies the trigger candle, exactly as before — only the
@@ -385,7 +468,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 
 | Signal | Condition | Action |
 |--------|-----------|--------|
-| **A1** Golden Zone | Fib 60–80% pocket overlaps POC, VAH, or VAL within ATR×0.85 | Confluence found. Proceed to HTF check. |
+| **A1** Golden Zone | Fib 60–80% pocket overlaps POC, VAH, or VAL within ATR×0.85 | Confluence found. Proceed to HTF (4H) check. |
 | **A2** Structural Remap | Price breaks the 1H STRUCT_FIB_LOOKBACK-bar swing high/low | All previous zones VOID. Wait for recalculation. |
 | **A3** Zone Expiry | No Fib/POC/VAH/VAL confluence found | Silent reset. Wait for next scan. |
 
@@ -409,6 +492,19 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **C3** TP2 Hit | Runner half reaches TP2 (1H VAH for BUY / VAL for SELL — the value-area edge) | Full exit. Both halves realized. |
 | **C4** SL Hit | Price breaches swing wick ± 0.25×ATR (before TP1) | Full loss on the position. Position-size tiering (see below) already discounts the segments most likely to end here. |
 | **C5** TP1+BE | TP1 already banked, then runner half stops out at breakeven | Net result: still a real win (≈half of TP1's R), not a scratch — the 50% banked at TP1 doesn't go away. |
+
+> **v10.14 note:** table C1-C5 above describes the RULES this bot uses to
+> decide what "closed" means — as of v10.14 those rules are also
+> **checked automatically, live**, by `position-tracker.js`, which runs
+> at the start of every scan and replays real KuCoin candle history since
+> each signal's entry through the same logic backtest.js uses (see that
+> file's header). This closes the loop that used to only exist in
+> backtest simulation. It does NOT place, modify, or close anything on
+> an exchange — it only determines, after the fact, whether your
+> declared SL/TP1/TP2 would have been hit, and logs that outcome so
+> `/positions`, `/status`, and the weekly equity curve reflect real
+> results instead of staying silent. You still place and manage the
+> actual order yourself.
 
 > **v10.5 note:** TP1 used to be a full, instant close — the code checked
 > "did the far target get hit" *before* checking "did TP1 get hit," so in
@@ -465,7 +561,7 @@ removed overfit filters).
 **Generate a current, honest number yourself:**
 
 ```bash
-node backtest.js                    # all 13 symbols, config.BACKTEST_DAYS
+node backtest.js                    # all 14 symbols, config.BACKTEST_DAYS
 ```
 
 The report (`backtest-report.txt`) prints signals/week, win rate, no-loss
@@ -481,96 +577,176 @@ smaller sample size or a single lucky stretch can do that too.
 This mirrors `runStrategy()` in `strategy.js`, which calls the shared
 functions in `core.js` — the backtest replays the identical sequence.
 
+> **v10.14 note:** this walkthrough's STEP numbers used to drift out of
+> sync with the actual code every time a gate got added or moved —
+> STEP 1 was still describing the pre-v10.10 3-timeframe fetch, and by
+> v10.12/v10.13 the POC gates were labeled "STEP 6a/6b" against a "STEP 6"
+> that didn't exist in the code (the real confluence check was STEP 4).
+> Rewritten below to match `strategy.js`'s actual `STEP N` comments
+> exactly, line for line — if this ever drifts again, the `grep -n
+> "STEP [0-9]" strategy.js` command is the fastest way to check.
+
 ```
-STEP 1:  Fetch 4H (200 bars), 1H (500 bars), and 15m (500 bars) klines from KuCoin.
-STEP 2:  Three-way bias vote — each timeframe casts BULLISH/BEARISH/NEUTRAL
-         via the same POC+VAH+VAL+Fib50 4-pillar vote (core.tfBiasVote).
-         Resolve direction: need 3-of-5 timeframes to agree (core.resolveDirection,
-         config.MIN_TF_AGREE — v10.10: 1D/4H/1H/30m/15m, was 4H/1H/15m 2-of-3).
-         < 2 agree → D5 stop. No entry this scan.
-STEP 3:  1H structure: get the swing/Fib pocket this vote's timeframes used.
-         Price broke the 1H swing entirely → structural remap alert, stop.
-STEP 4:  D4 check — price already beyond 1H Fib 88.6%? → over-extended, stop.
-STEP 5:  Early zone-proximity skip — save compute if price isn't near the pocket.
-STEP 6:  1H Confluence Check — does the 60–80% Fib pocket overlap 1H POC, VAH,
-         or VAL? Score >= 1 (within ATR×0.85) required for VAH/VAL; POC
-         entries need score >= 2 (tight alignment — reverted back from
-         score >= 1 in v10.11 once the 720-day backtest confirmed POC's
-         win rate had degraded at the looser threshold; see changelog).
-         No confluence → stop.
-STEP 6a: POC / 1H-confirm gate (v10.12) — if the pivot is POC AND 1H is
-         NOT one of the 3+ agreeing timeframes, stop here (`POC_NO1H_GATED`).
-         This was previously just a 0.75x size cut (`RISK_TIER_MATRIX`);
-         it's a hard skip now, since this segment owned 15 of 18 total
-         SLs (83%) in the report that surfaced it. Toggle:
-         `config.POC_REQUIRE_1H_CONFIRM`.
-STEP 6b: POC prominence gate (v10.13) — if the pivot is POC AND its
-         volume peak doesn't clearly beat its neighboring price rows
-         (prominenceRatio < 1.5), stop here (`POC_PROMINENCE_GATED`).
-         Was previously just an 0.8x size cut; per-trade analysis of two
-         backtest windows showed a ~10pp win-rate gap (decisive ≈60% WR
-         vs. contested ≈49% WR), so it's a hard skip now too. Toggle:
-         `config.POC_PROMINENCE_REQUIRE_DECISIVE`.
-STEP 7:  4H Zone Cross-Check — is the 1H entry price near a 4H structural
-         level (POC/VAH/VAL/Fib50%, tolerance ATR×4.0, same both directions)?
-         No → D6 block, stop.
-STEP 8:  Zone Invalidation — did the 1H close THROUGH the zone by > ATR×1.0?
-         Yes → discard zone, stop.
-STEP 9:  Signal Cooldown — signal fired this direction in the last 3 × 1H bars?
-         Yes → suppress, stop.
-STEP 10: 15m Trigger — check the last closed 15m candle inside the 1H zone
-         for 2-of-5 patterns (POC_RECLAIM, VAH_VAL_RECLAIM, PIN_BAR,
-         ENGULFING, CLOSE_REJECTION). Absorption veto active → stop.
-         < 2 patterns AND no solo-eligible pattern alone → wait, no signal yet.
-STEP 11: TD Sequential "9" check (v10.6, informational/sizing only) — does
-         a fresh 9-count exhaustion signal (Tom DeMark, pure price
-         comparison, non-lagging) agree with this direction on 1H? If yes,
-         suggested position size gets a bounded upward adjustment (never
-         above 100%, never a gate — see config.js TD9_BOOST_MULT).
-STEP 11a: POC quality checks (v10.8, live by default as of v10.9, POC
-         pivot only — VAH/VAL untouched):
-           • Prominence: is POC's volume a clear peak vs its neighbor
-             rows, or a barely-won, contested price? As of v10.13 this is
-             a GATE (see STEP 6b above), not just sizing — already
-             screened out by the time execution reaches here.
-           • Migration: has POC drifted toward this trade's direction
-             across recent windows, or is it static/noisy? As of v10.13
-             this is now a PENALTY when it confirms direction (the v10.8
-             theory had this backwards — see changelog) — still
-             size-only, not a gate.
-           • Naked POC: does an untested prior-window POC sit near the
-             current one (two profiles agreeing)? Unchanged, still
-             size-only — no data yet to confirm or refute this one (see
-             v10.13 changelog note).
-         See config.js POC_PROMINENCE_*/POC_MIGRATION_*/NAKED_POC_* and
-         core.js computePOCQualityMultiplier() / isPOCProminenceTrusted()
-         for the exact mechanism.
-STEP 12: Calculate SL / TP (v10.5: two real targets, not three — see below)
+STEP 1:  Fetch all FIVE timeframes — 1D (config.DAILY_VP_LOOKBACK bars),
+         4H, 1H, 30m, and 15m — from KuCoin in parallel.
+STEP 2:  Five-timeframe bias vote — each timeframe casts BULLISH/BEARISH/
+         NEUTRAL via the same POC+VAH+VAL+Fib50 4-pillar vote
+         (core.tfBiasVote). 1D and 4H are optional (null if too little
+         history — doesn't crash the scan, just removes a possible vote).
+         Resolve direction: need config.MIN_TF_AGREE (3) of these 5 to
+         agree (core.resolveDirection). Fewer than 3 agree → D5 stop, no
+         entry this scan — state.json still updates with the current bias
+         breakdown either way (v10.10 fix, so /status is never more than
+         one scan stale).
+STEP 3:  1H structure — get the swing/Fib pocket from the 1H bias vote.
+           • Price broke the 1H swing entirely → structural remap alert, stop.
+           • Price already beyond 1H Fib 88.6% → D4 over-extended, stop.
+           • Price not within ATR×config.NEAR_ZONE_ATR_MULT of the zone
+             → wait silently (no diag log entry — this is the single most
+             common "nothing happened" case on any given scan; see
+             Troubleshooting below if this is confusing you in the logs).
+STEP 4:  1H Confluence Check — does the 60–80% Fib pocket overlap 1H POC,
+         VAH, or VAL? Score >= 1 (within ATR×config.CONFLUENCE_ATR_MULT)
+         required for VAH/VAL; POC entries need score >= 2 (tight
+         alignment — reverted back from score >= 1 in v10.11 once the
+         720-day backtest confirmed POC's win rate had degraded at the
+         looser threshold; see changelog). No confluence → stop.
+           • POC / 1H-confirm gate (v10.12): if the pivot is POC AND 1H
+             is NOT one of the 3+ agreeing timeframes, stop
+             (`POC_NO1H_GATED`). Toggle: `config.POC_REQUIRE_1H_CONFIRM`.
+           • POC prominence gate (v10.13, relocated here in v10.14 — see
+             note below): if the pivot is POC and its volume peak doesn't
+             clearly beat neighboring price rows (prominenceRatio < 1.5),
+             stop (`POC_PROMINENCE_GATED`). Toggle:
+             `config.POC_PROMINENCE_REQUIRE_DECISIVE`.
+STEP 5:  4H Zone Cross-Check ("HTF" in the diag log / field names means
+         4H specifically, not "any higher timeframe" — renamed the field
+         itself to `htf4hAligned` in v10.14 since this was a fair point of
+         confusion) — is the 1H entry price near a 4H structural level
+         (POC/VAH/VAL/Fib50%, tolerance ATR×config.HTFZONE_ATR_MULT, same
+         both directions)? No → D6 block, stop.
+STEP 6:  Zone Invalidation — did the 1H close THROUGH the zone by more
+         than ATR×config.ZONE_INVALIDATION_ATR_MULT? Yes → discard zone, stop.
+STEP 7:  Signal Cooldown — signal fired this direction in the last
+         config.SIGNAL_COOLDOWN_BARS × 1H bars? Yes → suppress, stop.
+STEP 8:  15m Trigger — check the last closed 15m candle inside the 1H
+         zone for config.REJECTION_MIN_PATTERNS (2) of the 5 available
+         patterns (POC_RECLAIM, VAH_VAL_RECLAIM, PIN_BAR, ENGULFING,
+         CLOSE_REJECTION) — **there are 5 patterns checked, not 2; "2" is
+         how many of those 5 must show up on the trigger candle** (or one
+         solo-eligible pattern alone — currently VAH_VAL_RECLAIM or
+         CLOSE_REJECTION; see config.SOLO_ELIGIBLE_PATTERNS). Absorption
+         veto active → stop. Fewer than required AND no solo-eligible
+         pattern alone → wait, no signal yet (`PATTERNS_N_OF_2` in the
+         diag log — N is how many of the 5 actually fired, not a total
+         pattern count).
+STEP 9:  Calculate SL / TP (v10.5: two real targets, not three — see below)
          Entry: best 1H Fib/POC/VAH/VAL confluence level
-         SL:    1H swing wick ± 0.25 × ATR (or ± SL_ATR_MULT_MATRIX's
-                per-pivot override — v10.7, off by default, untested)
-         TP1:   max(50% Fib, entry + 1.2R) — closes 50% of position, moves
-                remaining SL to entry (breakeven)
+         SL:    1H swing wick ± config.SL_ATR_MULT × ATR (or ±
+                SL_ATR_MULT_MATRIX's per-pivot override — v10.7, off by
+                default, untested)
+         TP1:   max(50% Fib, entry + config.TP1_RR_FLOOR R) — closes 50%
+                of position, moves remaining SL to entry (breakeven)
          TP2:   1H VAH (BUY) / VAL (SELL) — the runner's target for the
-                other 50%, must clear TP1 by ≥ 0.25R or the setup is
-                skipped (this floor is why TP2 is actually reachable now —
-                see the v10.5 note under Signal Taxonomy above)
-STEP 13: Fire Telegram alert (shows which TFs agreed, entry/SL/TP1/TP2,
-         suggested size — including which of the above factors moved it
-         off 100%, TD9 status if it fired).
-         Save state.json + signals.log.json (newest-first as of v10.9 —
-         see "Log File Ordering" below).
+                other 50%, must clear TP1 by ≥ config.TP2_MIN_EXTENSION_RR
+                or the setup is skipped (this floor is why TP2 is actually
+                reachable now — see the v10.5 note under Signal Taxonomy above)
+STEP 10: Build and fire the Telegram alert (which TFs agreed, entry/SL/
+         TP1/TP2, suggested size). Along the way (not gates, sizing/info
+         only):
+           • TD Sequential "9" (v10.6) — 1H exhaustion signal agrees with
+             direction? Bounded upward size adjustment only, never a gate.
+           • POC quality notes (v10.8/v10.9, POC pivot only) — migration
+             (as of v10.13: PENALTY when it confirms trade direction — the
+             original v10.8 theory had this backwards, see changelog) and
+             naked-POC alignment (unconfirmed either way — no trades with
+             this factor present in either backtest window reviewed so
+             far). Both size-only, not gates. Prominence is NOT re-checked
+             here — it's already a gate back in STEP 4.
+         Save state.json + signals.log.json (newest-first as of v10.9)
+         + open-positions.json (v10.14 — see below).
+
+Separately, at the very START of every scan (before STEP 1 for any
+symbol), position-tracker.js checks every currently-open position against
+real KuCoin candle history and logs an exit if one closed — see
+"Live Position Tracking" below for the full mechanism.
 ```
 
 ---
 
-## Backtest Results
+## Live Position Tracking (v10.14)
+
+Through v10.13, this bot was alert-only: it told you a signal fired, and
+that was the end of its involvement. Nothing ever checked what happened
+next, so the equity curve in the weekly summary was always empty — a
+known, documented gap, not a silent bug (see the v10.13.1 changelog entry
+if you want the exact history of that gap being flagged).
+
+**`position-tracker.js` closes that gap, with one hard constraint kept
+throughout: no dedicated server, no new hosting cost.** It doesn't poll
+continuously — it runs once at the very start of every existing 15-min
+scan (`mvs-scan.yml` already invokes `strategy.js` on that cadence;
+`checkOpenPositions()` is just called first, before any new-signal
+scanning). Zero new infrastructure, zero new GitHub Actions workflow.
+
+How it stays accurate on a 15-minute cadence instead of continuous
+polling: for every open position, it re-fetches **all** 15m candles from
+that position's entry time up to now (KuCoin's per-request limit is 1500
+candles — comfortably more than the ~800 a full `MAX_HOLD_1H_BARS` hold
+needs) and replays them one-by-one through `core.js`'s
+`evaluateOpenTrade()` — the exact same function `backtest.js` uses for
+simulation. So even on a 15-minute check-in, it isn't just looking at the
+current price; it's replaying the full candle-by-candle history since
+entry, so a SL/TP1/TP2 touch on any candle between two scans is still
+caught, in the correct order, using the same high/low-based hit logic the
+backtest already trusts. This is also why `evaluateOpenTrade()` was
+extracted out of `backtest.js` and into `core.js` in this same pass —
+one function, shared, instead of two copies that could quietly drift
+apart the way other logic in this repo has before.
+
+**Stateless by design.** `open-positions.json` stores only the ORIGINAL,
+unmutated trade parameters (entry/SL/TP1/TP2/direction/entry time) — it
+never persists which candles have already been checked, or whether TP1
+has already banked. Every run clones a fresh copy of those original
+parameters and replays from entry time forward. This costs a bit of
+redundant computation each cycle (re-checking candles that were already
+checked last run) but buys real robustness: there's no "the tracker's own
+persisted state quietly drifted from what the candles actually say"
+failure mode, because there is no persisted intermediate state to drift.
+
+**What it does and doesn't do:**
+- Does: determine whether your declared SL/TP1/TP2 would have been hit,
+  log the outcome (result, exit price, R, hours held) back onto the
+  *original* `signals.log.json` entry for that signal (matched by symbol
+  + entry time — not a new row, the same row the alert used), update
+  `state.json`, and send a Telegram notification when a position closes.
+- Does NOT place, modify, or cancel any order on KuCoin or any exchange.
+  It has no execution capability at all — it only tells you, after the
+  fact, what would have happened if you took the trade at the alerted
+  levels. You still decide your own entry and manage your own order.
+- One open position per symbol is the model tracked (matches
+  `state.json`'s existing one-entry-per-symbol shape). If a fresh signal
+  would otherwise fire for a symbol that already has a tracked position
+  open, it's skipped (`POSITION_ALREADY_OPEN` in the diag log) rather
+  than silently overwritten — rare in practice given
+  `SIGNAL_COOLDOWN_BARS`, but possible with an opposite-direction signal.
+
+**Commands:** `/positions` now shows real tracked state (🟢 OPEN with
+entry time, or the last closed result) instead of just "last active
+signal." `/status` is unaffected for still-open positions; once a
+position closes, its `state.json` entry gets `signal: 'CLOSED_<result>'`
+plus the exit fields.
+
+**New file:** `open-positions.json` — created automatically the first
+time a signal fires after v10.14 is deployed; starts as `{}`.
+
+
 
 Run it yourself — numbers below are illustrative of *how to read the
 report*, not a performance claim:
 
 ```bash
-node backtest.js                    # all 13 symbols, config.BACKTEST_DAYS (360)
+node backtest.js                    # all 14 symbols, config.BACKTEST_DAYS (360)
 node backtest.js SOL-USDT 180       # single symbol, custom window
 ```
 
@@ -862,7 +1038,7 @@ mvs-bot/
 | KuCoin returns empty data | Temporary API issue | Wait a few minutes and re-run. KuCoin public API has occasional timeouts |
 | Actions tab shows no runs | Workflows not enabled | Go to repo → Actions tab → enable workflows |
 | Want to test WITHOUT the solo-trigger rule | `ALLOW_SOLO_TRIGGER` defaults to `true` in `config.js` (it's a net-positive rule for the reclaim/close-rejection patterns per backtest data, so it's on by default — see `config.js` for the exact patterns and reasoning) | Set to `false`, or run `ALLOW_SOLO_TRIGGER=false node backtest.js`, and compare the funnel/win-rate against the default before disabling live |
-| Backtest feels slow | 360+ day backtest across 13 symbols fetches and replays a lot of 15m data | Normal — expect low tens of seconds per symbol depending on connection. Run a single symbol (`node backtest.js SOL-USDT`) while iterating on config changes |
+| Backtest feels slow | 360+ day backtest across 14 symbols fetches and replays a lot of 15m data | Normal — expect low tens of seconds per symbol depending on connection. Run a single symbol (`node backtest.js SOL-USDT`) while iterating on config changes |
 | A workflow shows as "disabled" in the Actions tab | Genuine 60-day gap where all of a workflow's triggers failed (rare — `keepalive.yml` exists specifically to prevent this) | Click into the workflow → **Enable workflow**, or just push any commit to the repo, which re-enables all previously auto-disabled scheduled workflows |
 
 ---
