@@ -56,8 +56,8 @@ jobs:
             echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'"}' > state.json
           fi
 
-          git add .ping.json state.json signals.log.json diag.log.json 2>/dev/null || true
-          git update-index --add state.json .ping.json 2>/dev/null || true
+          git add .ping.json state.json signals.log.json diag.log.json open-positions.json 2>/dev/null || true
+          git update-index --add state.json .ping.json open-positions.json 2>/dev/null || true
 
           if git diff --cached --quiet && git diff --staged --quiet; then
             echo "Nothing to commit."

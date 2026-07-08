@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       symbol:
-        description: 'Symbol(s), comma-separated (leave blank for all 13 pairs in config.js)'
+        description: 'Symbol(s), comma-separated (leave blank for all pairs in config.js SYMBOLS)'
         required: false
       days:
         description: 'Days to backtest (leave blank for config.BACKTEST_DAYS)'
