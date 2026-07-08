@@ -1,7 +1,25 @@
 name: MVS Commands
 
+# v10.14.1 FIX: this workflow only had `workflow_dispatch: {}`, relying
+# entirely on cron-job.org's external ping every 5 min — with NO native
+# GitHub `schedule:` backup. mvs-scan.yml has explicitly carried a native
+# schedule fallback since it was first written, with its own comment
+# spelling out exactly why: "if cron-job.org has an outage, its token
+# expires, or its ping silently stops." That exact failure mode applies
+# here too, and this file was missing the fix — Telegram commands
+# (/status, /positions, etc.) would stop being answered with zero error
+# visible anywhere, indistinguishable from "the bot is broken." Added the
+# same backup pattern now.
 on:
-  workflow_dispatch: {}   # Triggered by cron-job.org every 5 min
+  workflow_dispatch: {}   # Triggered by cron-job.org every 5 min (primary)
+  schedule:
+    # Backup trigger, native to GitHub — fires on its own schedule even if
+    # cron-job.org has an outage, its token expires, or its ping silently
+    # stops. Slightly slower cadence than the 5-min primary (GitHub's own
+    # scheduler can also lag under load, and this is a safety net, not
+    # the main path) — still closes the gap from "commands never answered
+    # again" down to "answered a few minutes late, worst case."
+    - cron: '*/10 * * * *'
 
 concurrency:
   group: mvs-commands
