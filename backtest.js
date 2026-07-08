@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.13.1
+ *  MVS — BACKTESTER (backtest.js)  v10.14
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -155,8 +155,8 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
 
   const funnel = {
     scanned: 0, voteOk: 0, bullVote: 0, bearVote: 0, structureOk: 0, notOverExtended: 0,
-    nearZone: 0, confluenceOk: 0, htfAligned: 0, notInvalidated: 0, cooldownOk: 0,
-    triggerOk: 0, prominenceOk: 0, tp2RangeOk: 0, opened: 0,
+    nearZone: 0, prominenceOk: 0, confluenceOk: 0, htf4hAligned: 0, notInvalidated: 0,
+    cooldownOk: 0, triggerOk: 0, tp2RangeOk: 0, opened: 0,
   };
 
   const warmup1h  = config.STRUCT_VP_LOOKBACK + config.ATR_PERIOD + 5;
@@ -213,88 +213,16 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     while (ptr30m < data30m.length - 1 && data30m[ptr30m + 1].time <= bar.time) { ptr30m++; advanced30m = true; }
 
     // ── OPEN TRADE MANAGEMENT (checked every 15m tick for tighter fills) ──
-    // v10.5 REDESIGN — see core.js/backtest.js header for the full story.
-    // Old behavior: TP1 caused an INSTANT FULL CLOSE, checked only after
-    // TP2 was confirmed not-yet-hit — so in ordinary gradual price moves,
-    // TP1 always closed the whole trade before TP2/TP3 got a chance. TP2/
-    // TP3 only fired on single-candle gap-throughs. New behavior: TP1 is
-    // a genuine 50% partial exit that arms a hard breakeven stop for the
-    // runner half, which then targets TP2 (the former TP3 — 1H VAH/VAL).
+    // v10.14: this used to be ~65 lines of inline logic here. Extracted to
+    // core.js evaluateOpenTrade() so live position-tracker.js can run the
+    // EXACT same rules against real KuCoin data between scans, instead of
+    // this bot being alert-only with no way to ever know how a signal
+    // actually played out. See core.js for the full mechanics writeup.
     if (openTrade) {
-      // Layer 1 (unchanged from prior versions): halfway-to-TP1 early
-      // breakeven protection. This is independent of the TP1 partial-exit
-      // logic below — it's what converts "reached halfway then reversed"
-      // into a scratch (BE) instead of a full loss (SL), for trades that
-      // never make it all the way to TP1 in the first place.
-      if (!openTrade.beMoved) {
-        const halfway = openTrade.direction === 'BUY'
-          ? openTrade.entryPrice + (openTrade.tp1Price - openTrade.entryPrice) * 0.5
-          : openTrade.entryPrice - (openTrade.entryPrice - openTrade.tp1Price) * 0.5;
-        const reached = openTrade.direction === 'BUY' ? bar.high >= halfway : bar.low <= halfway;
-        if (reached) { openTrade.slPrice = openTrade.entryPrice; openTrade.beMoved = true; }
-      }
-
-      const { direction, entryPrice, slPrice, tp1Price, tp2Price, origSlPrice, rr1, rr2 } = openTrade;
-      const origRisk = Math.abs(entryPrice - origSlPrice);
-      const slRR = parseFloat((((slPrice - entryPrice) / origRisk) * (direction === 'BUY' ? 1 : -1)).toFixed(2));
-      let outcome = null;
-
-      // Layer 2 (new): TP1 arms the partial exit instead of closing everything.
-      if (!openTrade.tp1Hit) {
-        const tp1Hit = direction === 'BUY' ? bar.high >= tp1Price : bar.low <= tp1Price;
-        if (tp1Hit) { openTrade.tp1Hit = true; openTrade.halfR = rr1; openTrade.slPrice = entryPrice; }
-      }
-
-      if (openTrade.tp1Hit) {
-        // Half position already banked at TP1 (rr1). Remaining half is
-        // protected by a hard breakeven stop and targets TP2 (VAH/VAL).
-        if (direction === 'BUY') {
-          if      (bar.low  <= openTrade.slPrice) outcome = { result: 'TP1+BE', exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT).toFixed(2)) };
-          else if (bar.high >= tp2Price)          outcome = { result: 'TP1+TP2', exitPrice: tp2Price,          rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT + rr2 * (1 - config.PARTIAL_EXIT_PCT)).toFixed(2)) };
-        } else {
-          if      (bar.high >= openTrade.slPrice) outcome = { result: 'TP1+BE', exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT).toFixed(2)) };
-          else if (bar.low  <= tp2Price)          outcome = { result: 'TP1+TP2', exitPrice: tp2Price,          rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT + rr2 * (1 - config.PARTIAL_EXIT_PCT)).toFixed(2)) };
-        }
-      } else {
-        // Full position still live, targeting TP1, protected by whatever
-        // Layer 1 currently has slPrice set to (original SL, or breakeven
-        // if halfway was already reached).
-        if (direction === 'BUY') {
-          if (bar.low  <= slPrice) outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
-        } else {
-          if (bar.high >= slPrice) outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
-        }
-      }
-
-      if (outcome) {
-        trades.push({ ...openTrade, exitTime: bar.time, exitPrice: outcome.exitPrice, result: outcome.result, rr: parseFloat(outcome.rr),
-          hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600) });
-        openTrade = null;
-        continue;
-      }
-
-      // Early time-stop: only while still waiting on TP1 (full position live).
-      if (!openTrade.tp1Hit && (bar.time - openTrade.entryTime) > config.EARLY_TIMEOUT_BARS * config.STRUCT_BAR_SECONDS) {
-        const price = bar.close;
-        trades.push({ ...openTrade, exitTime: bar.time, exitPrice: price, result: 'EARLY_TIMEOUT',
-          rr: parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
-          hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600) });
-        openTrade = null;
-        continue;
-      }
-      // Max hold: 200 structure(1H) bars ≈ 8.3 days. v10.5 FIX: if TP1 was
-      // already banked, blend that locked-in rr1 with the live price on
-      // the runner half instead of naively computing RR off the full
-      // original position — the old code ignored tp1Hit here entirely,
-      // which would have understated (or overstated) realized R for any
-      // partial-exit trade that timed out on the runner leg.
-      if ((bar.time - openTrade.entryTime) > 200 * config.STRUCT_BAR_SECONDS) {
-        const price = bar.close;
-        const liveLegRR = (price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1);
-        const rr = openTrade.tp1Hit ? (openTrade.halfR * config.PARTIAL_EXIT_PCT + liveLegRR * (1 - config.PARTIAL_EXIT_PCT)) : liveLegRR;
-        trades.push({ ...openTrade, exitTime: bar.time, exitPrice: price, result: 'TIMEOUT',
-          rr: parseFloat(rr.toFixed(2)),
-          hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600) });
+      const { closed, trade, outcome } = core.evaluateOpenTrade(openTrade, bar, config);
+      openTrade = trade;
+      if (closed) {
+        trades.push({ ...openTrade, ...outcome });
         openTrade = null;
       }
       continue; // in-trade: don't scan for new entries
@@ -402,11 +330,24 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     // behavior (see this file's own v10.4 fix-log entry about exactly
     // that class of drift).
     if (bestPivot.name === 'POC' && config.POC_REQUIRE_1H_CONFIRM && !resolved.agreeing.includes('1H')) continue;
+
+    // v10.14: relocated here (was after the trigger-pattern check,
+    // ~40 lines further down) to mirror strategy.js's v10.14 fix — the
+    // gate conceptually belongs with its sibling POC gate just above,
+    // and this also skips unnecessary work (rejection-pattern detection,
+    // SL/TP math) for setups already known to be rejected. Mirrors the
+    // live gate in strategy.js — see config.js
+    // POC_PROMINENCE_REQUIRE_DECISIVE for the per-trade evidence behind
+    // this. Computed here (once) so it can both gate the trade AND be
+    // reused below (as `prominence`) without recomputing.
+    const prominenceForGate = core.computePOCProminence(vp1h);
+    if (!core.isPOCProminenceTrusted(bestPivot.name, prominenceForGate, config)) continue;
+    funnel.prominenceOk++;
     funnel.confluenceOk++;
 
     const htfCheck = core.checkHTFZoneAlignment(bestFibLevel, cached4h, atr1h, direction, config.HTFZONE_ATR_MULT);
     if (!htfCheck.aligned) continue;
-    funnel.htfAligned++;
+    funnel.htf4hAligned++;
 
     if (core.isZoneInvalidated(price1h, bestFibLevel, atr1h, direction, config.ZONE_INVALIDATION_ATR_MULT)) continue;
     funnel.notInvalidated++;
@@ -424,14 +365,6 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
       config.SOLO_ELIGIBLE_PATTERNS);
     if (!rejection.valid) continue;
     funnel.triggerOk++;
-
-    // v10.13: POC prominence gate — computed here (once) so it can both
-    // gate the trade AND be reused below without recomputing. Mirrors the
-    // live gate in strategy.js — see config.js POC_PROMINENCE_REQUIRE_DECISIVE
-    // for the per-trade evidence behind this.
-    const prominenceForGate = core.computePOCProminence(vp1h);
-    if (!core.isPOCProminenceTrusted(bestPivot.name, prominenceForGate, config)) continue;
-    funnel.prominenceOk++;
 
     // v10.7 EXPERIMENTAL (off by default — see config.js SL_ATR_MULT_MATRIX):
     // identical lookup to strategy.js, same reasoning: no live/backtest
@@ -667,8 +600,8 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
       return [
         `  ${sym}:`,
         `    scanned=${f.scanned}  voteOk=${f.voteOk}(bull=${f.bullVote}/bear=${f.bearVote})  structureOk=${f.structureOk}`,
-        `    notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  confluenceOk=${f.confluenceOk}  htfAligned=${f.htfAligned}`,
-        `    notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}  triggerOk=${f.triggerOk}  prominenceOk=${f.prominenceOk}  tp2RangeOk=${f.tp2RangeOk}  opened=${f.opened}`,
+        `    notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  prominenceOk=${f.prominenceOk}  confluenceOk=${f.confluenceOk}  htf4hAligned=${f.htf4hAligned}`,
+        `    notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}  triggerOk=${f.triggerOk}  tp2RangeOk=${f.tp2RangeOk}  opened=${f.opened}`,
       ];
     }),
     '',

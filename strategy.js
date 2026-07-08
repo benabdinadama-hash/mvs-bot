@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.13.1  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.14  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -60,6 +60,7 @@ const fs     = require('fs');
 const path   = require('path');
 const config = require('./config');
 const core   = require('./core');
+const { checkOpenPositions } = require('./position-tracker');
 
 // ── Telegram send — pure axios, 10s timeout, retries on transient failure ──
 // v10.4 FIX: this used to catch a failure/timeout and just return null —
@@ -94,13 +95,18 @@ const sendSafe = async (chatId, text, opts = {}, ms = 10000, maxRetries = 3) => 
   }
   console.error(`  ❌ Telegram send FAILED after ${maxRetries} attempts — this alert was NOT delivered.`);
   return { success: false, error: 'Telegram send failed after all retries' };
-  return null;
 };
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 const STATE_FILE = path.join(__dirname, 'state.json');
 const LOG_FILE    = path.join(__dirname, 'signals.log.json');
 const DIAG_FILE   = path.join(__dirname, 'diag.log.json');
+// v10.14: open-positions.json holds ONLY the immutable original trade
+// parameters (entry/SL/TP1/TP2/direction/entryTime) for every FIRED
+// signal not yet closed. position-tracker.js reads/writes this file;
+// see its header for why it's deliberately kept stateless (no tp1Hit/
+// beMoved persisted here — those get recomputed by replay every run).
+const OPEN_POSITIONS_FILE = path.join(__dirname, 'open-positions.json');
 
 const loadJSON = (file, fallback) => {
   try {
@@ -114,6 +120,16 @@ const saveState = (symbol, data) => {
   state[symbol] = { ...data, updatedAt: new Date().toISOString() };
   state._lastRunAt = new Date().toISOString();
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+};
+
+// v10.14: records a newly-FIRED signal as an open position for
+// position-tracker.js to check on every subsequent scan. Deliberately
+// stores ONLY the immutable original trade parameters — see
+// OPEN_POSITIONS_FILE comment above and position-tracker.js's header.
+const saveOpenPosition = (symbol, trade) => {
+  const open = loadJSON(OPEN_POSITIONS_FILE, {});
+  open[symbol] = trade;
+  fs.writeFileSync(OPEN_POSITIONS_FILE, JSON.stringify(open, null, 2));
 };
 
 // v10.9: both logs are now NEWEST-FIRST (unshift + slice from the front)
@@ -233,7 +249,7 @@ const isDuplicateRun = () => {
 // ─────────────────────────────────────────────────────────────────────────────
 const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
-  console.log(`\n[${now}] 🔍 MVS v10.10 scanning ${symbol}...`);
+  console.log(`\n[${now}] 🔍 MVS v10.14 scanning ${symbol}...`);
 
   {
     const state = loadJSON(STATE_FILE, {});
@@ -418,6 +434,25 @@ const runStrategy = async (symbol) => {
       return;
     }
 
+    // v10.14 FIX: this gate used to sit ~90 lines further down, inside
+    // the Telegram-alert-building section (past SL/TP calculation) —
+    // meaning a contested-POC setup still paid for a full
+    // computeTradeLevels() call before being thrown away, and the two
+    // POC gates that conceptually belong together (this one and the
+    // POC_REQUIRE_1H_CONFIRM one just above) lived in different parts of
+    // the pipeline entirely. Moved here, right next to its sibling gate,
+    // both for a pipeline that actually matches its own documentation and
+    // to skip SL/TP math for setups already known to be rejected. See
+    // config.js POC_PROMINENCE_REQUIRE_DECISIVE for the full evidence.
+    // `prominence` is computed here once and reused (not recomputed) by
+    // the sizing-note section further down — see v10.13 comment there.
+    const prominence = core.computePOCProminence(vp1h);
+    if (!core.isPOCProminenceTrusted(bestPivot.name, prominence, config)) {
+      console.log(`  ⚠️ POC contested (prominence ratio ${prominence.prominenceRatio.toFixed(2)} < ${config.POC_PROMINENCE_MIN_RATIO}) — historically the weaker POC segment. Skipping.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'POC_PROMINENCE_GATED' });
+      return;
+    }
+
     const fibPct = bestFibLevel === fib.level618 ? '61.8%' : bestFibLevel === fib.level786 ? '78.6%' : '70% mid-pocket';
     console.log(`  ✅ CONFLUENCE (score ${bestScore}): Fib ${fibPct} ($${bestFibLevel.toFixed(2)}) ↔ ${bestPivot.name} ($${bestPivot.price.toFixed(2)})`);
 
@@ -425,7 +460,7 @@ const runStrategy = async (symbol) => {
     const htfCheck = core.checkHTFZoneAlignment(bestFibLevel, bias4h, atr1h, direction, config.HTFZONE_ATR_MULT);
     if (!htfCheck.aligned) {
       console.log(`  ⛔ 4H ZONE MISMATCH: nearest ${htfCheck.nearestLevel} dist $${htfCheck.distance.toFixed(2)}. Waiting.`);
-      logDiag({ symbol, barTime, price, fired: false, reason: 'HTF_ZONE_MISMATCH' });
+      logDiag({ symbol, barTime, price, fired: false, reason: 'HTF_4H_ZONE_MISMATCH' });
       return;
     }
     console.log(`  ✅ 4H ZONE ALIGNED: near ${htfCheck.nearestLevel} ($${(htfCheck.nearestPrice || 0).toFixed(2)})`);
@@ -461,7 +496,14 @@ const runStrategy = async (symbol) => {
       bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
       bias30m: bias30m?.bias, bias15m: bias15m?.bias,
       voteTally: resolved.tally, agreeing: resolved.agreeing,
-      htfAligned: htfCheck.aligned, confluenceScore: bestScore, confluenceLevel: fibPct, confluencePivot: bestPivot.name,
+      // v10.14: renamed from "htfAligned" — a user asked which timeframe
+      // "HTF" (Higher Time Frame) actually meant here, which is a fair
+      // question given the field name alone doesn't say. Answer: the 4H
+      // bias specifically — see the "4H ZONE CROSS-CHECK" step above,
+      // checkHTFZoneAlignment(bestFibLevel, bias4h, ...). Renamed the
+      // field itself instead of just documenting it, so the diag log is
+      // self-explanatory without needing to check the code or docs.
+      htf4hAligned: htfCheck.aligned, confluenceScore: bestScore, confluenceLevel: fibPct, confluencePivot: bestPivot.name,
       patterns: rejection.patterns, absorptionVeto: rejection.absorptionVeto,
       fired: rejection.valid,
       reason: rejection.valid ? 'SIGNAL_FIRED' : rejection.absorptionVeto ? 'ABSORPTION_VETO' : `PATTERNS_${rejection.score}_OF_${config.REJECTION_MIN_PATTERNS}`,
@@ -507,11 +549,14 @@ const runStrategy = async (symbol) => {
     const td9 = config.TD9_ENABLED ? core.computeTDSequential(data1h) : { buy9: false, sell9: false };
     const td9Confirms = (direction === 'BUY' && td9.buy9) || (direction === 'SELL' && td9.sell9);
 
-    // v10.8/v10.9 (live by default — see config.js): three
-    // independent POC-quality tests. Each function internally no-ops
-    // (returns a neutral/empty result) when its data requirement isn't
-    // met or its flag is off, so these calls are always safe to make.
-    const prominence = core.computePOCProminence(vp1h);
+    // v10.8/v10.9 (live by default — see config.js): two more
+    // independent POC-quality tests (prominence itself was already
+    // computed and gated back in STEP 4 — see the v10.14 note there;
+    // reused here via the `prominence` variable already in scope rather
+    // than calling computePOCProminence() a second time). Each function
+    // internally no-ops (returns a neutral/empty result) when its data
+    // requirement isn't met or its flag is off, so these calls are
+    // always safe to make.
     const migration = core.computePOCMigration(
       data1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
       config.POC_MIGRATION_OFFSET_BARS, atr1h, config.POC_MIGRATION_MIN_ATR
@@ -520,15 +565,6 @@ const runStrategy = async (symbol) => {
       data1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
       atr1h, vp1h.pocPrice, config.NAKED_POC_TOLERANCE_ATR
     );
-
-    // v10.13: POC prominence gate — see config.js POC_PROMINENCE_REQUIRE_DECISIVE
-    // for the per-trade evidence. Contested (non-decisive) POC entries are
-    // skipped entirely now, not just taken at reduced size.
-    if (!core.isPOCProminenceTrusted(bestPivot.name, prominence, config)) {
-      console.log(`  ⚠️ POC contested (prominence ratio ${prominence.prominenceRatio.toFixed(2)} < ${config.POC_PROMINENCE_MIN_RATIO}) — historically the weaker POC segment. Skipping.`);
-      logDiag({ symbol, barTime, price, fired: false, reason: 'POC_PROMINENCE_GATED' });
-      return;
-    }
 
     // v10.3/v10.4/v10.5/v10.6/v10.7: risk-tiered sizing — see core.js
     // computeRiskMultiplier() for the backtest evidence behind this. Not a
@@ -560,15 +596,16 @@ const runStrategy = async (symbol) => {
     const slWidenSuffix = slWidened ? ` | SL widened ${config.SL_ATR_MULT}→${slAtrMult}×ATR (EXPERIMENTAL, size cut to hold $ risk flat)` : '';
     // v10.8: same pattern — called out separately from weakReasons since
     // these are a distinct, independently-testable set of factors.
-    // NOTE (found in v10.13 audit): the "contested POC" branch below can
-    // only ever fire for VAH/VAL-pivot trades when
-    // POC_PROMINENCE_REQUIRE_DECISIVE is at its default (true) — a POC
-    // pivot with contested prominence now returns early at the STEP 6b
-    // gate above, before execution ever reaches this point. Left in
-    // (not dead code, just conditionally unreachable for one pivot type)
-    // because: (a) it still fires correctly for VAH/VAL trades, where
-    // prominence is informational only and never gated, and (b) it
-    // becomes reachable for POC trades again the moment someone sets
+    // NOTE (found in v10.13 audit, gate itself relocated in v10.14): the
+    // "contested POC" branch below can only ever fire for VAH/VAL-pivot
+    // trades when POC_PROMINENCE_REQUIRE_DECISIVE is at its default
+    // (true) — a POC pivot with contested prominence now returns early
+    // at the prominence gate in STEP 4 (see the v10.14 note there),
+    // before execution ever reaches this point. Left in (not dead code,
+    // just conditionally unreachable for one pivot type) because: (a) it
+    // still fires correctly for VAH/VAL trades, where prominence is
+    // informational only and never gated, and (b) it becomes reachable
+    // for POC trades again the moment someone sets
     // POC_PROMINENCE_REQUIRE_DECISIVE=false to fall back to size-only.
     const pocQualityNotes = [];
     if (config.POC_PROMINENCE_ENABLED && prominence.computed && prominence.prominenceRatio < config.POC_PROMINENCE_MIN_RATIO) {
@@ -588,6 +625,23 @@ const runStrategy = async (symbol) => {
     const td9Line = (td9.buy9 || td9.sell9)
       ? `\n🔢 *TD Sequential:* ${td9.buy9 ? 'Buy 9 just completed' : 'Sell 9 just completed'} (1H)${td9Confirms ? ' ✅ agrees with direction' : ' — opposite direction, informational only'}`
       : '';
+
+    // v10.14: one open position per symbol is the model this bot tracks
+    // (matches state.json's existing one-entry-per-symbol shape). If a
+    // position is already open for this symbol when a fresh signal would
+    // otherwise fire, skip firing rather than silently overwrite
+    // open-positions.json and lose the ability to ever record how the
+    // first one closed. Rare in practice — SIGNAL_COOLDOWN_BARS already
+    // blocks same-direction re-fires — but an opposite-direction signal
+    // could still land while a prior trade is still open.
+    const openPositionsCheck = loadJSON(OPEN_POSITIONS_FILE, {});
+    if (openPositionsCheck[symbol]) {
+      console.log(`  ⏸️ ${symbol}: signal conditions met but a position is already open (since ${new Date(openPositionsCheck[symbol].entryTime * 1000).toISOString()}) — skipping new fire until it closes.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'POSITION_ALREADY_OPEN' });
+      return;
+    }
+
+    const entryTime = data15m[data15m.length - 1].time;
 
     const message = `
 ${emoji} *${symbol} — MVS Signal*
@@ -612,7 +666,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-⚡ *MVS v10.10*
+⚡ *MVS v10.14*
     `.trim();
 
     const sendResult = await sendSafe(config.TELEGRAM_CHAT_ID, message, { parse_mode: 'Markdown' });
@@ -641,7 +695,7 @@ risk capital you can't afford to lose on a single position.
     });
 
     logSignal(symbol, {
-      signal: 'FIRED', direction,
+      signal: 'FIRED', direction, entryTime,
       entryPrice: bestFibLevel, ...levels,
       confluencePivot: bestPivot.name, fibPct, patterns: rejection.patterns,
       voteTally: resolved.tally, agreeing: resolved.agreeing, riskMult,
@@ -651,6 +705,18 @@ risk capital you can't afford to lose on a single position.
       td9Confirms, slAtrMult, prominence, migration, nakedPOC,
       // v10.10 — honest delivery flag (see sendSafe/flushPendingAlerts above).
       alertDelivered,
+    });
+
+    // v10.14: hand this off to position-tracker.js, which will replay
+    // real 15m candles against it on every future scan until it closes —
+    // see position-tracker.js header for the full mechanism.
+    saveOpenPosition(symbol, {
+      symbol, direction, entryTime,
+      entryPrice: bestFibLevel,
+      slPrice: levels.slPrice, tp1Price: levels.tp1Price, tp2Price: levels.tp2Price,
+      origSlPrice: levels.slPrice,
+      rr1: parseFloat(levels.rr1.toFixed(2)), rr2: parseFloat(levels.rr2.toFixed(2)),
+      pivot: bestPivot.name, patterns: rejection.patterns,
     });
 
   } catch (err) {
@@ -664,7 +730,7 @@ risk capital you can't afford to lose on a single position.
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('');
 console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   MVS — Monthly Value Sniper v10.10                         ║');
+console.log('║   MVS — Monthly Value Sniper v10.14                         ║');
 console.log('║   1D+4H+1H+30m+15m — 3-of-5 vote (1H zone, 15m trigger)      ║');
 console.log('╚══════════════════════════════════════════════════════════════╝');
 console.log(`   Assets  : ${config.SYMBOLS.join(', ')}`);
@@ -684,6 +750,16 @@ console.log('');
   // attempts (see sendSafe/queuePendingAlert above), before doing anything
   // else this run.
   await flushPendingAlerts();
+
+  // v10.14: check every open position against real candle history BEFORE
+  // scanning for new signals — see position-tracker.js header for why
+  // this needs no dedicated server or separate schedule, just riding the
+  // scan cycle that's already running every 15 min.
+  try {
+    await checkOpenPositions();
+  } catch (e) {
+    console.error('  ❌ position-tracker failed this run (non-fatal, new-signal scanning continues):', e.message);
+  }
 
   for (const sym of config.SYMBOLS) {
     await runStrategy(sym);

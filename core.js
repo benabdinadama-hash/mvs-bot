@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — CORE STRATEGY LOGIC (core.js)  v10.13.1
+ *  MVS — CORE STRATEGY LOGIC (core.js)  v10.14
  *
  *  Every pure function used to decide BUY/SELL/NO-TRADE lives here, and
  *  ONLY here. strategy.js (live/Telegram) and backtest.js (simulation)
@@ -764,10 +764,102 @@ const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, 
   };
 };
 
+// v10.14: extracted from backtest.js's inline per-bar trade-management
+// loop so it can ALSO drive live position-tracking (position-tracker.js)
+// against the exact same rules — same drift-prevention discipline as
+// every gate shared between strategy.js and backtest.js elsewhere in
+// this file. Takes one open trade and ONE bar (15m candle) that occurs
+// strictly after entryTime, and returns either an unchanged/updated
+// trade (still open) or a closed outcome. Caller is responsible for
+// feeding bars in ascending time order, one at a time, stopping at the
+// first bar that closes the trade.
+//
+// Mechanics (unchanged from the original backtest.js loop):
+//  1. Once price reaches the halfway point to TP1, SL silently moves to
+//     entry (breakeven) even before TP1 itself prints — this is a size-
+//     neutral protection step, not a partial exit.
+//  2. TP1 hit → exit config.PARTIAL_EXIT_PCT of the position at TP1,
+//     move SL to entry for the remainder (again, in case step 1 hadn't
+//     already done so), let the runner ride toward TP2.
+//  3. From there: SL (now at breakeven) → 'TP1+BE' for the remainder,
+//     or TP2 → 'TP1+TP2'. Full R blends the locked partial R with
+//     whatever the runner did.
+//  4. Before TP1 hits at all: plain SL → 'SL' (or 'BE' if slRR rounds to
+//     exactly 0 — can happen if the breakeven-arm step above already
+//     moved SL to entry before the full SL was ever touched).
+//  5. EARLY_TIMEOUT: trade never reached TP1 within
+//     config.EARLY_TIMEOUT_BARS × config.STRUCT_BAR_SECONDS — cut it
+//     loose at the current close rather than let a going-nowhere trade
+//     sit open indefinitely.
+//  6. TIMEOUT: absolute hold-time ceiling, config.MAX_HOLD_1H_BARS ×
+//     config.STRUCT_BAR_SECONDS from entry, regardless of TP1 status —
+//     backstop for a runner that's neither hit TP2 nor come back to
+//     breakeven after an unusually long hold.
+const evaluateOpenTrade = (openTrade, bar, config) => {
+  if (!openTrade.beMoved) {
+    const halfway = openTrade.direction === 'BUY'
+      ? openTrade.entryPrice + (openTrade.tp1Price - openTrade.entryPrice) * 0.5
+      : openTrade.entryPrice - (openTrade.entryPrice - openTrade.tp1Price) * 0.5;
+    const reached = openTrade.direction === 'BUY' ? bar.high >= halfway : bar.low <= halfway;
+    if (reached) { openTrade.slPrice = openTrade.entryPrice; openTrade.beMoved = true; }
+  }
+
+  const { direction, entryPrice, slPrice, tp1Price, tp2Price, origSlPrice, rr1, rr2 } = openTrade;
+  const origRisk = Math.abs(entryPrice - origSlPrice);
+  const slRR = parseFloat((((slPrice - entryPrice) / origRisk) * (direction === 'BUY' ? 1 : -1)).toFixed(2));
+  let outcome = null;
+
+  if (!openTrade.tp1Hit) {
+    const tp1Hit = direction === 'BUY' ? bar.high >= tp1Price : bar.low <= tp1Price;
+    if (tp1Hit) { openTrade.tp1Hit = true; openTrade.halfR = rr1; openTrade.slPrice = entryPrice; }
+  }
+
+  if (openTrade.tp1Hit) {
+    if (direction === 'BUY') {
+      if      (bar.low  <= openTrade.slPrice) outcome = { result: 'TP1+BE', exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT).toFixed(2)) };
+      else if (bar.high >= tp2Price)          outcome = { result: 'TP1+TP2', exitPrice: tp2Price,          rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT + rr2 * (1 - config.PARTIAL_EXIT_PCT)).toFixed(2)) };
+    } else {
+      if      (bar.high >= openTrade.slPrice) outcome = { result: 'TP1+BE', exitPrice: openTrade.slPrice, rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT).toFixed(2)) };
+      else if (bar.low  <= tp2Price)          outcome = { result: 'TP1+TP2', exitPrice: tp2Price,          rr: parseFloat((openTrade.halfR * config.PARTIAL_EXIT_PCT + rr2 * (1 - config.PARTIAL_EXIT_PCT)).toFixed(2)) };
+    }
+  } else {
+    if (direction === 'BUY') {
+      if (bar.low  <= slPrice) outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
+    } else {
+      if (bar.high >= slPrice) outcome = { result: slRR === 0 ? 'BE' : 'SL', exitPrice: slPrice, rr: slRR };
+    }
+  }
+
+  if (outcome) {
+    return { closed: true, trade: openTrade, outcome: { ...outcome, exitTime: bar.time, hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600) } };
+  }
+
+  if (!openTrade.tp1Hit && (bar.time - openTrade.entryTime) > config.EARLY_TIMEOUT_BARS * config.STRUCT_BAR_SECONDS) {
+    const price = bar.close;
+    return { closed: true, trade: openTrade, outcome: {
+      result: 'EARLY_TIMEOUT', exitPrice: price,
+      rr: parseFloat(((price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2)),
+      exitTime: bar.time, hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600),
+    }};
+  }
+
+  if ((bar.time - openTrade.entryTime) > config.MAX_HOLD_1H_BARS * config.STRUCT_BAR_SECONDS) {
+    const price = bar.close;
+    const liveLegRR = (price - openTrade.entryPrice) / Math.abs(openTrade.entryPrice - openTrade.origSlPrice) * (openTrade.direction === 'BUY' ? 1 : -1);
+    const rr = openTrade.tp1Hit ? (openTrade.halfR * config.PARTIAL_EXIT_PCT + liveLegRR * (1 - config.PARTIAL_EXIT_PCT)) : liveLegRR;
+    return { closed: true, trade: openTrade, outcome: {
+      result: 'TIMEOUT', exitPrice: price, rr: parseFloat(rr.toFixed(2)),
+      exitTime: bar.time, hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600),
+    }};
+  }
+
+  return { closed: false, trade: openTrade };
+};
+
 module.exports = {
   calcATR, calcFib, calcVolumeProfile, tfBiasVote, isNearZone, resolveDirection,
   confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
   detectRejection, computeTradeLevels, computeRiskMultiplier, computeTDSequential,
   computePOCProminence, computePOCMigration, computeNakedPOC, computePOCQualityMultiplier,
-  isPOCProminenceTrusted,
+  isPOCProminenceTrusted, evaluateOpenTrade,
 };
