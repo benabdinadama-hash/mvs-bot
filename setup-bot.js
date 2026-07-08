@@ -45,7 +45,7 @@ const call = async (method, params = {}) => {
   // the Action log for this step: a non-ok response logs "❌ setMyShort-
   // Description — {...}"). Trimmed with real margin this time.
   await call('setMyShortDescription', {
-    short_description: '🎯 Crypto signals, 13 KuCoin pairs. POC/VAH/VAL + Fib, 1D/4H/1H/30m/15m 3-of-5 vote. Built for Ghana.'
+    short_description: '🎯 Crypto signals, 14 KuCoin pairs. POC/VAH/VAL + Fib, 1D/4H/1H/30m/15m 3-of-5 vote. Built for Ghana.'
   });
 
   // 4. Set full description (shown when user first opens bot)
@@ -89,7 +89,7 @@ v10.13 backtest, 360d (2026-07-07):
 82.6% WR, PF 48.97, +87% return, 0.9% max DD, ~0.89 signals/wk.
 Not a live guarantee — run backtest.js yourself for current numbers.
 
-13 KuCoin pairs. Auto-alerts here.
+14 KuCoin pairs. Auto-alerts here.
 github.com/benabdinadama-hash/mvs-bot`
   });
 
@@ -117,7 +117,7 @@ Bot profile, description and command menu have been configured.
 
 Tap the */* button in this chat to see the command menu. Any visitor who opens this bot will now see the full MVS description and performance stats instantly — no polling required.
 
-Signal alerts will continue firing automatically whenever any of the 13 tracked pairs hits a valid confluence zone.`,
+Signal alerts will continue firing automatically whenever any of the 14 tracked pairs hits a valid confluence zone.`,
     parse_mode: 'Markdown'
   });
 
