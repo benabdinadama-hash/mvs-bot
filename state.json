@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-08T03:45:38.063Z",
+  "_lastRunAt": "2026-07-08T04:00:51.007Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
@@ -57,15 +57,28 @@
     "updatedAt": "2026-07-07T18:45:27.821Z"
   },
   "BTC-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 62956.7,
+    "signal": "SCANNED",
+    "price": 62751.4,
+    "direction": "SELL",
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "1H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "BEARISH",
     "bias4h": "BULLISH",
-    "bias1h": "NEUTRAL",
-    "bias30m": "NEUTRAL",
+    "bias1h": "BEARISH",
+    "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-08T03:45:14.599Z"
+    "poc": 62787.4015,
+    "vah": 63634.1265,
+    "val": 62448.7115,
+    "swingHigh": 64701,
+    "swingLow": 61314.1,
+    "atr1h": 436.26411173606124,
+    "updatedAt": "2026-07-08T04:00:26.754Z"
   },
   "POL-USDT": {
     "signal": "SCANNED",
