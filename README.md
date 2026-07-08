@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.14-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.14.1-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -342,6 +342,34 @@ and `config.js` if you want the exact numbers behind each change.
     config default from v10.11-v10.13 — this pass was fixes, tracking,
     and documentation, not a strategy change, so the confirmed 82.6% WR /
     360-day backtest from the previous entry should still be reproducible.
+- **v10.14.1 — (2026-07-08) two follow-ups from live use: Actions still
+  showing "13 pairs," and Telegram commands going unanswered.**
+  - **Real bug, found and fixed: `mvs-commands.yml` had no schedule
+    fallback.** It relied entirely on `workflow_dispatch: {}`, triggered
+    externally by cron-job.org every 5 min, with no native GitHub
+    `schedule:` backup. `mvs-scan.yml` has carried exactly that kind of
+    backup from the start, with its own comment explaining why: "if
+    cron-job.org has an outage, its token expires, or its ping silently
+    stops." The identical failure mode applied here, just unprotected —
+    if cron-job.org's ping to THIS workflow ever stopped, `/status`,
+    `/positions`, and every other command would simply go unanswered,
+    with nothing anywhere logging an error, indistinguishable from "the
+    bot is broken." Verified `commands.js` itself end-to-end first
+    (every command handler executed clean against both synthetic and the
+    actual production `state.json`/`open-positions.json`/
+    `signals.log.json` — zero errors) before concluding the workflow
+    trigger, not the code, was the gap. Added a `*/10 * * * *` native
+    schedule as a backup, mirroring `mvs-scan.yml`'s pattern exactly.
+  - **The "13 pairs in Actions" report was from before the v10.14 fix
+    had actually run yet.** Confirmed via a fresh backtest report
+    generated after deployment: 14 symbols, MNT-USDT included with real
+    trade data, `v10.14.0` correctly shown in the report header (proving
+    the dynamic-version fix from the previous entry works). No further
+    code change needed here — the earlier fix was already correct and
+    live; the report that raised the question predated it.
+  - `package.json` bumped to `10.14.1` — the only version-string change
+    in this patch; every dynamic display (`strategy.js`, `backtest.js`,
+    `commands.js`) picks it up automatically, nothing else to edit.
 
 ---
 
