@@ -1,5 +1,5 @@
 /**
- * MVS — Weekly Summary  (v10.13.1 — pure axios, no node-telegram-bot-api)
+ * MVS — Weekly Summary  (v10.14 — pure axios, no node-telegram-bot-api)
  *
  * Reads signals.log.json, summarises the last 7 days, sends to Telegram.
  * Triggered every Monday 07:00 UTC by mvs-weekly.yml.
@@ -79,19 +79,18 @@ const loadJSON = (file, fallback) => {
 // This file is committed back to the repo by the workflow, giving a running
 // picture of live performance that can be charted over time.
 //
-// HONESTY NOTE (found during v10.6 review): closedEntries below requires
-// e.rr and e.exitTime, but strategy.js's logSignal() only ever logs at
-// signal-FIRE time (signal: 'FIRED') — there is no live exit-tracking
-// (this bot alerts, it doesn't monitor open positions between scans). So
-// closedEntries is currently ALWAYS empty, and everything below this
-// comment down to "Weekly snapshot" never actually runs against real
-// data — the equity curve and "Live Equity Snapshot" section further down
-// stay silent/absent rather than showing fabricated numbers, which is the
-// safe failure mode, but it's worth knowing this feature is not yet wired
-// up rather than assuming it's quietly tracking your results. Building
-// real exit-tracking would need the bot to poll KuCoin price against each
-// open signal's SL/TP1/TP2 between scans and log the outcome when one
-// hits — a real feature, just a bigger one than this pass covers.
+// v10.14 UPDATE: this note previously said closedEntries was ALWAYS
+// empty because nothing ever logged an exit. That's fixed now —
+// position-tracker.js runs at the start of every scan (see its header
+// for the mechanism: no dedicated server, it rides the existing 15-min
+// GitHub Actions cron and replays real 15m candles since each position's
+// entryTime through the exact same core.js evaluateOpenTrade() logic
+// backtest.js uses). When a position closes, it updates the ORIGINAL
+// signals.log.json entry in place with exitTime/exitPrice/rr/result —
+// so closedEntries below will start finding real rows once positions
+// actually close. It will still be empty on any repo that hasn't fired
+// a signal since v10.14 deployed, or whose open positions haven't
+// closed yet — that's a timing gap, not the old missing-feature gap.
 const updateEquityCurve = (log) => {
   const curve   = loadJSON(EQUITY_FILE, []);
   const RISK    = config.RISK_PER_TRADE_PCT || 1.5;

@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v10.13.1)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v10.14)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.
@@ -18,7 +18,7 @@
  *    /scan       → run strategy.js right now, then reply with /status output
  *    /status     → last saved scan result from state.json
  *    /health     → KuCoin ping + last run timestamp
- *    /positions  → last active signal per symbol (signal-only, no live trades)
+ *    /positions  → open positions (now tracked, not just last signal — v10.14)
  *    /pairs      → tracked pairs + backtest stats
  *    /about      → strategy overview + how to run your own backtest
  *    /signal     → how to read a signal
@@ -50,7 +50,7 @@ const tgCall = async (method, params = {}, ms = 12000) => {
 };
 
 // v10.10 FIX: Telegram's real hard limit is 4096 chars; a long /status
-// message (13 symbols × full 5-TF bias breakdown) can exceed that and
+// message (14 symbols × full 5-TF bias breakdown) can exceed that and
 // either get silently rejected or truncated by Telegram. send() now
 // splits on blank-line (paragraph) boundaries so a message is never cut
 // mid-symbol, and sends each chunk as its own message in order.
@@ -93,6 +93,9 @@ const send = async (text) => {
 // ── State helpers ──────────────────────────────────────────────────────────
 const STATE_FILE  = path.join(__dirname, 'state.json');
 const LOG_FILE    = path.join(__dirname, 'signals.log.json');
+// v10.14: for /positions to show real tracked positions — see
+// position-tracker.js header for what this file is and isn't.
+const OPEN_POSITIONS_FILE = path.join(__dirname, 'open-positions.json');
 const OFFSET_FILE = path.join(__dirname, 'tg-offset.json');
 
 const loadJSON = (file, fallback) => {
@@ -114,7 +117,7 @@ const cmdHelp = async () => {
 /scan — run a fresh scan now
 /status — last saved scan result
 /health — KuCoin connectivity + last run time
-/positions — last active signal (MVS is signal-only, no live position tracking)
+/positions — open positions, tracked automatically until close (v10.14)
 /pairs — tracked pairs + backtest stats
 /about — strategy overview
 /signal — how to read a signal
@@ -202,10 +205,24 @@ Symbols tracked: ${config.SYMBOLS.join(', ')}`
 // ── /positions ────────────────────────────────────────────────────────────
 const cmdPositions = async () => {
   const state = loadJSON(STATE_FILE, {});
-  let msg = `📌 *MVS Positions*\n_Note: MVS is signal-only — it does not place or track live trades. Below is the last active signal per symbol._\n`;
+  const openPositions = loadJSON(OPEN_POSITIONS_FILE, {});
+  // v10.14: this note used to say "MVS does not track live trades" — that
+  // was true through v10.13 but is no longer accurate. position-tracker.js
+  // now checks every open position against real candle history on every
+  // scan (see its file header) — still no dedicated server, still riding
+  // the existing 15-min cron, but it IS tracking now, not just alerting.
+  let msg = `📌 *MVS Positions*\n_Signals fire as alerts; open positions are then tracked automatically (SL/TP1/TP2) on every scan until they close — see /status for exit details once closed._\n`;
   for (const sym of config.SYMBOLS) {
     const s = state[sym];
-    msg += `\n*${sym}*: ${s ? s.signal : 'no data'}${s && s.entryPrice ? ` @ $${Number(s.entryPrice).toFixed(2)}` : ''}`;
+    const open = openPositions[sym];
+    if (open) {
+      msg += `\n*${sym}*: 🟢 OPEN — ${open.direction} @ $${Number(open.entryPrice).toFixed(4)} (since ${new Date(open.entryTime * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC)`;
+    } else if (s && s.signal && s.signal.startsWith('CLOSED_')) {
+      const rrStr = s.rr !== undefined ? `${s.rr > 0 ? '+' : ''}${s.rr}R` : '';
+      msg += `\n*${sym}*: ${s.signal.replace('CLOSED_', '')} ${rrStr}`.trimEnd();
+    } else {
+      msg += `\n*${sym}*: ${s ? s.signal : 'no data'}${s && s.entryPrice ? ` @ $${Number(s.entryPrice).toFixed(2)}` : ''}`;
+    }
   }
   await send(msg);
 };
@@ -225,7 +242,7 @@ const cmdScan = async () => {
 // ── /about ───────────────────────────────────────────────────────────────
 const cmdAbout = async () => {
   await send(
-`📊 *MVS — Monthly Value Sniper* (v10.13.1)
+`📊 *MVS — Monthly Value Sniper* (v10.14)
 
 Crypto signal bot built on one tendency: *price tends to revisit where the most volume was traded.* That's a real market pattern, not a guarantee about any single trade.
 

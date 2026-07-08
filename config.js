@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — Monthly Value Sniper v10.13.1
+ *  MVS — Monthly Value Sniper v10.14
  *  KuCoin API Configuration
  *
  *  FOUNDATION: POC + VAH + VAL + FIBO. No lagging indicators.
@@ -81,7 +81,7 @@
  *      happens after TP1 is hit, and should increase avg R per trade
  *      without touching frequency or the pre-TP1 loss-protection logic.
  *   2. Separately: the r30 (30-day) backtest request came back with
- *      scanned=0 for all 13 symbols — not a quiet market. backtest.js
+ *      scanned=0 for all 14 symbols — not a quiet market. backtest.js
  *      fetched exactly `days` of history for warmup AND evaluation, but
  *      warming up the 4H volume profile alone needs ~34.2 days on its
  *      own, so any request under ~35 days could never produce a signal.
@@ -181,7 +181,7 @@
  *   4. /status (commands.js) now shows direction + full per-TF bias
  *      breakdown + vote tally — required saving those fields into
  *      state.json (previously only existed in diag.log.json), plus
- *      Telegram message-chunking so a 13-symbol × 5-TF status message
+ *      Telegram message-chunking so a 14-symbol × 5-TF status message
  *      can't hit Telegram's 4096-char hard limit.
  *   5. weekly-summary.js groups identical repeated entries with a "×N"
  *      count instead of printing N near-identical blocks in a row.
@@ -225,7 +225,8 @@ module.exports = {
   SYMBOLS: [
     'ETH-USDT', 'SOL-USDT', 'BTC-USDT', 'XRP-USDT',
     'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT',
-    'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'POL-USDT'
+    'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'POL-USDT',
+    'MNT-USDT', // v10.14: added — Mantle
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────
@@ -632,6 +633,15 @@ module.exports = {
   BACKTEST_DAYS: 360,
   STARTING_CAPITAL: 1000,
   EARLY_TIMEOUT_BARS: 70,     // close sim trades early if TP1 not hit by then (v10.5: was "TP2" under the old 3-target system)
+  // v10.14: named constant replacing a bare "200" that was hardcoded
+  // identically in two places in backtest.js's trade-management loop
+  // (the open-loop TIMEOUT check and — implicitly, same 200 — nowhere
+  // else, since the end-of-backtest "still open" branch used its own
+  // separate math). Also now the shared ceiling used by
+  // core.js evaluateOpenTrade() for BOTH backtest.js and the new live
+  // position-tracker.js, so live and backtest can't drift on how long a
+  // trade is allowed to stay open.
+  MAX_HOLD_1H_BARS: 200,
 
   // ── KuCoin API ──────────────────────────────────────────────────────────
   BASE_URL: 'https://api.kucoin.com/api/v1',
