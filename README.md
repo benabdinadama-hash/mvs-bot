@@ -1,7 +1,7 @@
 # MVS — Monthly Value Sniper
 ## By Abdin — KuCoin Edition for Ghana
 
-![Pairs](https://img.shields.io/badge/Pairs-13%20Liquid%20Pairs-orange?style=for-the-badge)
+![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
 ![Version](https://img.shields.io/badge/Version-v10.14-purple?style=for-the-badge)
 
@@ -442,7 +442,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **Bias timeframe** | 4H, 200 bars | Macro direction vote |
 | **Structure timeframe** | 1H, 500 bars (VP) / 200 bars (Fib swing) | Matches the TradingView A-ICT/SMC PRO_v5 indicator settings (Lookback Bars 500, Swing Lookback 200) so the bot's levels match your chart |
 | **Trigger timeframe** | 15m, 500 bars (VP) / 200 bars (Fib swing) | Entry timing precision inside the 1H zone |
-| **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL (USDT) | 13 liquid pairs — repo is public, Actions minutes are free |
+| **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL, MNT (USDT) | 14 liquid pairs — repo is public, Actions minutes are free |
 | **Scan cadence** | Every 15 minutes | Matches the 15m trigger timeframe |
 | **VP rows** | 100 | Matches TradingView "Profile Rows: 100" |
 | **Command polling** | Every 5 minutes | Near real-time response to Telegram commands |

@@ -32,6 +32,9 @@ const axios  = require('axios');
 const fs     = require('fs');
 const path   = require('path');
 const config = require('./config');
+// v10.14: single source of truth for the version string — see backtest.js's
+// identical comment for why this exists (recurring stale-version-string bug).
+const MVS_VERSION = require('./package.json').version;
 
 const TG = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
 
@@ -242,7 +245,7 @@ const cmdScan = async () => {
 // ── /about ───────────────────────────────────────────────────────────────
 const cmdAbout = async () => {
   await send(
-`📊 *MVS — Monthly Value Sniper* (v10.14)
+`📊 *MVS — Monthly Value Sniper* (v${MVS_VERSION})
 
 Crypto signal bot built on one tendency: *price tends to revisit where the most volume was traded.* That's a real market pattern, not a guarantee about any single trade.
 
