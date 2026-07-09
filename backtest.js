@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.15
+ *  MVS — BACKTESTER (backtest.js)  v10.15.1
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file

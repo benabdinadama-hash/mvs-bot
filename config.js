@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — Monthly Value Sniper v10.15
+ *  MVS — Monthly Value Sniper v10.15.1
  *  KuCoin API Configuration
  *
  *  FOUNDATION: POC + VAH + VAL + FIBO. No lagging indicators.
@@ -258,7 +258,18 @@ module.exports = {
   // a backtested optimum. Run `node backtest.js` and compare the BY VOTE
   // TALLY section (new in this version's report) against a run with this
   // flag off before trusting the numbers either way.
-  VOTE_STRENGTH_SIZE_ENABLED: process.env.VOTE_STRENGTH_SIZE_ENABLED === 'false' ? false : true,
+  // v10.15.1 REVERT (2026-07-09): defaulted to OFF. A fresh 360-day
+  // backtest confirmed this cut simulated return roughly in half
+  // ($1430 vs $1655 final capital on the identical 47-trade set, isolated
+  // and verified) — NOT because it broke the underlying edge (win rate
+  // barely moved), but because 3-of-5 tallies turned out to be 87% of
+  // ALL real signals (41 of 47), not a rare weak case. Discounting the
+  // overwhelming majority of trades by 30% by default was simply too
+  // aggressive a starting point. Code kept intact and still fully
+  // functional — set VOTE_STRENGTH_SIZE_ENABLED=true (or flip the
+  // default below) to re-test, ideally with less aggressive starting
+  // values than 0.70/0.85/1.0 given what this run showed.
+  VOTE_STRENGTH_SIZE_ENABLED: process.env.VOTE_STRENGTH_SIZE_ENABLED === 'true' ? true : false,
   VOTE_STRENGTH_MULT: { 3: 0.70, 4: 0.85, 5: 1.0 },
 
   // v10.15 NEW — requested: a volatility/regime filter, since "same setup
@@ -276,7 +287,16 @@ module.exports = {
   // small-cap alt aren't the same absolute ATR, which is exactly why this
   // is a percentile against the symbol's OWN history rather than a fixed
   // number. See core.js calcATRSeries()/calcATRPercentile().
-  VOLATILITY_REGIME_ENABLED: process.env.VOLATILITY_REGIME_ENABLED === 'false' ? false : true,
+  // v10.15.1 REVERT (2026-07-09): defaulted to OFF. Confirmed via funnel
+  // diagnostics on a fresh 360-day run that this was cutting 15-20% of
+  // vote-passing candidates on every symbol, taking signal count from 53
+  // down to 47 — a real, substantial reduction with no confirmed
+  // corresponding quality improvement (WR moved only within normal
+  // sample noise). An untested 5th/95th-percentile threshold turned out
+  // too aggressive for what this edge actually needs. Code kept intact —
+  // set VOLATILITY_REGIME_ENABLED=true (or flip the default below) to
+  // re-test, ideally with wider bounds (e.g. 2/98) than this run used.
+  VOLATILITY_REGIME_ENABLED: process.env.VOLATILITY_REGIME_ENABLED === 'true' ? true : false,
   VOLATILITY_LOOKBACK_BARS: 200,      // ~8.3 days of 1H bars — trailing window the percentile is computed against
   VOLATILITY_MIN_PCTL: 5,             // below this percentile (too quiet) → skip
   VOLATILITY_MAX_PCTL: 95,            // above this percentile (too chaotic) → skip
