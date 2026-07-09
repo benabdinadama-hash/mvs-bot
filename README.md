@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.1-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -444,8 +444,53 @@ and `config.js` if you want the exact numbers behind each change.
     before trusting any of this live. Expect the volatility filter and
     vote-strength discount to both reduce frequency somewhat further, on
     top of where v10.11-v10.14 already left it.
+- **v10.15.1 — (2026-07-09) CONFIRMED REGRESSION, REVERTED. A fresh
+  360-day backtest run against live v10.15 came back at +43.0% return
+  (vs. the previous confirmed +100.2% on the same window) — a real,
+  serious drop, not a misread. Root-caused precisely before touching
+  anything, by replaying the SAME 47 closed trades from that exact report
+  through the sizing math with each new factor isolated:**
+  - **Vote-strength sizing was nearly the whole story.** $1,430 final
+    capital with it on vs. $1,655 with it off — on the identical trade
+    set. Why it hit so much harder than expected: 41 of the 47 signals
+    (87%) were 3-of-5 tallies. `VOTE_STRENGTH_MULT` had been treating
+    3-of-5 as the weak/rare case worth a 30% size cut — it's actually the
+    NORMAL case. The default was quietly discounting almost every trade,
+    not an occasional weak one. **Defaulted back to OFF**
+    (`VOTE_STRENGTH_SIZE_ENABLED`). Code untouched and still fully
+    functional if you want to re-test it — just not live by default
+    anymore, and if you do, less aggressive starting values than
+    0.70/0.85/1.0 are probably warranted given what this run showed.
+  - **The volatility filter cost real signal count for unproven benefit.**
+    Funnel diagnostics on the same run showed it removing 15-20% of
+    vote-passing candidates on every single symbol — signal count went
+    53 → 47. Win rate moved only within normal sample noise (84.0% →
+    76.2% is a couple of trades either way on a ~50-trade sample, not
+    evidence the filter improved quality). Cost was real and measured;
+    benefit was not established. **Defaulted back to OFF**
+    (`VOLATILITY_REGIME_ENABLED`), same reasoning — code stays, just not
+    on by default.
+  - **Multi-TF POC alignment: confirmed zero effect, left ON.** Isolated
+    test on the same 47 trades: identical $1,430.30 final capital with it
+    enabled or disabled. It's a boost-only mechanism gated by the same
+    1.0 risk-multiplier ceiling noted in v10.15 — structurally can't hurt
+    a backtest, so no reason to revert it. Still genuinely untested for
+    upside; that hasn't changed.
+  - **`fibPct` tracking: unaffected, left in.** Pure instrumentation, no
+    trading-logic impact either way — keeps the "BY FIB LEVEL" report
+    section working for whenever there's enough data to read something
+    into it.
+  - Net effect of this revert: sizing and gating are back to v10.14
+    behavior. The only durable additions from v10.15 are the (currently
+    inert-or-neutral) multi-TF POC boost and the Fib-level report
+    instrumentation — both harmless by construction, kept for when there's
+    real trade data to evaluate them against, per the standing philosophy
+    in this repo: measure before gating, and revert fast and honestly when
+    a measurement doesn't hold up. **Not yet re-backtested live on this
+    box** (no network access here) — run `node backtest.js` and confirm
+    the numbers land back near the v10.14 baseline before considering this
+    closed.
 
----
 
 ## ⚠️ Important: Why KuCoin?
 
@@ -630,7 +675,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **D6** 4H Zone Mismatch | 1H entry price doesn't sit near any 4H structural level | Skip. No multi-timeframe confluence. |
 | **D7** POC / No-1H-Confirm (v10.12) | Pivot is POC AND 1H isn't one of the 3+ agreeing timeframes | Skip (`POC_NO1H_GATED`). Confirmed weakest segment in every backtest to date — see changelog. Toggle: `config.POC_REQUIRE_1H_CONFIRM`. |
 | **D8** POC Contested / Prominence (v10.13) | Pivot is POC AND its volume peak doesn't clearly beat neighboring price rows (ratio < 1.5) | Skip (`POC_PROMINENCE_GATED`). ~10pp WR gap vs. decisive POC, replicated across two backtest windows — see changelog. Toggle: `config.POC_PROMINENCE_REQUIRE_DECISIVE`. |
-| **D9** Volatility Regime (v10.15 NEW) | Current 1H ATR is in the outer 5% of this symbol's own trailing 200-bar history (either extreme) | Skip (`VOLATILITY_REGIME_GATED`). Genuinely untested — see changelog. Toggle: `config.VOLATILITY_REGIME_ENABLED`. |
+| **D9** Volatility Regime (v10.15, **OFF by default since v10.15.1**) | Current 1H ATR is in the outer 5% of this symbol's own trailing 200-bar history (either extreme) | Skip (`VOLATILITY_REGIME_GATED`) if enabled. Reverted to off by default after a confirmed backtest regression — see changelog. Toggle: `config.VOLATILITY_REGIME_ENABLED`. |
 
 ---
 
@@ -702,10 +747,11 @@ STEP 2:  Five-timeframe bias vote — each timeframe casts BULLISH/BEARISH/
          breakdown either way (v10.10 fix, so /status is never more than
          one scan stale).
 STEP 3:  1H structure — get the swing/Fib pocket from the 1H bias vote.
-           • Volatility/regime check (v10.15 NEW, runs first — cheapest
-             check, before anything structural): current 1H ATR ranked
-             against this symbol's own trailing config.VOLATILITY_LOOKBACK_BARS
-             (200) — below config.VOLATILITY_MIN_PCTL (5) or above
+           • Volatility/regime check (v10.15, **OFF by default since
+             v10.15.1** — a confirmed backtest regression, see changelog):
+             when enabled, current 1H ATR ranked against this symbol's own
+             trailing config.VOLATILITY_LOOKBACK_BARS (200) — below
+             config.VOLATILITY_MIN_PCTL (5) or above
              config.VOLATILITY_MAX_PCTL (95) → skip
              (`VOLATILITY_REGIME_GATED`). Per-symbol percentile, not a
              fixed number — a quiet day for BTC and a quiet day for a
@@ -777,13 +823,13 @@ STEP 10: Build and fire the Telegram alert (which TFs agreed, entry/SL/
              untested — see changelog). All three size-only, not gates.
              Prominence is NOT re-checked here — it's already a gate back
              in STEP 4.
-           • Vote-strength sizing (v10.15 NEW) — 3-of-5/4-of-5/5-of-5
-             tallies size at 0.70x/0.85x/1.0x respectively
-             (config.VOTE_STRENGTH_MULT). A discount from full at the
-             strongest tally, not a boost above it — see changelog for
-             why (the final risk multiplier has a 1.0 ceiling; framing it
-             as a boost would have silently done nothing for any trade
-             with no other active discount).
+           • Vote-strength sizing (v10.15, **OFF by default since
+             v10.15.1**) — when enabled, 3-of-5/4-of-5/5-of-5 tallies size
+             at 0.70x/0.85x/1.0x respectively (config.VOTE_STRENGTH_MULT).
+             Reverted to off after a confirmed backtest regression: 87% of
+             real signals turned out to be 3-of-5, so this was discounting
+             almost every trade by 30%, not an occasional weak one — see
+             changelog for the exact isolated-test numbers.
          Save state.json + signals.log.json (newest-first as of v10.9)
          + open-positions.json (v10.14 — see below).
 
