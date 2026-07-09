@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.14
+ *  MVS — BACKTESTER (backtest.js)  v10.15
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -165,7 +165,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
   let openTrade = null;
 
   const funnel = {
-    scanned: 0, voteOk: 0, bullVote: 0, bearVote: 0, structureOk: 0, notOverExtended: 0,
+    scanned: 0, voteOk: 0, bullVote: 0, bearVote: 0, volatilityOk: 0, structureOk: 0, notOverExtended: 0,
     nearZone: 0, prominenceOk: 0, confluenceOk: 0, htf4hAligned: 0, notInvalidated: 0,
     cooldownOk: 0, triggerOk: 0, tp2RangeOk: 0, opened: 0,
   };
@@ -249,6 +249,11 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
       const window1h = data1h.slice(w1Start, ptr1h + 1);
       const bias1h = core.tfBiasVote(window1h, config.STRUCT_VP_LOOKBACK, config.STRUCT_FIB_LOOKBACK, config.VP_ROWS, config.VALUE_AREA_PCT);
       const atr1h = core.calcATR(window1h, config.ATR_PERIOD);
+      // v10.15 NEW — same cadence as atr1h above (recomputed once per 1H
+      // bar close, not every 15m tick) since it's derived from the same
+      // window1h. See core.js calcATRSeries()/calcATRPercentile() and
+      // config.js VOLATILITY_REGIME_* for the full rationale.
+      const atrSeries1h = config.VOLATILITY_REGIME_ENABLED ? core.calcATRSeries(window1h, config.ATR_PERIOD) : [];
       // v10.8/v10.9 (live by default): POC_MIGRATION and NAKED_POC both
       // need more
       // history than window1h carries (750/1000 bars vs window1h's ~519)
@@ -264,7 +269,7 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
         const wWideStart = Math.max(0, ptr1h + 1 - requiredBars);
         pocWideWindow1h = data1h.slice(wWideStart, ptr1h + 1);
       }
-      cached1h = bias1h && atr1h ? { bias1h, atr1h, window1h, pocWideWindow1h } : null;
+      cached1h = bias1h && atr1h ? { bias1h, atr1h, atrSeries1h, window1h, pocWideWindow1h } : null;
     }
     // ── Recompute 4H bias only when a new 4H bar closed ──────────────────
     if (advanced4h || !cached4h) {
@@ -309,9 +314,19 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     if (resolved.direction === 'BUY') funnel.bullVote++; else funnel.bearVote++;
 
     const direction = resolved.direction;
-    const { bias1h, atr1h, window1h, pocWideWindow1h } = cached1h;
+    const { bias1h, atr1h, atrSeries1h, window1h, pocWideWindow1h } = cached1h;
     const swing1h = bias1h.swing;
     const price1h = data1h[ptr1h].close;
+
+    // v10.15 NEW — volatility/regime filter. Placed as early as possible
+    // (right after ATR is confirmed valid, before any structure/confluence/
+    // pattern work), mirroring strategy.js exactly. See config.js
+    // VOLATILITY_REGIME_* for the full rationale and honest caveat.
+    if (config.VOLATILITY_REGIME_ENABLED) {
+      const atrPctl = core.calcATRPercentile(atrSeries1h, config.VOLATILITY_LOOKBACK_BARS);
+      if (atrPctl !== null && (atrPctl < config.VOLATILITY_MIN_PCTL || atrPctl > config.VOLATILITY_MAX_PCTL)) continue;
+    }
+    funnel.volatilityOk++;
 
     if (price1h > swing1h.high || price1h < swing1h.low) continue; // remap
     funnel.structureOk++;
@@ -413,6 +428,20 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
       pocWideWindow1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
       atr1h, vp1h.pocPrice, config.NAKED_POC_TOLERANCE_ATR
     );
+    // v10.15 NEW — see core.js computeMultiTFPOCAlignment() and config.js
+    // MULTI_TF_POC_* for rationale/caveat. cached4h.poc / cached1d.poc are
+    // the same flat fields checkHTFZoneAlignment already reads above.
+    const multiTFPOC = core.computeMultiTFPOCAlignment(
+      vp1h.pocPrice, cached4h?.poc, cached1d?.poc, atr1h, config.MULTI_TF_POC_TOLERANCE_ATR
+    );
+    // v10.15 NEW — requested: does entry quality differ between the two
+    // ends of the Fib pocket (61.8% vs 78.6%)? Tracked here (mirrors the
+    // fibPct strategy.js already computes for the alert message) so a
+    // fresh backtest run can actually report the split — this field
+    // didn't exist in trade records before this version, so no existing
+    // report can answer the question; a NEW run is required. See the
+    // "BY FIB LEVEL" section in generateReport() below.
+    const fibPct = bestFibLevel === fib.level618 ? '61.8%' : bestFibLevel === fib.level786 ? '78.6%' : '70%-mid';
 
     cooldownMap[direction] = bar.time;
     openTrade = {
@@ -421,10 +450,10 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
       entryPrice: bestFibLevel, slPrice: levels.slPrice, tp1Price: levels.tp1Price, tp2Price: levels.tp2Price,
       origSlPrice: levels.slPrice,
       rr1: parseFloat(levels.rr1.toFixed(2)), rr2: parseFloat(levels.rr2.toFixed(2)),
-      patterns: rejection.patterns, pivot: bestPivot.name,
+      patterns: rejection.patterns, pivot: bestPivot.name, fibPct,
       voteTally: resolved.tally, agreeing: resolved.agreeing,
       confluenceScore: bestScore, td9Confirms, slAtrMult,
-      prominence, migration, nakedPOC,
+      prominence, migration, nakedPOC, multiTFPOC,
     };
   }
 
@@ -488,7 +517,11 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     // live by default — same combination logic as strategy.js, applied
     // here so the backtest's $ P&L simulation reflects live sizing
     // exactly, not an approximation of it.
-    riskMult *= core.computePOCQualityMultiplier(t.pivot, t.direction, t.prominence, t.migration, t.nakedPOC, config);
+    riskMult *= core.computePOCQualityMultiplier(t.pivot, t.direction, t.prominence, t.migration, t.nakedPOC, t.multiTFPOC, config);
+    // v10.15 NEW — vote-strength sizing, applied here so the backtest's
+    // $ P&L simulation reflects live sizing exactly, same reasoning as
+    // the POC quality factors immediately above.
+    riskMult *= core.computeVoteStrengthMultiplier(t.agreeing.length, config);
     riskMult = Math.max(0.1, Math.min(1.0, riskMult));
     const riskAmt  = capital * (config.RISK_PER_TRADE_PCT / 100) * riskMult;
     const slipCost = capital * (config.SLIPPAGE_PCT || 0);
@@ -542,6 +575,52 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     if (t.rr > 0) byPivotTier[key].wins++;
     if (t.result === 'SL') byPivotTier[key].sl++;
     byPivotTier[key].totalRR += t.rr;
+  }
+
+  // v10.15 NEW — requested: "does entry quality differ between the two
+  // ends of the Fib pocket (61.8% vs 78.6%)?" First run that can actually
+  // answer this — fibPct didn't exist on trade records before this
+  // version, so any report generated before now has nothing to show here.
+  const byFibLevel = {};
+  for (const t of closed) {
+    const key = t.fibPct || 'N/A';
+    if (!byFibLevel[key]) byFibLevel[key] = { trades: 0, wins: 0, sl: 0, totalRR: 0 };
+    byFibLevel[key].trades++;
+    if (t.rr > 0) byFibLevel[key].wins++;
+    if (t.result === 'SL') byFibLevel[key].sl++;
+    byFibLevel[key].totalRR += t.rr;
+  }
+
+  // v10.15 NEW — requested: "a 5-of-5 unanimous vote and a bare 3-of-5
+  // currently size identically... weighting confidence by vote strength."
+  // This breakdown is what VOTE_STRENGTH_MULT's 0.70/0.85/1.0 starting
+  // values should eventually be checked against — compare WR/SL rate
+  // across tallies here before trusting those numbers.
+  const byVoteTally = {};
+  for (const t of closed) {
+    const key = (t.agreeing || []).length ? `${t.agreeing.length}-of-5` : 'N/A';
+    if (!byVoteTally[key]) byVoteTally[key] = { trades: 0, wins: 0, sl: 0, totalRR: 0 };
+    byVoteTally[key].trades++;
+    if (t.rr > 0) byVoteTally[key].wins++;
+    if (t.result === 'SL') byVoteTally[key].sl++;
+    byVoteTally[key].totalRR += t.rr;
+  }
+
+  // v10.15 NEW — requested: does 1H POC lining up with 4H/1D POC actually
+  // predict anything? Genuinely untested until now — this is the first
+  // report that can show it. Small samples here should be read with the
+  // same caution as everything else in this repo — see the "1H-confirm x
+  // prominence" combined-tier note in the changelog for what "too small
+  // to trust" looks like in practice.
+  const byMultiTFPOC = {};
+  for (const t of closed) {
+    if (t.pivot !== 'POC') continue; // this factor is a no-op for VAH/VAL — see core.js
+    const key = t.multiTFPOC && t.multiTFPOC.anyAligned ? 'aligned (4H/1D)' : 'not aligned';
+    if (!byMultiTFPOC[key]) byMultiTFPOC[key] = { trades: 0, wins: 0, sl: 0, totalRR: 0 };
+    byMultiTFPOC[key].trades++;
+    if (t.rr > 0) byMultiTFPOC[key].wins++;
+    if (t.result === 'SL') byMultiTFPOC[key].sl++;
+    byMultiTFPOC[key].totalRR += t.rr;
   }
 
   const avgHoursHeld = closed.length ? (closed.reduce((s, t) => s + (t.hoursHeld || 0), 0) / closed.length).toFixed(0) : '0';
@@ -604,13 +683,28 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     ...Object.entries(byPivotTier).map(([k, v]) =>
       `  ${k.padEnd(15)} ${v.trades} trades | ${(v.wins/v.trades*100).toFixed(1)}% WR | ${v.sl} SL | ${v.totalRR.toFixed(2)}R total`),
     '',
+    '── BY FIB LEVEL (v10.15 NEW — first report able to show this) ───────',
+    ...(Object.keys(byFibLevel).length ? Object.entries(byFibLevel).map(([k, v]) =>
+      `  ${k.padEnd(15)} ${v.trades} trades | ${(v.wins/v.trades*100).toFixed(1)}% WR | ${v.sl} SL | ${v.totalRR.toFixed(2)}R total`)
+      : ['  No closed trades yet on a run new enough to track this.']),
+    '',
+    '── BY VOTE TALLY (v10.15 NEW — drives VOTE_STRENGTH_MULT) ───────────',
+    ...(Object.keys(byVoteTally).length ? Object.entries(byVoteTally).sort().map(([k, v]) =>
+      `  ${k.padEnd(15)} ${v.trades} trades | ${(v.wins/v.trades*100).toFixed(1)}% WR | ${v.sl} SL | ${v.totalRR.toFixed(2)}R total`)
+      : ['  No closed trades to break down by vote tally.']),
+    '',
+    '── BY MULTI-TF POC ALIGNMENT (v10.15 NEW, POC pivot only) ───────────',
+    ...(Object.keys(byMultiTFPOC).length ? Object.entries(byMultiTFPOC).map(([k, v]) =>
+      `  ${k.padEnd(15)} ${v.trades} trades | ${(v.wins/v.trades*100).toFixed(1)}% WR | ${v.sl} SL | ${v.totalRR.toFixed(2)}R total`)
+      : ['  No closed POC-pivot trades yet on a run new enough to track this.']),
+    '',
     '── FUNNEL DIAGNOSTICS (15m ticks surviving each gate, per symbol) ───',
     ...requestedSymbols.flatMap(sym => {
       const f = funnelsBySymbol[sym];
       if (!f) return [`  ${sym}: no funnel data`];
       return [
         `  ${sym}:`,
-        `    scanned=${f.scanned}  voteOk=${f.voteOk}(bull=${f.bullVote}/bear=${f.bearVote})  structureOk=${f.structureOk}`,
+        `    scanned=${f.scanned}  voteOk=${f.voteOk}(bull=${f.bullVote}/bear=${f.bearVote})  volatilityOk=${f.volatilityOk}  structureOk=${f.structureOk}`,
         `    notOverExtended=${f.notOverExtended}  nearZone=${f.nearZone}  prominenceOk=${f.prominenceOk}  confluenceOk=${f.confluenceOk}  htf4hAligned=${f.htf4hAligned}`,
         `    notInvalidated=${f.notInvalidated}  cooldownOk=${f.cooldownOk}  triggerOk=${f.triggerOk}  tp2RangeOk=${f.tp2RangeOk}  opened=${f.opened}`,
       ];

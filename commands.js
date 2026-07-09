@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v10.14)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v10.15)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.

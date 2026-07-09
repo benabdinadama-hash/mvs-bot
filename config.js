@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — Monthly Value Sniper v10.14
+ *  MVS — Monthly Value Sniper v10.15
  *  KuCoin API Configuration
  *
  *  FOUNDATION: POC + VAH + VAL + FIBO. No lagging indicators.
@@ -245,6 +245,41 @@ module.exports = {
   // "3", so the threshold and the TF count it's checked against can never
   // silently drift apart — see core.js resolveDirection(votes, minAgree).
   MIN_TF_AGREE: 3,
+
+  // v10.15 NEW — requested: "a 5-of-5 unanimous vote and a bare 3-of-5
+  // currently size identically... weighting confidence by vote strength."
+  // See core.js computeVoteStrengthMultiplier() for the full mechanism
+  // and why this is built as a discount-from-full rather than a boost
+  // (clamp-ceiling reasoning — see the MULTI_TF_POC note above for the
+  // same issue in more detail). Genuinely untested combination of tallies
+  // — starting values below are a reasoned starting point (each extra
+  // agreeing timeframe out of 5 shaves the "not fully confirmed" discount
+  // in half: 3-of-5 at 0.70, 4-of-5 at 0.85, 5-of-5 at the full 1.0), not
+  // a backtested optimum. Run `node backtest.js` and compare the BY VOTE
+  // TALLY section (new in this version's report) against a run with this
+  // flag off before trusting the numbers either way.
+  VOTE_STRENGTH_SIZE_ENABLED: process.env.VOTE_STRENGTH_SIZE_ENABLED === 'false' ? false : true,
+  VOTE_STRENGTH_MULT: { 3: 0.70, 4: 0.85, 5: 1.0 },
+
+  // v10.15 NEW — requested: a volatility/regime filter, since "same setup
+  // in a quiet, orderly market vs. a violent, choppy one isn't the same
+  // trade." Computes where the CURRENT 1H ATR ranks (0-100 percentile)
+  // against this symbol's own trailing VOLATILITY_LOOKBACK_BARS of ATR
+  // history, and skips the setup if it's in either extreme tail — very
+  // high (chaotic/gappy — stops more likely to get blown through cleanly
+  // rather than tag-and-reverse) or very low (dead/no follow-through —
+  // even a correct read may not have the energy to reach TP1). Bounds
+  // deliberately conservative (only the outer 5% on each side) since this
+  // is untested and the goal is a light-touch regime filter, not an
+  // aggressive new gate stacked on top of everything else this session.
+  // Per-symbol, not global — a quiet day for BTC and a quiet day for a
+  // small-cap alt aren't the same absolute ATR, which is exactly why this
+  // is a percentile against the symbol's OWN history rather than a fixed
+  // number. See core.js calcATRSeries()/calcATRPercentile().
+  VOLATILITY_REGIME_ENABLED: process.env.VOLATILITY_REGIME_ENABLED === 'false' ? false : true,
+  VOLATILITY_LOOKBACK_BARS: 200,      // ~8.3 days of 1H bars — trailing window the percentile is computed against
+  VOLATILITY_MIN_PCTL: 5,             // below this percentile (too quiet) → skip
+  VOLATILITY_MAX_PCTL: 95,            // above this percentile (too chaotic) → skip
 
   // Bar durations in seconds — used for cooldown math. Must match the
   // timeframes above. KuCoin bar seconds: 15min=900, 30min=1800,
@@ -524,6 +559,34 @@ module.exports = {
   NAKED_POC_ENABLED: process.env.NAKED_POC_ENABLED === 'false' ? false : true,
   NAKED_POC_TOLERANCE_ATR: 0.5,       // how close current POC must sit to the naked historical POC
   NAKED_POC_BOOST_MULT: 1.15,
+
+  // #4 — MULTI-TIMEFRAME POC ALIGNMENT (v10.15 NEW): does the 1H POC also
+  // line up with the 4H POC and/or 1D POC? Two (or three) INDEPENDENTLY
+  // computed volume profiles agreeing on the same price is a stronger
+  // claim than one profile's opinion alone — same underlying logic as
+  // NAKED_POC above, just comparing across timeframes instead of across
+  // time windows on the same timeframe. bias4h.poc / bias1d.poc are
+  // already computed by tfBiasVote() as part of the 5-TF vote — no new
+  // KuCoin fetch needed, this is free given data already in hand.
+  // GENUINELY UNTESTED — no prior trade data exists that tracked this
+  // (it didn't exist as a factor until now), so it's a bounded SIZE
+  // multiplier only, not a gate, exactly like NAKED_POC was when IT was
+  // first introduced in v10.8. IMPORTANT CAVEAT discovered while adding
+  // this: the final risk multiplier is clamped to a 1.0 ceiling
+  // (Math.min(1.0, ...) in strategy.js/backtest.js) — a "boost" only
+  // does anything for a trade that already has some OTHER discount
+  // active (e.g. PATTERN_RISK_MATRIX below), pulling it back up toward,
+  // never past, 1.0. For a trade with no other discount, this factor is
+  // a no-op, same as NAKED_POC_BOOST_MULT and the old (pre-v10.13)
+  // POC_MIGRATION_BOOST_MULT always were — neither had ever actually
+  // mattered before this was noticed. Not changed here: raising the
+  // ceiling itself is a real risk-management decision (it would mean a
+  // trade CAN size above your configured RISK_PER_TRADE_PCT in the best
+  // case) that deserves its own explicit choice, not a side effect of
+  // adding an unrelated feature.
+  MULTI_TF_POC_ENABLED: process.env.MULTI_TF_POC_ENABLED === 'false' ? false : true,
+  MULTI_TF_POC_TOLERANCE_ATR: 0.75,   // how close 1H POC must sit to 4H/1D POC to count as "aligned"
+  MULTI_TF_POC_BOOST_MULT: 1.15,      // same magnitude as NAKED_POC_BOOST_MULT — no evidence yet to justify a different number
 
   // ALL THREE ARE LIVE BY DEFAULT AS OF v10.9. To run an A/B comparison
   // against them being off (recommended at some point, even though it
