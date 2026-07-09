@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.14.1-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -370,6 +370,80 @@ and `config.js` if you want the exact numbers behind each change.
   - `package.json` bumped to `10.14.1` — the only version-string change
     in this patch; every dynamic display (`strategy.js`, `backtest.js`,
     `commands.js`) picks it up automatically, nothing else to edit.
+- **v10.15 — (2026-07-08) four requested improvements: multi-timeframe POC
+  alignment, a Fib-level split (finally answerable), vote-strength
+  sizing, and a volatility/regime filter. Session filter explicitly
+  declined per instruction — not built.**
+  - **Multi-TF POC alignment (size-only, POC pivot only).** Does 1H POC
+    line up with 4H and/or 1D POC? Two independently-computed volume
+    profiles agreeing is stronger evidence than one — same logic
+    NAKED_POC already uses across time windows, applied here across
+    timeframes instead. `bias4h.poc`/`bias1d.poc` were already being
+    computed by the 5-TF vote for the HTF zone check, so this costs
+    nothing extra to fetch. **Genuinely untested** — wired as a bounded
+    boost multiplier (`MULTI_TF_POC_BOOST_MULT: 1.15`), not a gate,
+    exactly how NAKED_POC itself was introduced in v10.8. New "BY
+    MULTI-TF POC ALIGNMENT" backtest report section to check it against
+    real trades once enough accumulate.
+  - **Important discovery made while adding this: "boost" multipliers
+    above 1.0 have been silently inert this entire time.** The final
+    risk multiplier is clamped `Math.max(0.1, Math.min(1.0, riskMult))`
+    in both `strategy.js` and `backtest.js` — meaning `NAKED_POC_BOOST_MULT`
+    (1.15, live since v10.8) and the pre-v10.13 `POC_MIGRATION_BOOST_MULT`
+    never actually did anything for a trade with no OTHER active discount,
+    since there was nothing below 1.0 for the boost to pull back up
+    toward. Not changed here — raising the 1.0 ceiling itself is a real
+    risk-management decision (it would let position size legitimately
+    exceed your configured `RISK_PER_TRADE_PCT` in the best case), and
+    that deserves its own explicit choice, not a side effect of an
+    unrelated feature request. Flagged clearly in `config.js` next to
+    every affected constant.
+  - **Vote-strength sizing.** 3-of-5/4-of-5/5-of-5 timeframe agreement now
+    sizes at 0.70x/0.85x/1.0x respectively (`config.VOTE_STRENGTH_MULT`)
+    instead of identically at every tally. Built as a discount from full
+    at the strongest tally rather than a boost above it — directly because
+    of the clamp finding above; this way it actually has an effect on
+    every trade, not just ones that happen to have some other discount
+    active. New "BY VOTE TALLY" report section — these starting values
+    (0.70/0.85/1.0) are a reasoned starting point, not a backtested
+    optimum; compare against a run with `VOTE_STRENGTH_SIZE_ENABLED=false`
+    before trusting them.
+  - **Volatility/regime filter — new gate, not just sizing.** Skips a
+    setup if the current 1H ATR sits in the outer 5% of that SYMBOL'S OWN
+    trailing 200-bar ATR history (`config.VOLATILITY_LOOKBACK_BARS`,
+    `VOLATILITY_MIN_PCTL`/`MAX_PCTL`) — percentile against its own
+    history, not a fixed number, since a quiet day for BTC and a quiet day
+    for a small-cap alt aren't the same absolute ATR. New `core.js`
+    functions `calcATRSeries()`/`calcATRPercentile()`. Placed as early as
+    possible in the pipeline (right after ATR is computed, before any
+    structure/confluence/pattern work) since it's the cheapest check and
+    independent of direction/pivot/pattern. **Genuinely untested** —
+    bounds deliberately conservative (only the outer 5% each side) since
+    the goal was a light-touch filter, not an aggressive new gate stacked
+    on everything else added this session. New `volatilityOk` funnel
+    counter, new `VOLATILITY_REGIME_GATED` diag-log reason.
+  - **Fibonacci 61.8% vs 78.6% split — answerable for the first time.**
+    `backtest.js`'s trade records never tracked which end of the Fib
+    pocket was used for entry (`strategy.js` computes this for the alert
+    message, but nothing wrote it to a trade record before now). Added
+    `fibPct` to the trade object and a new "BY FIB LEVEL" report section.
+    **No opinion offered here on purpose** — the previous two backtest
+    reports reviewed this session predate this field entirely, so there
+    is no existing data to draw a conclusion from. Run `node backtest.js`
+    to get the first real answer.
+  - **Session filter (London/NY open restriction) — explicitly declined,
+    not built.** Was on the shortlist from the prior discussion; instructed
+    to skip it this round. Noted here only so a future reader doesn't
+    wonder why it's absent from an otherwise-complete pass.
+  - All four features wired identically into `strategy.js` (live) and
+    `backtest.js` (simulation) — funnel diagnostics, gate order, and
+    report sections kept in lockstep, same discipline as every prior
+    version. **Not yet re-backtested on this box** (no network access to
+    api.kucoin.com here) — run `node backtest.js` and compare the new
+    report sections against your last confirmed run (82.6% WR, 360-day)
+    before trusting any of this live. Expect the volatility filter and
+    vote-strength discount to both reduce frequency somewhat further, on
+    top of where v10.11-v10.14 already left it.
 
 ---
 
@@ -556,6 +630,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **D6** 4H Zone Mismatch | 1H entry price doesn't sit near any 4H structural level | Skip. No multi-timeframe confluence. |
 | **D7** POC / No-1H-Confirm (v10.12) | Pivot is POC AND 1H isn't one of the 3+ agreeing timeframes | Skip (`POC_NO1H_GATED`). Confirmed weakest segment in every backtest to date — see changelog. Toggle: `config.POC_REQUIRE_1H_CONFIRM`. |
 | **D8** POC Contested / Prominence (v10.13) | Pivot is POC AND its volume peak doesn't clearly beat neighboring price rows (ratio < 1.5) | Skip (`POC_PROMINENCE_GATED`). ~10pp WR gap vs. decisive POC, replicated across two backtest windows — see changelog. Toggle: `config.POC_PROMINENCE_REQUIRE_DECISIVE`. |
+| **D9** Volatility Regime (v10.15 NEW) | Current 1H ATR is in the outer 5% of this symbol's own trailing 200-bar history (either extreme) | Skip (`VOLATILITY_REGIME_GATED`). Genuinely untested — see changelog. Toggle: `config.VOLATILITY_REGIME_ENABLED`. |
 
 ---
 
@@ -627,6 +702,14 @@ STEP 2:  Five-timeframe bias vote — each timeframe casts BULLISH/BEARISH/
          breakdown either way (v10.10 fix, so /status is never more than
          one scan stale).
 STEP 3:  1H structure — get the swing/Fib pocket from the 1H bias vote.
+           • Volatility/regime check (v10.15 NEW, runs first — cheapest
+             check, before anything structural): current 1H ATR ranked
+             against this symbol's own trailing config.VOLATILITY_LOOKBACK_BARS
+             (200) — below config.VOLATILITY_MIN_PCTL (5) or above
+             config.VOLATILITY_MAX_PCTL (95) → skip
+             (`VOLATILITY_REGIME_GATED`). Per-symbol percentile, not a
+             fixed number — a quiet day for BTC and a quiet day for a
+             small-cap alt aren't the same absolute ATR.
            • Price broke the 1H swing entirely → structural remap alert, stop.
            • Price already beyond 1H Fib 88.6% → D4 over-extended, stop.
            • Price not within ATR×config.NEAR_ZONE_ATR_MULT of the zone
@@ -686,11 +769,21 @@ STEP 10: Build and fire the Telegram alert (which TFs agreed, entry/SL/
              direction? Bounded upward size adjustment only, never a gate.
            • POC quality notes (v10.8/v10.9, POC pivot only) — migration
              (as of v10.13: PENALTY when it confirms trade direction — the
-             original v10.8 theory had this backwards, see changelog) and
+             original v10.8 theory had this backwards, see changelog),
              naked-POC alignment (unconfirmed either way — no trades with
              this factor present in either backtest window reviewed so
-             far). Both size-only, not gates. Prominence is NOT re-checked
-             here — it's already a gate back in STEP 4.
+             far), and multi-timeframe POC alignment (v10.15 NEW — does
+             1H POC also line up with 4H and/or 1D POC? Also genuinely
+             untested — see changelog). All three size-only, not gates.
+             Prominence is NOT re-checked here — it's already a gate back
+             in STEP 4.
+           • Vote-strength sizing (v10.15 NEW) — 3-of-5/4-of-5/5-of-5
+             tallies size at 0.70x/0.85x/1.0x respectively
+             (config.VOTE_STRENGTH_MULT). A discount from full at the
+             strongest tally, not a boost above it — see changelog for
+             why (the final risk multiplier has a 1.0 ceiling; framing it
+             as a boost would have silently done nothing for any trade
+             with no other active discount).
          Save state.json + signals.log.json (newest-first as of v10.9)
          + open-positions.json (v10.14 — see below).
 

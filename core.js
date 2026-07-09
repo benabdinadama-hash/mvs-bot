@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — CORE STRATEGY LOGIC (core.js)  v10.14
+ *  MVS — CORE STRATEGY LOGIC (core.js)  v10.15
  *
  *  Every pure function used to decide BUY/SELL/NO-TRADE lives here, and
  *  ONLY here. strategy.js (live/Telegram) and backtest.js (simulation)
@@ -171,6 +171,50 @@ const calcATR = (data, period = 14) => {
     atr = (atr * (period - 1) + trs[i]) / period;
   }
   return atr;
+};
+
+// v10.15: same Wilder's-smoothing math as calcATR above, but returns the
+// FULL series (one ATR value per bar, single pass) instead of just the
+// final number — needed to answer "is current volatility unusually high
+// or low compared to this symbol's own recent history?" rather than just
+// "what is it right now?". Deliberately a separate function rather than
+// changing calcATR's return shape — every existing call site expects a
+// single number, and this keeps that contract untouched.
+const calcATRSeries = (data, period = 14) => {
+  if (data.length < period + 1) return [];
+  const trs = [];
+  for (let i = 1; i < data.length; i++) {
+    const c = data[i], p = data[i - 1];
+    trs.push(Math.max(
+      c.high - c.low,
+      Math.abs(c.high - p.close),
+      Math.abs(c.low - p.close)
+    ));
+  }
+  if (trs.length < period) return [];
+  const series = [];
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  series.push(atr);
+  for (let i = period; i < trs.length; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period;
+    series.push(atr);
+  }
+  return series; // series[series.length - 1] is the ATR ending at the last bar of `data`
+};
+
+// v10.15: percentile rank (0-100) of the MOST RECENT ATR value within its
+// own trailing lookback window — e.g. 95 means "the highest ATR this
+// symbol has printed in the last `lookback` bars," 5 means the lowest.
+// Returns null (treated as neutral/unknown by the caller, never a reason
+// to block a trade) when there isn't enough history yet — a data
+// shortage should never masquerade as "this is definitely a normal/calm
+// market," which a default numeric value would silently imply.
+const calcATRPercentile = (atrSeries, lookback = 200) => {
+  if (!atrSeries || atrSeries.length < 20) return null;
+  const window = atrSeries.slice(-Math.min(lookback, atrSeries.length));
+  const current = atrSeries[atrSeries.length - 1];
+  const below = window.filter(v => v < current).length;
+  return (below / window.length) * 100;
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -619,6 +663,42 @@ const computeNakedPOC = (bars, vpLookback, rows, atr, currentPOC, toleranceAtrMu
   return { naked: !tested, priorPOC, tested, aligned };
 };
 
+// v10.15 NEW — requested: "does the 1H POC also line up with the 4H or
+// 1D POC? Two independent volume profiles agreeing on the same price is
+// a stronger claim than one." Genuinely untested (no prior trade data
+// exists that tracked this), so this is wired as a bounded SIZE
+// multiplier only — same treatment NAKED_POC got when it was introduced
+// in v10.8 — not a gate, until real trades accumulate evidence one way
+// or the other. Returns neutral (no-op) for any pivot other than POC,
+// or when either the 4H/1D POC value or ATR isn't available.
+const computeMultiTFPOCAlignment = (pocPrice1h, poc4h, poc1d, atr, toleranceAtrMult) => {
+  const none = { aligned4h: false, aligned1d: false, anyAligned: false, poc4h: poc4h ?? null, poc1d: poc1d ?? null };
+  if (pocPrice1h == null || !(atr > 0)) return none;
+  const aligned4h = poc4h != null && Math.abs(pocPrice1h - poc4h) <= atr * toleranceAtrMult;
+  const aligned1d = poc1d != null && Math.abs(pocPrice1h - poc1d) <= atr * toleranceAtrMult;
+  return { aligned4h, aligned1d, anyAligned: aligned4h || aligned1d, poc4h: poc4h ?? null, poc1d: poc1d ?? null };
+};
+
+// v10.15 NEW — requested: "a 5-of-5 unanimous vote and a bare 3-of-5
+// currently size identically... weighting confidence by vote strength."
+// Deliberately built as a DISCOUNT from full size at the strongest tally,
+// not a boost above it — see the v10.15 note on computeRiskMultiplier's
+// caller (strategy.js/backtest.js) for why: the final risk multiplier is
+// clamped to a 1.0 ceiling, so anything framed as "boost the strong
+// tier" would have been silently capped away to a no-op for any trade
+// that had no other active discount (exactly what happened to
+// NAKED_POC_BOOST_MULT and the old POC_MIGRATION_BOOST_MULT — both sat
+// unused for this reason, discovered during this pass). Framing it as
+// "discount the weaker tiers instead" achieves the identical relative
+// effect (5-of-5 trades end up bigger than 3-of-5 trades, same as
+// "boosting" 5-of-5 would) without depending on interaction with
+// whatever ELSE happens to be discounting a given trade.
+const computeVoteStrengthMultiplier = (agreeingCount, cfg) => {
+  if (!cfg.VOTE_STRENGTH_SIZE_ENABLED) return 1.0;
+  const mult = cfg.VOTE_STRENGTH_MULT[agreeingCount];
+  return typeof mult === 'number' ? mult : 1.0;
+};
+
 //  Combines all three into one multiplier for the call site. Returns 1.0
 //  (complete no-op) for any pivot other than POC — VAH/VAL entries are
 //  entirely untouched by this function, always, regardless of which
@@ -640,7 +720,7 @@ const computeNakedPOC = (bars, vpLookback, rows, atr, currentPOC, toleranceAtrMu
 //  left at neutral 1.0 (the "against" bucket's outperformance is smaller
 //  and its sample thinner — not confident enough to reward it further,
 //  only confident enough to stop rewarding the confirming case).
-const computePOCQualityMultiplier = (pivotName, direction, prominence, migration, nakedPOC, cfg) => {
+const computePOCQualityMultiplier = (pivotName, direction, prominence, migration, nakedPOC, multiTFPOC, cfg) => {
   if (pivotName !== 'POC') return 1.0;
   let mult = 1.0;
 
@@ -658,6 +738,15 @@ const computePOCQualityMultiplier = (pivotName, direction, prominence, migration
 
   if (cfg.NAKED_POC_ENABLED && nakedPOC && nakedPOC.aligned) {
     mult *= cfg.NAKED_POC_BOOST_MULT;
+  }
+
+  // v10.15 NEW — see computeMultiTFPOCAlignment() above for the full
+  // rationale and the honest caveat: this is genuinely untested, wired
+  // as a bounded boost the same way NAKED_POC was when it was introduced,
+  // not a gate. Two independent timeframes' POC agreeing gets treated as
+  // slightly stronger evidence than only one.
+  if (cfg.MULTI_TF_POC_ENABLED && multiTFPOC && multiTFPOC.anyAligned) {
+    mult *= cfg.MULTI_TF_POC_BOOST_MULT;
   }
 
   return mult;
@@ -862,4 +951,5 @@ module.exports = {
   detectRejection, computeTradeLevels, computeRiskMultiplier, computeTDSequential,
   computePOCProminence, computePOCMigration, computeNakedPOC, computePOCQualityMultiplier,
   isPOCProminenceTrusted, evaluateOpenTrade,
+  calcATRSeries, calcATRPercentile, computeMultiTFPOCAlignment, computeVoteStrengthMultiplier,
 };
