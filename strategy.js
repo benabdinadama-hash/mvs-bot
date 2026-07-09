@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.14  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.15  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -359,6 +359,23 @@ const runStrategy = async (symbol) => {
       return;
     }
 
+    // v10.15 NEW — volatility/regime filter, requested: "same setup in a
+    // quiet, orderly market vs. a violent, choppy one isn't the same
+    // trade." Placed here (cheapest possible point — right after ATR,
+    // before any of the more expensive structure/confluence/pattern work
+    // below) since it's a pure regime check, independent of direction,
+    // pivot, or pattern. See config.js VOLATILITY_REGIME_* for the full
+    // rationale and honest untested-caveat.
+    if (config.VOLATILITY_REGIME_ENABLED) {
+      const atrSeries1h = core.calcATRSeries(data1h, config.ATR_PERIOD);
+      const atrPctl = core.calcATRPercentile(atrSeries1h, config.VOLATILITY_LOOKBACK_BARS);
+      if (atrPctl !== null && (atrPctl < config.VOLATILITY_MIN_PCTL || atrPctl > config.VOLATILITY_MAX_PCTL)) {
+        console.log(`  ⏭️ VOLATILITY REGIME: ATR at ${atrPctl.toFixed(1)}th percentile (need ${config.VOLATILITY_MIN_PCTL}-${config.VOLATILITY_MAX_PCTL}). Skipping.`);
+        logDiag({ symbol, barTime, price, fired: false, reason: 'VOLATILITY_REGIME_GATED', atrPctl: parseFloat(atrPctl.toFixed(1)) });
+        return;
+      }
+    }
+
     // Structural remap — price broke the 1H swing entirely
     if (price > swing1h.high || price < swing1h.low) {
       console.log(`  🔄 STRUCTURAL REMAP: ${symbol} broke 1H swing. Zones void, recalculating next scan.`);
@@ -568,6 +585,13 @@ const runStrategy = async (symbol) => {
       data1h, config.STRUCT_VP_LOOKBACK, config.VP_ROWS,
       atr1h, vp1h.pocPrice, config.NAKED_POC_TOLERANCE_ATR
     );
+    // v10.15 NEW — see core.js computeMultiTFPOCAlignment() and config.js
+    // MULTI_TF_POC_* for the full rationale/caveat. bias4h.poc / bias1d.poc
+    // come from tfBiasVote()'s own flat return fields (same ones
+    // checkHTFZoneAlignment already uses) — no extra fetch needed.
+    const multiTFPOC = core.computeMultiTFPOCAlignment(
+      vp1h.pocPrice, bias4h?.poc, bias1d?.poc, atr1h, config.MULTI_TF_POC_TOLERANCE_ATR
+    );
 
     // v10.3/v10.4/v10.5/v10.6/v10.7: risk-tiered sizing — see core.js
     // computeRiskMultiplier() for the backtest evidence behind this. Not a
@@ -584,7 +608,11 @@ const runStrategy = async (symbol) => {
     // switchable and its effect stays easy to isolate when reading a
     // backtest report. Always 1.0 (no-op) for VAH/VAL pivots regardless
     // of the inputs above, or if any/all of these flags get turned off.
-    riskMult *= core.computePOCQualityMultiplier(bestPivot.name, direction, prominence, migration, nakedPOC, config);
+    riskMult *= core.computePOCQualityMultiplier(bestPivot.name, direction, prominence, migration, nakedPOC, multiTFPOC, config);
+    // v10.15 NEW — vote-strength sizing. See core.js
+    // computeVoteStrengthMultiplier() for why this is a discount from
+    // full at the strongest tally rather than a boost above it.
+    riskMult *= core.computeVoteStrengthMultiplier(resolved.agreeing.length, config);
     riskMult = Math.max(0.1, Math.min(1.0, riskMult));
 
     const slWidened = slAtrMult !== config.SL_ATR_MULT;
@@ -620,6 +648,10 @@ const runStrategy = async (symbol) => {
     }
     if (config.NAKED_POC_ENABLED && nakedPOC.aligned) {
       pocQualityNotes.push(`aligned with naked prior POC @ $${nakedPOC.priorPOC.toFixed(4)}`);
+    }
+    if (config.MULTI_TF_POC_ENABLED && multiTFPOC.anyAligned) {
+      const which = [multiTFPOC.aligned4h && '4H', multiTFPOC.aligned1d && '1D'].filter(Boolean).join(' + ');
+      pocQualityNotes.push(`POC aligned with ${which}`);
     }
     const pocQualitySuffix = pocQualityNotes.length ? ` | ${pocQualityNotes.join(', ')}` : '';
     const sizeLine = riskMult < 1
@@ -705,7 +737,7 @@ risk capital you can't afford to lose on a single position.
       bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
       bias30m: bias30m?.bias, bias15m: bias15m?.bias,
       // v10.8/v10.9 — logged for full record-keeping alongside everything else.
-      td9Confirms, slAtrMult, prominence, migration, nakedPOC,
+      td9Confirms, slAtrMult, prominence, migration, nakedPOC, multiTFPOC,
       // v10.10 — honest delivery flag (see sendSafe/flushPendingAlerts above).
       alertDelivered,
     });
