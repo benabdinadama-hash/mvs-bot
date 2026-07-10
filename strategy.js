@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.15.2  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.15.3  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -515,6 +515,11 @@ const runStrategy = async (symbol) => {
     // ── STEP 7: SIGNAL COOLDOWN ───────────────────────────────────────────
     if (isCoolingDown(symbol, direction, barTime)) {
       console.log(`  ⏸️ COOLDOWN: ${direction} suppressed (< ${config.SIGNAL_COOLDOWN_BARS} 1H bars since last).`);
+      // v10.15.3 FIX: same gap as TP2_EXTENSION_TOO_SHORT above — this was
+      // the other gate with no diag.log.json record at all. Confirmed via
+      // the live diag log's own reason distribution before fixing: zero
+      // cooldown-related entries had ever been logged, across 1800+ scans.
+      logDiag({ symbol, barTime, price, fired: false, reason: 'SIGNAL_COOLDOWN' });
       return;
     }
 
@@ -572,7 +577,18 @@ const runStrategy = async (symbol) => {
       tp2MinExtensionRR: config.TP2_MIN_EXTENSION_RR,
     });
     if (!levels) {
+      // v10.15.3 FIX: every other gate in this pipeline calls logDiag()
+      // so it shows up in diag.log.json — this was the one exception,
+      // console.log only. Found while diagnosing a "TRX-USDT gets 0
+      // trades" report: the backtest's funnel counters could show
+      // triggerOk=24, tp2RangeOk=0 (this exact gate rejecting all 24),
+      // but the LIVE diag log had no equivalent record at all, since this
+      // one case was never persisted — making it needlessly hard to
+      // confirm live behavior matches backtest behavior for this specific
+      // check. Reason string mirrors the D-signal taxonomy naming
+      // convention used everywhere else (see README's Signal Taxonomy).
       console.log(`  ⏭️ Invalid TP structure (TP2 doesn't extend ≥${config.TP2_MIN_EXTENSION_RR}R beyond TP1). Suppressed.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'TP2_EXTENSION_TOO_SHORT' });
       return;
     }
 

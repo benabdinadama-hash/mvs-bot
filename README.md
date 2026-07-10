@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15.2-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.3-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -537,6 +537,37 @@ and `config.js` if you want the exact numbers behind each change.
   - This explains real, already-occurred failures — not just a
     theoretical risk. If any past trade alert ever silently failed to
     arrive, this is almost certainly why.
+- **v10.15.3 — (2026-07-10) investigated a "TRX-USDT gets 0 trades"
+  report, found no bug in TRX's handling, but found and fixed two real
+  observability gaps along the way.**
+  - **TRX-USDT itself: not a bug.** The 360-day funnel showed TRX reaching
+    the final trigger-pattern check 24 times (comparable to LTC's 67 and
+    POL's 61) but failing the TP2-extension-floor check (`TP2_MIN_EXTENSION_RR`)
+    all 24 times — every other symbol passes that check at least
+    occasionally. Confirmed zero TRX-specific code exists anywhere in the
+    repo (`grep` for the symbol turns up nothing but its entry in the
+    `SYMBOLS` list) — the identical formula runs for every symbol. A gate
+    that's consistently failing on the same specific check for one symbol,
+    while passing everything before it, points to that symbol's own price
+    structure during this window (a narrow value area relative to its
+    swing distances) rather than a bug. Not something a code change should
+    "fix" — forcing weak TP2 structures through would undermine the exact
+    check that's protecting trade quality.
+  - **Real gap #1: the TP2-extension rejection was never logged.**
+    Every other gate in the pipeline calls `logDiag()` so it shows up in
+    `diag.log.json`; this one was console-log only, since v10.5. This is
+    exactly why confirming the TRX finding required reading backtest
+    funnel counters instead of just checking the live diag log directly —
+    the live bot had no record of this specific rejection ever happening.
+    Fixed: new `TP2_EXTENSION_TOO_SHORT` diag reason.
+  - **Real gap #2, found while auditing for more of the same: the cooldown
+    gate was never logged either**, since it was first added. Confirmed
+    via the live diag log's own reason distribution before fixing — across
+    1800+ real scans, zero cooldown-related entries had ever appeared.
+    Fixed: new `SIGNAL_COOLDOWN` diag reason.
+  - Both fixes are purely additive logging — no gate condition, threshold,
+    or trading behavior changed. `diag.log.json` will simply be a more
+    complete record of *why* going forward.
 
 
 ## ⚠️ Important: Why KuCoin?
@@ -723,6 +754,8 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **D7** POC / No-1H-Confirm (v10.12) | Pivot is POC AND 1H isn't one of the 3+ agreeing timeframes | Skip (`POC_NO1H_GATED`). Confirmed weakest segment in every backtest to date — see changelog. Toggle: `config.POC_REQUIRE_1H_CONFIRM`. |
 | **D8** POC Contested / Prominence (v10.13) | Pivot is POC AND its volume peak doesn't clearly beat neighboring price rows (ratio < 1.5) | Skip (`POC_PROMINENCE_GATED`). ~10pp WR gap vs. decisive POC, replicated across two backtest windows — see changelog. Toggle: `config.POC_PROMINENCE_REQUIRE_DECISIVE`. |
 | **D9** Volatility Regime (v10.15, **OFF by default since v10.15.1**) | Current 1H ATR is in the outer 5% of this symbol's own trailing 200-bar history (either extreme) | Skip (`VOLATILITY_REGIME_GATED`) if enabled. Reverted to off by default after a confirmed backtest regression — see changelog. Toggle: `config.VOLATILITY_REGIME_ENABLED`. |
+| **D10** Signal Cooldown (v10.15.3 — now logged) | Same direction fired within the last `config.SIGNAL_COOLDOWN_BARS` 1H bars | Skip (`SIGNAL_COOLDOWN`). Existed since early versions but was never written to `diag.log.json` until this fix — see changelog. |
+| **D11** TP2 Extension Too Short (v10.15.3 — now logged) | TP2 (1H VAH/VAL) doesn't clear TP1 by ≥ `config.TP2_MIN_EXTENSION_RR` | Skip (`TP2_EXTENSION_TOO_SHORT`). Existed since v10.5 but was console-log-only until this fix — see changelog. |
 
 ---
 
