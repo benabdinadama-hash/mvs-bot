@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v10.15.2)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v10.15.4)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.
@@ -194,6 +194,18 @@ const cmdStatus = async () => {
       msg += `\n⚠️ *Alert was NOT delivered when this fired — queued for retry next scan.*`;
     }
     msg += `\nUpdated: ${s.updatedAt}`;
+    // v10.15.4 NEW: surfaces exactly the class of problem that prompted
+    // this fix — a symbol quietly falling behind (e.g. from a scan run
+    // that got killed by the job timeout before reaching it) used to
+    // look identical to a normal, healthy entry in /status. Flag it
+    // directly instead of making someone notice a suspiciously old
+    // timestamp themselves.
+    if (s.updatedAt) {
+      const ageMin = (Date.now() - new Date(s.updatedAt).getTime()) / 60000;
+      if (ageMin > 45) {
+        msg += `\n⚠️ *Stale — last updated ${Math.round(ageMin / 60)}h ago* (expected every ~15min)`;
+      }
+    }
   }
   await send(msg);
 };
