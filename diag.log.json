@@ -1,6 +1,77 @@
 [
   {
     "symbol": "MNT-USDT",
+    "barTime": 1783641600,
+    "price": 0.4284,
+    "fired": false,
+    "reason": "POC_CONFLUENCE_TOO_LOOSE",
+    "ts": "2026-07-10T00:15:38.419Z"
+  },
+  {
+    "symbol": "LTC-USDT",
+    "bias1d": "NEUTRAL",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-07-10T00:15:32.038Z"
+  },
+  {
+    "symbol": "LINK-USDT",
+    "barTime": 1783641600,
+    "price": 7.7407,
+    "fired": false,
+    "reason": "POC_CONFLUENCE_TOO_LOOSE",
+    "ts": "2026-07-10T00:15:25.635Z"
+  },
+  {
+    "symbol": "AVAX-USDT",
+    "bias1d": "BEARISH",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BULLISH",
+    "bias15m": "NEUTRAL",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-07-10T00:15:23.504Z"
+  },
+  {
+    "symbol": "XRP-USDT",
+    "bias1d": "BEARISH",
+    "bias4h": "NEUTRAL",
+    "bias1h": "NEUTRAL",
+    "bias30m": "NEUTRAL",
+    "bias15m": "NEUTRAL",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-07-10T00:15:17.117Z"
+  },
+  {
+    "symbol": "SOL-USDT",
+    "bias1d": "BEARISH",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "NEUTRAL",
+    "bias15m": "NEUTRAL",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-07-10T00:15:12.853Z"
+  },
+  {
+    "symbol": "ETH-USDT",
+    "bias1d": "NEUTRAL",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "NEUTRAL",
+    "bias15m": "NEUTRAL",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-07-10T00:15:10.714Z"
+  },
+  {
+    "symbol": "MNT-USDT",
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
     "bias1h": "NEUTRAL",
@@ -24482,120 +24553,5 @@
     "fired": true,
     "reason": "SIGNAL_FIRED",
     "ts": "2026-07-04T02:15:37.176Z"
-  },
-  {
-    "symbol": "POL-USDT",
-    "barTime": 1783126800,
-    "price": 0.0732,
-    "bias4h": "BEARISH",
-    "bias1h": "NEUTRAL",
-    "bias15m": "BEARISH",
-    "voteTally": "2/3",
-    "agreeing": [
-      "4H",
-      "15m"
-    ],
-    "htfAligned": true,
-    "confluenceScore": 2,
-    "confluenceLevel": "78.6%",
-    "confluencePivot": "POC",
-    "patterns": [],
-    "absorptionVeto": false,
-    "fired": false,
-    "reason": "PATTERNS_0_OF_2",
-    "ts": "2026-07-04T02:00:42.294Z"
-  },
-  {
-    "symbol": "POL-USDT",
-    "barTime": 1783126800,
-    "price": 0.0732,
-    "bias4h": "BEARISH",
-    "bias1h": "NEUTRAL",
-    "bias15m": "BEARISH",
-    "voteTally": "2/3",
-    "agreeing": [
-      "4H",
-      "15m"
-    ],
-    "htfAligned": true,
-    "confluenceScore": 2,
-    "confluenceLevel": "78.6%",
-    "confluencePivot": "POC",
-    "patterns": [],
-    "absorptionVeto": false,
-    "fired": false,
-    "reason": "PATTERNS_0_OF_2",
-    "ts": "2026-07-04T01:45:38.591Z"
-  },
-  {
-    "symbol": "DOT-USDT",
-    "bias4h": "NEUTRAL",
-    "bias1h": "BULLISH",
-    "bias15m": "NEUTRAL",
-    "fired": false,
-    "reason": "NO_2OF3_AGREEMENT",
-    "ts": "2026-07-04T01:45:32.003Z"
-  },
-  {
-    "symbol": "POL-USDT",
-    "barTime": 1783126800,
-    "price": 0.0732,
-    "bias4h": "BEARISH",
-    "bias1h": "NEUTRAL",
-    "bias15m": "BEARISH",
-    "voteTally": "2/3",
-    "agreeing": [
-      "4H",
-      "15m"
-    ],
-    "htfAligned": true,
-    "confluenceScore": 2,
-    "confluenceLevel": "78.6%",
-    "confluencePivot": "POC",
-    "patterns": [],
-    "absorptionVeto": false,
-    "fired": false,
-    "reason": "PATTERNS_0_OF_2",
-    "ts": "2026-07-04T01:30:39.220Z"
-  },
-  {
-    "symbol": "DOT-USDT",
-    "bias4h": "NEUTRAL",
-    "bias1h": "BULLISH",
-    "bias15m": "NEUTRAL",
-    "fired": false,
-    "reason": "NO_2OF3_AGREEMENT",
-    "ts": "2026-07-04T01:30:32.707Z"
-  },
-  {
-    "symbol": "POL-USDT",
-    "barTime": 1783126800,
-    "price": 0.0732,
-    "bias4h": "BEARISH",
-    "bias1h": "NEUTRAL",
-    "bias15m": "BEARISH",
-    "voteTally": "2/3",
-    "agreeing": [
-      "4H",
-      "15m"
-    ],
-    "htfAligned": true,
-    "confluenceScore": 2,
-    "confluenceLevel": "78.6%",
-    "confluencePivot": "POC",
-    "patterns": [],
-    "absorptionVeto": false,
-    "fired": false,
-    "reason": "PATTERNS_0_OF_2",
-    "ts": "2026-07-04T01:15:36.246Z"
-  },
-  {
-    "symbol": "POL-USDT",
-    "bias4h": "NEUTRAL",
-    "bias1h": "BULLISH",
-    "bias15m": "BEARISH",
-    "fired": false,
-    "reason": "NO_2OF3_AGREEMENT",
-    "ts": "2026-07-04T01:00:54.692Z"
   }
 ]
