@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.15.1  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.15.2  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -73,6 +73,26 @@ const { checkOpenPositions } = require('./position-tracker');
 // a short backoff before giving up, and only THEN does it fail silently
 // (logged loudly either way).
 const TG = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
+
+// v10.15.2 CRITICAL FIX: Telegram's legacy Markdown parse mode (used
+// throughout this bot) has NO escape mechanism — a single unpaired `_`,
+// `*`, or `` ` `` anywhere in the message causes Telegram to reject the
+// ENTIRE message with a 400 "can't parse entities" error. tgCall/sendSafe
+// catch that error internally and just log it — so this failure is
+// completely silent: no exception surfaces, the GitHub Actions run still
+// shows green/success, and the message simply never arrives. Found via a
+// live "commands not responding" report — traced to `patternStr` below
+// embedding raw pattern names like `POC_RECLAIM` (1 underscore — always
+// odd, always fatal) directly into the alert text. This is NOT limited to
+// one command: any internal identifier with an underscore
+// (`POC_RECLAIM`, `EARLY_TIMEOUT`, `NO_AGREEMENT`, etc.) silently breaks
+// ANY message it appears in, including this bot's actual trade alerts.
+// mdSafe() neutralizes this by replacing underscores with spaces for
+// DISPLAY only — never touches the underlying value, so no comparison
+// or logic anywhere else in the codebase is affected, only what gets
+// rendered in a Telegram message.
+const mdSafe = (s) => String(s ?? '').replace(/_/g, ' ');
+
 // v10.10 FIX: sendSafe used to swallow a total delivery failure (all
 // retries exhausted) and just return undefined/null. The caller had no
 // way to tell "delivered" apart from "silently dropped" — so a signal
@@ -558,7 +578,7 @@ const runStrategy = async (symbol) => {
 
     // ── STEP 10: TELEGRAM ALERT ───────────────────────────────────────────
     const emoji = direction === 'BUY' ? '🟢' : '🔴';
-    const patternStr = rejection.patterns.join(' + ');
+    const patternStr = rejection.patterns.map(mdSafe).join(' + ');
     const voteLine = `🗳️ *TF Vote (${resolved.tally}):* ${resolved.agreeing.join(' + ')} agree ${direction === 'BUY' ? 'BULLISH' : 'BEARISH'}` +
       (bias1d ? ` | 1D:${bias1d.bias}` : '') + (bias4h ? ` | 4H:${bias4h.bias}` : '') + ` 1H:${bias1h.bias}` +
       (bias30m ? ` 30m:${bias30m.bias}` : '') + (bias15m ? ` 15m:${bias15m.bias}` : '');
@@ -618,7 +638,7 @@ const runStrategy = async (symbol) => {
     const slWidened = slAtrMult !== config.SL_ATR_MULT;
     const weakReasons = [];
     if (!resolved.agreeing.includes('1H')) weakReasons.push('1H not in the confirming vote');
-    if (rejection.patterns.includes('POC_RECLAIM')) weakReasons.push('POC_RECLAIM pattern');
+    if (rejection.patterns.includes('POC_RECLAIM')) weakReasons.push('POC RECLAIM pattern');
     const td9Suffix = td9Confirms ? ' | TD9 exhaustion confirms +boost' : '';
     // v10.7: SL-widening (when enabled) can push riskMult below 1.0 even
     // for an otherwise "strongest segment" trade — this is a size cut for

@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15.1-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.2-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -490,6 +490,53 @@ and `config.js` if you want the exact numbers behind each change.
     box** (no network access here) — run `node backtest.js` and confirm
     the numbers land back near the v10.14 baseline before considering this
     closed.
+- **v10.15.2 — (2026-07-09) CRITICAL FIX: silent Telegram message failures
+  across the whole bot, root-caused from a live "commands not responding"
+  report.** Telegram's legacy Markdown parse mode (used everywhere in this
+  bot) has NO escape mechanism — a single unpaired `_`, `*`, or `` ` ``
+  anywhere in a message causes Telegram to reject the ENTIRE message with
+  a 400 "can't parse entities" error. `tgCall`/`sendSafe` catch that error
+  internally and just log it, so the failure is completely silent: no
+  exception surfaces, the GitHub Actions run still shows green/success,
+  and the message simply never arrives — indistinguishable from "the bot
+  is broken" with nothing to point at.
+  - **Confirmed, not guessed.** Built the real `/status` message from
+    live production `state.json` and counted underscores: 9 (odd —
+    guaranteed parse failure). Traced to state values like `NO_AGREEMENT`
+    (any symbol without 3-of-5 vote agreement — a routine, common state
+    across 14 symbols) each carrying exactly one underscore. Whether the
+    total across all symbols comes out odd or even depends purely on how
+    many symbols happen to be in that state at the moment `/status` runs
+    — explaining both the garbled-but-delivered reply seen earlier and
+    the complete silence seen on the next three attempts, as the SAME bug,
+    just landing on different sides of odd/even by chance.
+  - **Far bigger than `/status`.** The same pattern exists in this bot's
+    actual trade alerts: pattern names like `POC_RECLAIM` (1 underscore),
+    `PIN_BAR` (1), `CLOSE_REJECTION` (1), `VAH_VAL_RECLAIM` (2) get
+    embedded directly into the live signal message's pattern list. A
+    signal firing on `POC_RECLAIM` alone, or `POC_RECLAIM` + `ENGULFING`,
+    would have an odd total and silently fail to deliver — a REAL trade
+    alert, not a status check, gone with zero indication anywhere. Also
+    found in `weekly-summary.js` (patterns list) and `position-tracker.js`
+    (`EARLY_TIMEOUT` close notifications).
+  - **Fix: new `mdSafe()` helper, one copy per file** (same
+    don't-cross-require-live-scripts discipline as every other shared
+    utility in this repo), replacing underscores with spaces for DISPLAY
+    only — the underlying values used for comparisons/logic/storage are
+    completely untouched, only what gets rendered into a Telegram message
+    changes. Applied everywhere a pattern name or a `signal`/`result`
+    string reaches a message: `strategy.js` (`patternStr`, the
+    `POC_RECLAIM` weak-reason note — the two that matter most, since
+    they're in the actual trade alert), `commands.js` (`/status`,
+    `/positions`), `weekly-summary.js` (patterns list), `position-tracker.js`
+    (close notifications).
+  - **Verified against real data, not just logic review**: rebuilt the
+    exact `/status` message from live `state.json` with the fix applied —
+    underscore count now 0 (was 9), guaranteed valid Markdown regardless
+    of which symbols are in `NO_AGREEMENT` at any given moment.
+  - This explains real, already-occurred failures — not just a
+    theoretical risk. If any past trade alert ever silently failed to
+    arrive, this is almost certainly why.
 
 
 ## ⚠️ Important: Why KuCoin?

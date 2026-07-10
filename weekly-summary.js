@@ -1,5 +1,5 @@
 /**
- * MVS — Weekly Summary  (v10.15.1 — pure axios, no node-telegram-bot-api)
+ * MVS — Weekly Summary  (v10.15.2 — pure axios, no node-telegram-bot-api)
  *
  * Reads signals.log.json, summarises the last 7 days, sends to Telegram.
  * Triggered every Monday 07:00 UTC by mvs-weekly.yml.
@@ -16,6 +16,12 @@ const path   = require('path');
 const config = require('./config');
 
 const TG = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
+
+// v10.15.2 CRITICAL FIX — see strategy.js's identical helper for the full
+// story. Pattern names like `POC_RECLAIM` embedded below carry an
+// underscore, which silently breaks Telegram's legacy Markdown parsing
+// for the entire message (no error surfaces, nothing shows as failed).
+const mdSafe = (s) => String(s ?? '').replace(/_/g, ' ');
 
 // v10.10: same message-chunking fix as commands.js — a weekly summary
 // with several unique grouped setups plus the equity snapshot can exceed
@@ -231,7 +237,7 @@ const updateEquityCurve = (log) => {
       const n = g.times.length;
       msg += `\n\n${e.symbol} ${e.direction} @ $${Number(e.entryPrice).toFixed(4)}${n > 1 ? `  ×${n}` : ''}`;
       msg += `\n  SL $${Number(e.slPrice).toFixed(4)} · TP1 $${Number(e.tp1Price).toFixed(4)} · TP2 (runner) $${Number(e.tp2Price).toFixed(4)}`;
-      msg += `\n  Patterns: ${(e.patterns || []).join(' + ')} · R:R ${e.rr1}/${e.rr2}`;
+      msg += `\n  Patterns: ${(e.patterns || []).map(mdSafe).join(' + ')} · R:R ${e.rr1}/${e.rr2}`;
       if (n > 1) {
         const oldest = g.times[g.times.length - 1];
         const newest = g.times[0];
