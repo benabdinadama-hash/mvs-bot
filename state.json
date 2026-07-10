@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-10T17:24:54.284Z",
+  "_lastRunAt": "2026-07-10T17:30:46.095Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
@@ -47,15 +47,27 @@
     "updatedAt": "2026-07-10T15:00:34.664Z"
   },
   "XRP-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 1.10213,
+    "signal": "SCANNED",
+    "price": 1.10404,
+    "direction": "BUY",
+    "voteTally": "3/5",
+    "agreeing": [
+      "4H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "BEARISH",
     "bias4h": "BULLISH",
     "bias1h": "NEUTRAL",
     "bias30m": "BULLISH",
-    "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-10T17:24:32.603Z"
+    "bias15m": "BULLISH",
+    "poc": 1.0909555,
+    "vah": 1.1299793,
+    "val": 1.0842929,
+    "swingHigh": 1.16472,
+    "swingLow": 1.06954,
+    "atr1h": 0.007011510134063015,
+    "updatedAt": "2026-07-10T17:30:24.696Z"
   },
   "BTC-USDT": {
     "signal": "SCANNED",
@@ -107,17 +119,17 @@
   "DOGE-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.07398,
+    "price": 0.07396,
     "bias1d": "BEARISH",
     "bias4h": "NEUTRAL",
     "bias1h": "BEARISH",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-07-10T17:24:37.036Z"
+    "updatedAt": "2026-07-10T17:30:28.983Z"
   },
   "BNB-USDT": {
     "signal": "SCANNED",
-    "price": 576.475,
+    "price": 576.495,
     "direction": "BUY",
     "voteTally": "4/5",
     "agreeing": [
@@ -137,7 +149,7 @@
     "swingHigh": 591.82,
     "swingLow": 560.212,
     "atr1h": 2.9298371668647336,
-    "updatedAt": "2026-07-10T17:24:43.501Z"
+    "updatedAt": "2026-07-10T17:30:35.397Z"
   },
   "LTC-USDT": {
     "signal": "SCANNED",
@@ -166,13 +178,13 @@
   "TRX-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.3306,
+    "price": 0.3304,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
     "bias30m": "NEUTRAL",
     "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-10T17:24:49.982Z"
+    "updatedAt": "2026-07-10T17:30:41.817Z"
   },
   "AVAX-USDT": {
     "signal": "NO_AGREEMENT",
@@ -210,12 +222,12 @@
   "MNT-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.4307,
-    "bias1d": "BEARISH",
+    "price": 0.4315,
+    "bias1d": "NEUTRAL",
     "bias4h": "NEUTRAL",
     "bias1h": "NEUTRAL",
     "bias30m": "NEUTRAL",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-10T17:24:54.284Z"
+    "updatedAt": "2026-07-10T17:30:46.095Z"
   }
 }
