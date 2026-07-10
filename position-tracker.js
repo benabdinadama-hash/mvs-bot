@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — LIVE POSITION TRACKER (position-tracker.js)  v10.14
+ *  MVS — LIVE POSITION TRACKER (position-tracker.js)  v10.15.2
  *
  *  NEW in v10.14. Closes the gap flagged since v10.6: this bot fired
  *  alerts but never checked what happened to them afterward — the
@@ -44,6 +44,13 @@ const config  = require('./config');
 const core    = require('./core');
 
 const OPEN_POSITIONS_FILE = path.join(__dirname, 'open-positions.json');
+
+// v10.15.2 CRITICAL FIX — see strategy.js's identical helper for the full
+// story. `closedOutcome.result` can be `EARLY_TIMEOUT` (1 underscore),
+// which silently breaks Telegram's legacy Markdown parsing for the whole
+// close-notification message below — no error surfaces, nothing shows as
+// failed, the position just never gets its close reported to Telegram.
+const mdSafe = (s) => String(s ?? '').replace(/_/g, ' ');
 const LOG_FILE            = path.join(__dirname, 'signals.log.json');
 const STATE_FILE          = path.join(__dirname, 'state.json');
 
@@ -191,7 +198,7 @@ const checkOpenPositions = async () => {
       const rrStr = `${closedOutcome.rr > 0 ? '+' : ''}${closedOutcome.rr}R`;
       await sendTelegram(
         `${emoji} *${symbol} — Position Closed*\n\n` +
-        `Result: *${closedOutcome.result}* (${rrStr})\n` +
+        `Result: *${mdSafe(closedOutcome.result)}* (${rrStr})\n` +
         `Exit: \`$${closedOutcome.exitPrice}\`\n` +
         `Held: ${closedOutcome.hoursHeld}h\n` +
         (logged ? '' : '\n⚠️ Could not match this to its original alert in signals.log.json — logged here for visibility, but it won\'t appear in the weekly equity curve.')
