@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v10.15.1)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v10.15.2)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.
@@ -57,6 +57,18 @@ const tgCall = async (method, params = {}, ms = 12000) => {
 // either get silently rejected or truncated by Telegram. send() now
 // splits on blank-line (paragraph) boundaries so a message is never cut
 // mid-symbol, and sends each chunk as its own message in order.
+// v10.15.2 CRITICAL FIX — see strategy.js's identical helper for the full
+// story: Telegram's legacy Markdown has no escape mechanism, so any
+// internal identifier with an underscore (state.json's `signal` values
+// like `NO_AGREEMENT`, `CLOSED_EARLY_TIMEOUT`, etc.) silently breaks the
+// ENTIRE message it's embedded in — no error surfaces anywhere, the
+// GitHub Actions run still shows green. This is the confirmed root cause
+// of "/status not responding": state.json commonly has several symbols
+// sitting at `NO_AGREEMENT`, and depending on how many (odd vs. even
+// count across all symbols in one status message) the whole reply would
+// either render with garbled formatting or fail to send at all.
+const mdSafe = (s) => String(s ?? '').replace(/_/g, ' ');
+
 const TELEGRAM_SAFE_LEN = 3800; // margin under the real 4096 limit
 
 const splitIntoChunks = (text, maxLen = TELEGRAM_SAFE_LEN) => {
@@ -153,7 +165,7 @@ const cmdStatus = async () => {
     msg += `\n\n━━━━━━━━━━━━━━━━━━━━\n*${sym}*`;
     if (!s) { msg += `\nno data yet`; continue; }
 
-    msg += ` — ${s.signal || 'unknown'}`;
+    msg += ` — ${mdSafe(s.signal || 'unknown')}`;
     if (s.direction) msg += ` (${s.direction})`;
     msg += `\nPrice: $${Number(s.price).toFixed(4)}`;
 
@@ -222,9 +234,9 @@ const cmdPositions = async () => {
       msg += `\n*${sym}*: 🟢 OPEN — ${open.direction} @ $${Number(open.entryPrice).toFixed(4)} (since ${new Date(open.entryTime * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC)`;
     } else if (s && s.signal && s.signal.startsWith('CLOSED_')) {
       const rrStr = s.rr !== undefined ? `${s.rr > 0 ? '+' : ''}${s.rr}R` : '';
-      msg += `\n*${sym}*: ${s.signal.replace('CLOSED_', '')} ${rrStr}`.trimEnd();
+      msg += `\n*${sym}*: ${mdSafe(s.signal.replace('CLOSED_', ''))} ${rrStr}`.trimEnd();
     } else {
-      msg += `\n*${sym}*: ${s ? s.signal : 'no data'}${s && s.entryPrice ? ` @ $${Number(s.entryPrice).toFixed(2)}` : ''}`;
+      msg += `\n*${sym}*: ${s ? mdSafe(s.signal) : 'no data'}${s && s.entryPrice ? ` @ $${Number(s.entryPrice).toFixed(2)}` : ''}`;
     }
   }
   await send(msg);
