@@ -21,7 +21,27 @@ jobs:
   scan:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    # v10.15.4 CRITICAL FIX: was 6 minutes — measurably too tight. Worst
+    # case for node strategy.js alone: 14 symbols x 5 parallel timeframe
+    # fetches, each up to 2 attempts at a 15s client timeout + 800ms retry
+    # wait, plus a 2s courtesy delay between symbols, comes to ~7.6
+    # minutes BEFORE even counting checkout/npm-install overhead or the
+    # commit/push step. Root-caused from a live report of specific
+    # symbols (TRX-USDT worst, ~24h+ stale; LINK/AVAX/BTC also affected)
+    # going stale in state.json while others updated normally — confirmed
+    # via diag.log.json showing TRX's entries simply STOP for a long
+    # stretch, no EXCEPTION or error reason logged, consistent with the
+    # whole job being killed mid-run rather than a per-symbol failure.
+    # This matters more than a single missed scan: "Commit and push state
+    # files" is a SEPARATE, LATER step — if the job is killed while
+    # `node strategy.js` is still running, NOTHING from that run is ever
+    # committed, not even symbols already successfully processed earlier
+    # in the same run. Raised to 12 minutes: comfortable margin above the
+    # ~7.6-minute worst case, while staying safely under the 15-minute
+    # scan interval so a slow run can still fully finish before the next
+    # one is due (concurrency below queues rather than overlaps, so this
+    # doesn't risk two scans running at once).
+    timeout-minutes: 12
     permissions:
       contents: write
 

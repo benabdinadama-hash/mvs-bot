@@ -28,7 +28,16 @@ concurrency:
 jobs:
   commands:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    # v10.15.4 FIX: same class of risk as mvs-scan.yml's timeout fix — the
+    # /scan command (commands.js) runs `execSync('node strategy.js', {
+    # timeout: 5*60*1000 })`, a 5-minute internal cap. A 7-minute OUTER
+    # job timeout left only ~2 minutes of margin for checkout, npm
+    # install, Telegram polling, and the offset-file commit/push combined
+    # — too tight given strategy.js's own worst-case runtime is close to
+    # that 5-minute inner cap to begin with. Raised to 10 minutes for
+    # real margin, without materially changing normal-case behavior (most
+    # runs finish in seconds, per the Actions history reviewed).
+    timeout-minutes: 10
     permissions:
       contents: write
 
