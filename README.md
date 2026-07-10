@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15.3-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.4-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -568,6 +568,45 @@ and `config.js` if you want the exact numbers behind each change.
   - Both fixes are purely additive logging — no gate condition, threshold,
     or trading behavior changed. `diag.log.json` will simply be a more
     complete record of *why* going forward.
+- **v10.15.4 — (2026-07-10) root-caused why TRX-USDT (and other symbols)
+  were going stale in `/status` — not a per-symbol issue at all.**
+  - **Found: `mvs-scan.yml`'s job timeout (6 minutes) was measurably too
+    tight.** Worst case for `node strategy.js` alone — 14 symbols x 5
+    parallel timeframe fetches each, up to 2 attempts at a 15s client
+    timeout + 800ms retry wait, plus a 2s courtesy delay between symbols —
+    comes to ~7.6 minutes, BEFORE counting checkout/npm-install overhead
+    or the commit/push step. Confirmed via `diag.log.json`: TRX-USDT's
+    entries simply stopped for a long stretch (~24h in the reported
+    screenshot), no `EXCEPTION` or error reason logged anywhere — not
+    consistent with a per-symbol bug, consistent with the whole job
+    being killed mid-run.
+  - **Why this matters more than "one missed scan":** "Commit and push
+    state files" is a separate, LATER step in the workflow. If the job is
+    killed while `node strategy.js` is still running, NOTHING from that
+    run is committed — not even symbols already successfully processed
+    earlier in the same run. This explains the shifting, seemingly-random
+    pattern of which symbols looked stale: it depends on which runs
+    happened to be slow (KuCoin latency, a few retries) and got killed,
+    and which symbols hadn't yet been re-saved locally when that happened.
+    TRX (12th of 14 in `config.SYMBOLS`) being consistently among the
+    worst-affected fits — later symbols are more likely to still be
+    pending when a slow run hits the ceiling.
+  - **Fixed: `mvs-scan.yml` timeout raised 6 → 12 minutes** — comfortable
+    margin above the ~7.6-minute worst case, still safely under the
+    15-minute scan interval so a slow run finishes before the next is due.
+  - **Same class of risk found and fixed in `mvs-commands.yml`**: its
+    `/scan` command runs `execSync('node strategy.js', { timeout: 5*60*1000
+    })` — a 5-minute inner cap — inside a job with only 7 minutes total,
+    leaving almost no margin for checkout/npm-install/offset-commit
+    combined. Raised 7 → 10 minutes.
+  - **Defense in depth: `/status` now flags staleness directly.** Any
+    symbol whose `state.json` entry is more than 45 minutes old (3x the
+    normal ~15-min cadence) now shows `⚠️ Stale — last updated Xh ago`
+    instead of silently looking identical to a healthy entry. This is
+    what should have made the original report obvious at a glance, rather
+    than requiring a manual timestamp comparison across 14 symbols.
+  - Nothing about trading logic, gates, or thresholds changed in this
+    version — purely a workflow-reliability and observability fix.
 
 
 ## ⚠️ Important: Why KuCoin?
