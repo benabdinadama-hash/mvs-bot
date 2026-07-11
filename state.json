@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-11T22:15:37.768Z",
+  "_lastRunAt": "2026-07-11T22:32:06.592Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
@@ -124,7 +124,7 @@
   },
   "AVAX-USDT": {
     "signal": "SCANNED",
-    "price": 6.732,
+    "price": 6.706,
     "direction": "SELL",
     "voteTally": "3/5",
     "agreeing": [
@@ -142,45 +142,58 @@
     "val": 6.422575,
     "swingHigh": 6.832,
     "swingLow": 6.317,
-    "atr1h": 0.03119734002660741,
-    "updatedAt": "2026-07-11T22:15:22.209Z"
+    "atr1h": 0.033411625740893104,
+    "updatedAt": "2026-07-11T22:31:51.175Z"
   },
   "DOT-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 0.8762,
+    "signal": "SCANNED",
+    "price": 0.8681,
+    "direction": "SELL",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
     "bias1d": "BEARISH",
     "bias4h": "BULLISH",
     "bias1h": "NEUTRAL",
-    "bias30m": "NEUTRAL",
+    "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-11T22:15:28.866Z"
+    "poc": 0.878864,
+    "vah": 0.894704,
+    "val": 0.831344,
+    "swingHigh": 0.8951,
+    "swingLow": 0.8159,
+    "atr1h": 0.007002556420637441,
+    "updatedAt": "2026-07-11T22:31:57.777Z"
   },
   "ADA-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.1702,
+    "price": 0.1695,
     "bias1d": "NEUTRAL",
     "bias4h": "NEUTRAL",
     "bias1h": "BULLISH",
-    "bias30m": "NEUTRAL",
-    "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-11T22:15:17.834Z"
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "updatedAt": "2026-07-11T22:31:46.674Z"
   },
   "MNT-USDT": {
     "signal": "SCANNED",
-    "price": 0.4281,
+    "price": 0.4263,
     "direction": "SELL",
-    "voteTally": "4/5",
+    "voteTally": "5/5",
     "agreeing": [
       "1D",
       "4H",
+      "1H",
       "30m",
       "15m"
     ],
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
-    "bias1h": "NEUTRAL",
+    "bias1h": "BEARISH",
     "bias30m": "BEARISH",
     "bias15m": "BEARISH",
     "poc": 0.4322825,
@@ -188,7 +201,7 @@
     "val": 0.4264025,
     "swingHigh": 0.4351,
     "swingLow": 0.4106,
-    "atr1h": 0.0018768199730309534,
-    "updatedAt": "2026-07-11T22:15:37.762Z"
+    "atr1h": 0.0020053914016023838,
+    "updatedAt": "2026-07-11T22:32:06.586Z"
   }
 }
