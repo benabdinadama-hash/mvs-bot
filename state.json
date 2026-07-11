@@ -1,15 +1,27 @@
 {
-  "_lastRunAt": "2026-07-11T14:15:37.916Z",
+  "_lastRunAt": "2026-07-11T14:30:45.462Z",
   "SOL-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 78.27,
+    "signal": "SCANNED",
+    "price": 78.39,
+    "direction": "BUY",
+    "voteTally": "3/5",
+    "agreeing": [
+      "4H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "NEUTRAL",
-    "bias30m": "NEUTRAL",
+    "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-07-11T14:15:11.461Z"
+    "poc": 78.0775,
+    "vah": 79.6375,
+    "val": 77.2325,
+    "swingHigh": 82.79,
+    "swingLow": 76.29,
+    "atr1h": 0.3774072467139787,
+    "updatedAt": "2026-07-11T14:30:19.596Z"
   },
   "ETH-USDT": {
     "signal": "NO_AGREEMENT",
@@ -71,13 +83,13 @@
   "POL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.0798,
+    "price": 0.0799,
     "bias1d": "BEARISH",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
     "bias30m": "NEUTRAL",
     "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-11T14:15:35.725Z"
+    "updatedAt": "2026-07-11T14:30:43.225Z"
   },
   "DOGE-USDT": {
     "signal": "NO_AGREEMENT",
@@ -160,37 +172,36 @@
   "ADA-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.1682,
+    "price": 0.1684,
     "bias1d": "NEUTRAL",
     "bias4h": "NEUTRAL",
     "bias1h": "NEUTRAL",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-07-11T14:15:18.279Z"
+    "updatedAt": "2026-07-11T14:30:26.042Z"
   },
   "MNT-USDT": {
     "signal": "SCANNED",
-    "price": 0.4267,
+    "price": 0.4276,
     "direction": "SELL",
-    "voteTally": "5/5",
+    "voteTally": "4/5",
     "agreeing": [
       "1D",
       "4H",
-      "1H",
       "30m",
       "15m"
     ],
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
-    "bias1h": "BEARISH",
+    "bias1h": "NEUTRAL",
     "bias30m": "BEARISH",
     "bias15m": "BEARISH",
     "poc": 0.432232,
     "vah": 0.43607199999999996,
-    "val": 0.427624,
+    "val": 0.42736799999999997,
     "swingHigh": 0.4362,
     "swingLow": 0.4106,
-    "atr1h": 0.0018276866371584831,
-    "updatedAt": "2026-07-11T14:15:37.909Z"
+    "atr1h": 0.0018776866371584856,
+    "updatedAt": "2026-07-11T14:30:45.456Z"
   }
 }
