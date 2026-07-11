@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15.4-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.5-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -607,6 +607,50 @@ and `config.js` if you want the exact numbers behind each change.
     than requiring a manual timestamp comparison across 14 symbols.
   - Nothing about trading logic, gates, or thresholds changed in this
     version — purely a workflow-reliability and observability fix.
+- **v10.15.5 — (2026-07-11) the REAL root cause of scattered per-symbol
+  staleness — v10.15.4's timeout fix helped but wasn't the whole story.**
+  A follow-up report showed the exact same symptom persisting even after
+  the timeout fix: specific symbols (ETH, BTC, XRP, DOGE, AVAX, LINK, BNB,
+  LTC, TRX) stuck stale anywhere from 3 to 37 hours, in a scattered,
+  non-contiguous pattern, while others (SOL, ADA, DOT, POL, MNT) stayed
+  perfectly fresh. Checked `diag.log.json` for the affected symbols
+  directly: entries stopped completely, at the same moment as their
+  `state.json` timestamp — no `EXCEPTION`, no gate-rejection reason,
+  nothing. That rules out a per-symbol data or API problem (which would
+  still leave SOME diag trail) and points at the scan loop itself simply
+  never reaching them in whichever runs happened during those stretches.
+  - **Found: `git pull --rebase --autostash origin main` in `mvs-scan.yml`
+    (and identically in `mvs-commands.yml` and `keepalive.yml`) is
+    fundamentally the wrong merge strategy for files that get FULLY
+    REWRITTEN by every single run.** `state.json` has every symbol's
+    `updatedAt` change on every run — if two runs' commits ever land close
+    enough together (the 5-minute `isDuplicateRun()` guard in
+    `strategy.js` reduces this but doesn't eliminate it — cron-job.org's
+    ping and the native GitHub schedule backup can still land within
+    minutes of each other), a plain rebase tries to line-by-line
+    text-merge two versions of a JSON blob where nearly every line
+    differs. Best case: a full conflict that fails the rebase outright —
+    `git push` never runs after that, silently discarding that entire
+    run's freshly-scanned data for ALL 14 symbols, not just some. Worse
+    case: hunks that don't textually collide merge "successfully," but
+    the result is a byte-level blend of TWO DIFFERENT RUNS' per-symbol
+    data in one file — some symbols reflecting one run's timestamp,
+    others reflecting a different, older run's — exactly the scattered
+    pattern observed.
+  - **Fix: replaced `git pull --rebase --autostash` with `git fetch` +
+    `git merge -X ours` in all three workflows** (`mvs-scan.yml`,
+    `mvs-commands.yml`, `keepalive.yml`). `state.json`/`diag.log.json`/
+    `signals.log.json`/`open-positions.json`/`.ping.json`/`tg-offset.json`
+    are self-contained, fully-regenerated outputs of whichever run
+    produces them — they were never meant to be incrementally text-merged
+    with a different run's version. `-X ours` guarantees that on any real
+    conflict, THIS run's complete, internally-consistent version wins
+    wholesale, rather than risking a partial blend — and guarantees the
+    merge always succeeds (no more silently-failed pushes). Non-conflicting
+    changes elsewhere in the repo still merge in normally; `-X ours` only
+    decides what happens for hunks that actually collide.
+  - This is a genuine, structural fix, not a tuning change — it doesn't
+    touch trading logic, gates, timeouts, or thresholds at all.
 
 
 ## ⚠️ Important: Why KuCoin?
