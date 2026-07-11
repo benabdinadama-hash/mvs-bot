@@ -66,15 +66,18 @@ jobs:
           fi
           git commit -m "MVS offset $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-          # Same fix already applied in mvs-scan.yml: this workflow and
-          # mvs-scan.yml both push to main independently (different
-          # concurrency groups, so they CAN overlap in time). Without a
-          # rebase, whichever job finishes second gets a plain `git push`
-          # rejected as non-fast-forward and the whole job fails silently
-          # — the offset file just never gets saved, and Telegram commands
-          # start replaying/skipping. --rebase --autostash keeps this job
-          # from ever failing just because the other one pushed first.
-          git pull --rebase --autostash origin main
+          # v10.15.5 FIX: was `git pull --rebase --autostash origin main`.
+          # Same root cause as mvs-scan.yml's identical fix (see that
+          # file's comment for the full story) — tg-offset.json is a
+          # small, fully-self-contained, fully-regenerated value each run,
+          # not something meant to be line-merged with a different run's
+          # version. A rebase conflict here silently fails the whole push
+          # (this job's offset update just never lands), same failure
+          # class that was making commands replay/skip messages. Fetch +
+          # merge -X ours guarantees this run's freshly-computed offset
+          # always wins on any real conflict, and always succeeds.
+          git fetch origin main
+          git merge -X ours --no-edit origin/main
 
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
           echo "✅ Offset pushed"

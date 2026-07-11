@@ -76,9 +76,14 @@ jobs:
 
           git commit -m "chore: keepalive heartbeat $(date -u +%Y-%m-%d)"
 
-          # Pull rebase before push to survive concurrent file updates on main
-          # from the other scheduled workflows (same pattern as mvs-scan.yml).
-          git pull --rebase --autostash origin main
+          # v10.15.5: same fix applied across every workflow in this repo
+          # for consistency (see mvs-scan.yml's comment for the full
+          # story) — this file's actual risk was already low (nothing
+          # else touches .github/keepalive/, so a plain rebase rarely had
+          # anything to conflict with), but there's no reason to leave one
+          # workflow on the old, riskier pattern once the others are fixed.
+          git fetch origin main
+          git merge -X ours --no-edit origin/main
 
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
           echo "✅ Keepalive heartbeat pushed"

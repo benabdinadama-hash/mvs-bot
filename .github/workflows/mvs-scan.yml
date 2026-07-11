@@ -86,11 +86,48 @@ jobs:
 
           git commit -m "MVS scan $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-          # Pull rebase before push to survive concurrent file updates on main
-          # (e.g. manual file replacements via GitHub web UI mid-run).
-          # --rebase keeps the commit history linear; --autostash protects any
-          # local working-tree changes that haven't been staged yet.
-          git pull --rebase --autostash origin main
+          # v10.15.5 CRITICAL FIX: was `git pull --rebase --autostash origin
+          # main`. Root-caused from a live report of specific symbols
+          # (ETH, BTC, ADA, AVAX, LINK, LTC, POL) going stale for hours
+          # while others stayed fresh, in a SCATTERED, non-contiguous
+          # pattern that varied run to run — not consistent with a single
+          # slow run getting killed by the job timeout (already fixed in
+          # v10.15.4), and not consistent with any per-symbol error either
+          # (diag.log.json showed zero EXCEPTION or gate-rejection entries
+          # for the affected symbols during the exact windows they went
+          # stale — the loop simply never reached them in whichever runs
+          # happened during that stretch).
+          #
+          # The real mechanism: state.json (and the other log files here)
+          # get FULLY REWRITTEN by every single run — every symbol's
+          # `updatedAt` changes on every run. If two runs' commits ever
+          # overlap even slightly (the 5-min isDuplicateRun() guard in
+          # strategy.js reduces this but the window between cron-job.org's
+          # ping and the native GitHub schedule backup can still overlap),
+          # a plain `git pull --rebase` tries to line-by-line TEXT-merge
+          # two versions of the same JSON blob where EVERY line differs —
+          # at best a full-file conflict that fails the rebase outright
+          # (silently losing that whole run's freshly-scanned data, since
+          # `git push` never executes after a failed rebase); at worst,
+          # for hunks that don't textually collide, a partial byte-level
+          # blend of two DIFFERENT runs' per-symbol data into one
+          # internally-inconsistent file — exactly the "some symbols
+          # reflect one run, others reflect a different, older run" pattern
+          # observed.
+          #
+          # Fix: fetch + merge with -X ours instead of rebase. state.json/
+          # diag.log.json/signals.log.json/open-positions.json/.ping.json
+          # are self-contained, fully-regenerated outputs of THIS run —
+          # they were never meant to be incrementally text-merged with a
+          # different run's version. On any real conflict, keep this run's
+          # complete, internally-consistent version wholesale rather than
+          # attempting (and risking a bad blend of) a line-level merge.
+          # Non-conflicting changes elsewhere in the repo (e.g. a manual
+          # edit via the GitHub web UI mid-run) still merge in normally —
+          # -X ours only decides what happens for hunks that actually
+          # collide, not the whole repo.
+          git fetch origin main
+          git merge -X ours --no-edit origin/main
 
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
           echo "✅ Pushed successfully"
