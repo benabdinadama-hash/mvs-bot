@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15.5-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.6-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -651,6 +651,65 @@ and `config.js` if you want the exact numbers behind each change.
     decides what happens for hunks that actually collide.
   - This is a genuine, structural fix, not a tuning change — it doesn't
     touch trading logic, gates, timeouts, or thresholds at all.
+- **v10.15.6 — (2026-07-11) THE ACTUAL root cause of scattered staleness,
+  found and empirically proven, not just theorized. v10.15.4 (timeout)
+  and v10.15.5 (git merge strategy) were both real, legitimate fixes for
+  real risks — but a follow-up report showed the exact same symptom
+  persisting after both had deployed: the SAME 9 symbols frozen at the
+  SAME timestamps, across multiple full scan cycles, while a small,
+  slowly-shrinking set of others stayed reliably fresh.**
+  - **Traced it precisely this time.** Printed every `diag.log.json` entry
+    in exact chronological order across several recent scan cycles. Found
+    that scans run reliably on schedule (every ~15 min, confirmed), but
+    each one only ever produces log entries for 2-5 symbols — with large,
+    otherwise-unexplained time gaps between them that match several
+    symbols' worth of the inter-symbol delay, as if those symbols were
+    being reached but never logging anything at all, not even a rejection
+    reason. That ruled out slow API calls or per-symbol gate rejections
+    (both would leave a diag trail) and pointed at something crashing the
+    whole process silently, symbol by symbol, run by run.
+  - **Found it: `fs.writeFileSync()` on `state.json` is not atomic against
+    a concurrent reader.** `state.json` gets read-modified-written at the
+    top of every symbol's processing (a per-symbol `_lastRunAt` stamp)
+    AND at several other points — 14+ times per scan. If a second workflow
+    run ever overlaps even slightly (the 5-min `isDuplicateRun()` guard
+    reduces this but a stacked cron-job.org ping and the native GitHub
+    schedule backup can still land close together), one process's
+    `readFileSync` can catch another's `writeFileSync` mid-write, producing
+    a truncated/malformed JSON string. `JSON.parse` on that throws — and
+    that specific read happened OUTSIDE any try/catch in `runStrategy`,
+    so it crashed the entire Node process instantly, silently, with zero
+    trace — killing every symbol from that point in the array onward for
+    that run, while whatever ran before the crash (and whatever the NEXT
+    run's luck was) explains the shifting little pool of "reliably fresh"
+    symbols.
+  - **Proved it, not just argued it.** Built a real test: two separate OS
+    processes (not just two functions in one process — Node's single
+    thread can't race with itself) hammering the same JSON file with the
+    old raw-`writeFileSync` pattern while a third process read it in a
+    tight loop. Result: **336 JSON parse failures out of 15,892 reads**
+    (~2.1%) — a real, reproducible, measurable corruption rate. Same test
+    with the fix applied (write to a temp file, then `rename()` over the
+    target — atomic at the OS level on Linux, which is what GitHub Actions
+    runners use): **0 failures out of 7,122 reads.**
+  - **Fix: new `atomicWriteJSON()` helper, applied everywhere any shared
+    JSON file gets written** — `strategy.js` (`state.json`,
+    `open-positions.json`, `signals.log.json`, `diag.log.json`),
+    `position-tracker.js`, `commands.js` (`tg-offset.json`), and
+    `weekly-summary.js` (`equity-curve.json`) for full consistency, even
+    where the risk was already low.
+  - **Also removed the redundant per-symbol `_lastRunAt` write** at the
+    top of `runStrategy()` — it was pure overhead (the end-of-run write
+    and every `saveState()` call's own `updatedAt` already cover this),
+    and it was 14 extra full-file read-write cycles per run that did
+    nothing but widen the exact race window this version closes. Fewer
+    writes to the same shared file per run means less exposure, not just
+    less work.
+  - v10.15.4 and v10.15.5 were not wasted effort — the timeout was
+    genuinely too tight and the git merge strategy was genuinely risky;
+    both are still correct fixes for the risks they addressed. This
+    version fixes the mechanism that was actually causing the specific
+    symptom reported. All three together are the complete picture.
 
 
 ## ⚠️ Important: Why KuCoin?
