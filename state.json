@@ -1,26 +1,26 @@
 {
-  "_lastRunAt": "2026-07-12T21:15:41.154Z",
+  "_lastRunAt": "2026-07-12T21:32:41.115Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 77.56,
+    "price": 77.21,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "BEARISH",
-    "bias30m": "NEUTRAL",
+    "bias30m": "BEARISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-07-12T21:15:14.733Z"
+    "updatedAt": "2026-07-12T21:32:14.419Z"
   },
   "ETH-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 1817.39,
+    "price": 1814.08,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
-    "bias1h": "NEUTRAL",
-    "bias30m": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "NEUTRAL",
     "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-12T18:15:16.040Z"
+    "updatedAt": "2026-07-12T21:32:12.219Z"
   },
   "LINK-USDT": {
     "signal": "NO_AGREEMENT",
@@ -47,13 +47,13 @@
   "BTC-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 64152.2,
+    "price": 64059.7,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
-    "bias30m": "NEUTRAL",
+    "bias30m": "BEARISH",
     "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-12T19:45:17.406Z"
+    "updatedAt": "2026-07-12T21:32:16.629Z"
   },
   "POL-USDT": {
     "signal": "NO_AGREEMENT",
@@ -102,15 +102,27 @@
     "updatedAt": "2026-07-12T19:15:30.512Z"
   },
   "LTC-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 44.61,
+    "signal": "SCANNED",
+    "price": 44.39,
+    "direction": "SELL",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
-    "bias1h": "BULLISH",
+    "bias1h": "BEARISH",
     "bias30m": "BEARISH",
-    "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-12T21:15:34.546Z"
+    "bias15m": "BEARISH",
+    "poc": 44.5795,
+    "vah": 45.5287,
+    "val": 44.082300000000004,
+    "swingHigh": 45.54,
+    "swingLow": 43.28,
+    "atr1h": 0.22419864608806792,
+    "updatedAt": "2026-07-12T21:32:34.454Z"
   },
   "TRX-USDT": {
     "signal": "NO_AGREEMENT",
