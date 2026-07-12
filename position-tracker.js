@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — LIVE POSITION TRACKER (position-tracker.js)  v10.15.5
+ *  MVS — LIVE POSITION TRACKER (position-tracker.js)  v10.15.6
  *
  *  NEW in v10.14. Closes the gap flagged since v10.6: this bot fired
  *  alerts but never checked what happened to them afterward — the
@@ -60,7 +60,19 @@ const loadJSON = (file, fallback) => {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch { return fallback; }
 };
-const saveJSON = (file, data) => fs.writeFileSync(file, JSON.stringify(data, null, 2));
+// v10.15.6 FIX: same atomic-write pattern as strategy.js's
+// atomicWriteJSON — see that file's comment for the full story. This
+// file's own calls run sequentially within the same process as
+// strategy.js (via checkOpenPositions() at the top of the main scan), so
+// they weren't the direct cause of the crash-and-skip bug, but this file
+// is ALSO runnable standalone (`node position-tracker.js` — see the
+// require.main guard at the bottom), so it's exposed to the identical
+// cross-process race if that's ever run at the same time as a scan.
+const saveJSON = (file, data) => {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, file);
+};
 
 // ── KuCoin fetch — deliberately a standalone copy, not a shared import ──
 // Same reasoning as backtest.js having its own fetchKlines separate from
