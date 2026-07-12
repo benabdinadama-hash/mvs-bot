@@ -1,5 +1,63 @@
 [
   {
+    "symbol": "XRP-USDT",
+    "signal": "FIRED",
+    "direction": "SELL",
+    "entryTime": 1783879200,
+    "entryPrice": 1.1086042,
+    "slPrice": 1.1203925247436535,
+    "tp1Price": 1.09439,
+    "tp2Price": 1.0886745,
+    "risk": 0.011788324743653433,
+    "rr1": 1.2057862596339373,
+    "rr2": 1.690630385011216,
+    "confluencePivot": "VAH",
+    "fibPct": "78.6%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BEARISH",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BULLISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 2.0601167088711008,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 1.0465824499999998,
+      "poc1d": 1.42831425
+    },
+    "alertDelivered": true,
+    "time": "2026-07-12T18:15:23.375Z"
+  },
+  {
     "symbol": "LINK-USDT",
     "signal": "FIRED",
     "direction": "SELL",
