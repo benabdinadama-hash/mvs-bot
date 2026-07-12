@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — TELEGRAM COMMAND HANDLER  (v10.15.5)
+ *  MVS — TELEGRAM COMMAND HANDLER  (v10.15.6)
  *
  *  Runs every 5 minutes via GitHub Actions (mvs-commands.yml).
  *  Polls Telegram getUpdates, executes any recognised command, saves offset.
@@ -121,8 +121,18 @@ const loadJSON = (file, fallback) => {
     return fallback;
   }
 };
-const saveJSON = (file, data) =>
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+// v10.15.6 FIX: same atomic-write pattern applied across every file that
+// touches these shared JSON files this version — see strategy.js's
+// atomicWriteJSON comment for the full root-cause story. Lower risk here
+// specifically (this only ever writes tg-offset.json, which nothing else
+// touches, and the workflow's own concurrency group already prevents two
+// instances of this file running at once) but there's no reason to leave
+// one write path on the old pattern once every other one is fixed.
+const saveJSON = (file, data) => {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, file);
+};
 
 // ── /help ──────────────────────────────────────────────────────────────────
 const cmdHelp = async () => {

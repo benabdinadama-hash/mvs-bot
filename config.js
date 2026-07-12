@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — Monthly Value Sniper v10.15.5
+ *  MVS — Monthly Value Sniper v10.15.6
  *  KuCoin API Configuration
  *
  *  FOUNDATION: POC + VAH + VAL + FIBO. No lagging indicators.
