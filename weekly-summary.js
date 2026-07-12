@@ -1,5 +1,5 @@
 /**
- * MVS — Weekly Summary  (v10.15.5 — pure axios, no node-telegram-bot-api)
+ * MVS — Weekly Summary  (v10.15.6 — pure axios, no node-telegram-bot-api)
  *
  * Reads signals.log.json, summarises the last 7 days, sends to Telegram.
  * Triggered every Monday 07:00 UTC by mvs-weekly.yml.
@@ -166,7 +166,14 @@ const updateEquityCurve = (log) => {
   if (idx >= 0) curve[idx] = snapshot;
   else curve.unshift(snapshot);
 
-  fs.writeFileSync(EQUITY_FILE, JSON.stringify(curve, null, 2));
+  // v10.15.6: atomic write (temp file + rename), same pattern applied
+  // everywhere else this version — see strategy.js's atomicWriteJSON
+  // comment for the full story. Low risk here specifically (this file
+  // only runs weekly, nothing else touches EQUITY_FILE) but consistent
+  // with every other write path now.
+  const tmpEquity = `${EQUITY_FILE}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpEquity, JSON.stringify(curve, null, 2));
+  fs.renameSync(tmpEquity, EQUITY_FILE);
   console.log(`✅ Equity curve updated → ${EQUITY_FILE} (${closedEntries.length} trades, capital $${latest.capital})`);
   return curve;
 };

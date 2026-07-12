@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.15.5  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.15.6  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -138,11 +138,39 @@ const loadJSON = (file, fallback) => {
   } catch { return fallback; }
 };
 
+// v10.15.6 CRITICAL FIX — root cause of the persistent "scattered stale
+// symbols" bug: `fs.writeFileSync(file, ...)` is NOT atomic with respect
+// to a CONCURRENT reader. If two workflow runs ever overlap (the 5-min
+// isDuplicateRun() guard reduces this but doesn't guarantee zero overlap
+// — cron-job.org's ping and the GitHub schedule backup can still land
+// close together), one process's writeFileSync can be caught mid-write
+// by another process's readFileSync, producing a TRUNCATED/malformed
+// JSON string. `JSON.parse` on that throws — and since this exact
+// read-modify-write sequence runs at the top of EVERY symbol's
+// processing (via saveState, and previously via a since-removed
+// per-symbol `_lastRunAt` stamp — see the removed block below), an
+// uncaught throw here happens OUTSIDE any try/catch in `runStrategy`,
+// crashing the entire Node process instantly. Every symbol from that
+// point in the array onward in THAT run gets skipped — with ZERO trace
+// anywhere (no EXCEPTION diag entry, since the crash happens before
+// runStrategy's own try block even starts) — exactly matching what was
+// observed: some symbols reliably fresh, others frozen for hours, with
+// no error ever logged for the frozen ones.
+// Fix: write to a temp file in the same directory, then rename() over
+// the target. rename() is atomic at the OS level on Linux (which is what
+// GitHub Actions runners use) — a concurrent reader either sees the
+// complete old file or the complete new file, NEVER a partial write.
+const atomicWriteJSON = (file, data) => {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, file);
+};
+
 const saveState = (symbol, data) => {
   const state = loadJSON(STATE_FILE, {});
   state[symbol] = { ...data, updatedAt: new Date().toISOString() };
   state._lastRunAt = new Date().toISOString();
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  atomicWriteJSON(STATE_FILE, state);
 };
 
 // v10.14: records a newly-FIRED signal as an open position for
@@ -152,7 +180,7 @@ const saveState = (symbol, data) => {
 const saveOpenPosition = (symbol, trade) => {
   const open = loadJSON(OPEN_POSITIONS_FILE, {});
   open[symbol] = trade;
-  fs.writeFileSync(OPEN_POSITIONS_FILE, JSON.stringify(open, null, 2));
+  atomicWriteJSON(OPEN_POSITIONS_FILE, open);
 };
 
 // v10.9: both logs are now NEWEST-FIRST (unshift + slice from the front)
@@ -166,13 +194,13 @@ const saveOpenPosition = (symbol, trade) => {
 const logSignal = (symbol, entry) => {
   const log = loadJSON(LOG_FILE, []);
   log.unshift({ symbol, ...entry, time: new Date().toISOString() });
-  fs.writeFileSync(LOG_FILE, JSON.stringify(log.slice(0, 500), null, 2));
+  atomicWriteJSON(LOG_FILE, log.slice(0, 500));
 };
 
 const logDiag = (entry) => {
   const log = loadJSON(DIAG_FILE, []);
   log.unshift({ ...entry, ts: new Date().toISOString() });
-  fs.writeFileSync(DIAG_FILE, JSON.stringify(log.slice(0, 2000), null, 2));
+  atomicWriteJSON(DIAG_FILE, log.slice(0, 2000));
 };
 
 // ── Pending-alert queue (v10.10) ─────────────────────────────────────────────
@@ -274,11 +302,15 @@ const runStrategy = async (symbol) => {
   const now = new Date().toISOString();
   console.log(`\n[${now}] 🔍 MVS v${MVS_VERSION} scanning ${symbol}...`);
 
-  {
-    const state = loadJSON(STATE_FILE, {});
-    state._lastRunAt = now;
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
-  }
+  // v10.15.6 REMOVED: this used to do a full state.json read-modify-write
+  // HERE, once per symbol (14x per scan), just to stamp `_lastRunAt` —
+  // pure overhead, since the end-of-run write (bottom of this file) and
+  // every saveState() call's own `updatedAt` already cover this. Worse,
+  // it was 14 extra full-file read-write cycles per run, multiplying the
+  // window for the exact race condition that caused the crash-and-skip
+  // bug fixed alongside this (see atomicWriteJSON's comment above). Fewer
+  // writes to the same shared file per run = less exposure, not just a
+  // performance nicety.
 
   try {
     // ── STEP 1: FETCH ALL FIVE TIMEFRAMES (v10.10) ──────────────────────
@@ -852,7 +884,7 @@ console.log('');
   try {
     const finalState = loadJSON(STATE_FILE, {});
     finalState._lastRunAt = new Date().toISOString();
-    fs.writeFileSync(STATE_FILE, JSON.stringify(finalState, null, 2));
+    atomicWriteJSON(STATE_FILE, finalState);
   } catch (e) { /* non-fatal */ }
   console.log('\n✅ Scan complete. Exiting.');
   process.exit(0);
