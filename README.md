@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15.6-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.7-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -710,6 +710,20 @@ and `config.js` if you want the exact numbers behind each change.
     both are still correct fixes for the risks they addressed. This
     version fixes the mechanism that was actually causing the specific
     symptom reported. All three together are the complete picture.
+- **v10.15.7 — (2026-07-11) one gap missed in the v10.15.6 sweep, found by
+  re-checking rather than assuming the previous pass was complete.** After
+  delivering v10.15.6, ran a fresh `grep -rn "writeFileSync"` across the
+  entire repo one more time instead of taking the earlier fix's coverage
+  on faith — found `pending-alerts.json` (the failed-Telegram-delivery
+  retry queue, `queuePendingAlert()`/`flushPendingAlerts()` in
+  `strategy.js`) still used the old raw `writeFileSync`, missed because it
+  wasn't part of the original stale-symbol investigation's file list.
+  Same exposure as everything else fixed in v10.15.6 — this file is also
+  read and rewritten near the start of every single scan. Fixed with the
+  same `atomicWriteJSON()` helper. Also explicitly verified `.ping.json`
+  (written via shell `echo` in `mvs-scan.yml`, not Node) is safe as-is —
+  confirmed nothing anywhere in the codebase ever calls `JSON.parse` on
+  it, so a torn read there has no code path that could crash from it.
 
 
 ## ⚠️ Important: Why KuCoin?

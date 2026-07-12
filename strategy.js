@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.15.6  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.15.7  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -217,7 +217,7 @@ const PENDING_FILE = path.join(__dirname, 'pending-alerts.json');
 const queuePendingAlert = (symbol, message) => {
   const pending = loadJSON(PENDING_FILE, []);
   pending.push({ symbol, message, queuedAt: new Date().toISOString() });
-  fs.writeFileSync(PENDING_FILE, JSON.stringify(pending, null, 2));
+  atomicWriteJSON(PENDING_FILE, pending);
 };
 
 const flushPendingAlerts = async () => {
@@ -234,7 +234,7 @@ const flushPendingAlerts = async () => {
       stillPending.push(item);
     }
   }
-  fs.writeFileSync(PENDING_FILE, JSON.stringify(stillPending, null, 2));
+  atomicWriteJSON(PENDING_FILE, stillPending);
 };
 
 // ── KuCoin data fetch ────────────────────────────────────────────────────────
