@@ -1,5 +1,61 @@
 [
   {
+    "symbol": "BNB-USDT",
+    "barTime": 1783900800,
+    "price": 576.884,
+    "fired": false,
+    "reason": "HTF_4H_ZONE_MISMATCH",
+    "ts": "2026-07-13T00:47:13.165Z"
+  },
+  {
+    "symbol": "AVAX-USDT",
+    "bias1d": "BEARISH",
+    "bias4h": "BEARISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BULLISH",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-07-13T00:47:08.790Z"
+  },
+  {
+    "symbol": "SOL-USDT",
+    "barTime": 1783900800,
+    "price": 77.59,
+    "fired": false,
+    "reason": "TP2_EXTENSION_TOO_SHORT",
+    "ts": "2026-07-13T00:46:57.658Z"
+  },
+  {
+    "symbol": "SOL-USDT",
+    "barTime": 1783900800,
+    "price": 77.59,
+    "bias1d": "NEUTRAL",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "voteTally": "3/5",
+    "agreeing": [
+      "4H",
+      "30m",
+      "15m"
+    ],
+    "htf4hAligned": true,
+    "confluenceScore": 1,
+    "confluenceLevel": "61.8%",
+    "confluencePivot": "VAL",
+    "patterns": [
+      "VAH_VAL_RECLAIM",
+      "ENGULFING",
+      "CLOSE_REJECTION"
+    ],
+    "absorptionVeto": false,
+    "fired": true,
+    "reason": "SIGNAL_FIRED",
+    "ts": "2026-07-13T00:46:57.651Z"
+  },
+  {
     "symbol": "LTC-USDT",
     "barTime": 1783900800,
     "price": 44.26,
@@ -24925,49 +24981,5 @@
     "fired": false,
     "reason": "POC_CONFLUENCE_TOO_LOOSE",
     "ts": "2026-07-09T16:00:55.918Z"
-  },
-  {
-    "symbol": "LTC-USDT",
-    "bias1d": "NEUTRAL",
-    "bias4h": "BULLISH",
-    "bias1h": "BEARISH",
-    "bias30m": "NEUTRAL",
-    "bias15m": "NEUTRAL",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-07-09T16:00:49.329Z"
-  },
-  {
-    "symbol": "DOT-USDT",
-    "bias1d": "BEARISH",
-    "bias4h": "NEUTRAL",
-    "bias1h": "NEUTRAL",
-    "bias30m": "BEARISH",
-    "bias15m": "BULLISH",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-07-09T16:00:47.127Z"
-  },
-  {
-    "symbol": "BNB-USDT",
-    "bias1d": "BEARISH",
-    "bias4h": "BULLISH",
-    "bias1h": "BEARISH",
-    "bias30m": "NEUTRAL",
-    "bias15m": "BULLISH",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-07-09T16:00:44.936Z"
-  },
-  {
-    "symbol": "LINK-USDT",
-    "bias1d": "BEARISH",
-    "bias4h": "BULLISH",
-    "bias1h": "NEUTRAL",
-    "bias30m": "BEARISH",
-    "bias15m": "BULLISH",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-07-09T16:00:42.739Z"
   }
 ]
