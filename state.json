@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-13T16:45:38.930Z",
+  "_lastRunAt": "2026-07-13T17:00:53.176Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
@@ -14,24 +14,37 @@
   "ETH-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 1775,
+    "price": 1772.07,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "BEARISH",
     "bias30m": "NEUTRAL",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-13T16:45:10.246Z"
+    "updatedAt": "2026-07-13T17:00:24.612Z"
   },
   "LINK-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 7.9223,
+    "signal": "SCANNED",
+    "price": 7.8906,
+    "direction": "SELL",
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "1H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "BEARISH",
     "bias4h": "NEUTRAL",
-    "bias1h": "NEUTRAL",
+    "bias1h": "BEARISH",
     "bias30m": "BEARISH",
-    "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-13T16:45:25.730Z"
+    "bias15m": "BEARISH",
+    "poc": 7.9265550000000005,
+    "vah": 8.041305000000001,
+    "val": 7.889835000000001,
+    "swingHigh": 8.1354,
+    "swingLow": 7.6764,
+    "atr1h": 0.05700387296646286,
+    "updatedAt": "2026-07-13T17:00:39.909Z"
   },
   "XRP-USDT": {
     "signal": "NO_AGREEMENT",
@@ -148,15 +161,27 @@
     "updatedAt": "2026-07-13T10:30:46.810Z"
   },
   "AVAX-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 6.53,
+    "signal": "SCANNED",
+    "price": 6.511,
+    "direction": "SELL",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
     "bias1h": "NEUTRAL",
     "bias30m": "NEUTRAL",
-    "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-13T16:45:23.513Z"
+    "bias15m": "BEARISH",
+    "poc": 6.364315,
+    "vah": 6.714395,
+    "val": 6.364315,
+    "swingHigh": 6.832,
+    "swingLow": 6.285,
+    "atr1h": 0.07188797476439272,
+    "updatedAt": "2026-07-13T17:00:37.721Z"
   },
   "DOT-USDT": {
     "signal": "SCANNED",
@@ -194,7 +219,7 @@
   },
   "MNT-USDT": {
     "signal": "SCANNED",
-    "price": 0.425,
+    "price": 0.4246,
     "direction": "SELL",
     "voteTally": "3/5",
     "agreeing": [
@@ -212,7 +237,7 @@
     "val": 0.426358,
     "swingHigh": 0.4351,
     "swingLow": 0.4163,
-    "atr1h": 0.0020955294464306026,
-    "updatedAt": "2026-07-13T16:45:38.924Z"
+    "atr1h": 0.0020954476535423225,
+    "updatedAt": "2026-07-13T17:00:53.170Z"
   }
 }
