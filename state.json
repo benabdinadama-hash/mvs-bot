@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-13T05:15:40.141Z",
+  "_lastRunAt": "2026-07-13T05:30:52.124Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
@@ -12,19 +12,31 @@
     "updatedAt": "2026-07-13T01:15:16.030Z"
   },
   "ETH-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 1784.39,
+    "signal": "SCANNED",
+    "price": 1778.5,
+    "direction": "SELL",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
-    "bias1h": "NEUTRAL",
+    "bias1h": "BEARISH",
     "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-13T05:15:11.196Z"
+    "poc": 1817.54745,
+    "vah": 1846.37335,
+    "val": 1774.93525,
+    "swingHigh": 1847,
+    "swingLow": 1721.67,
+    "atr1h": 13.576005803281873,
+    "updatedAt": "2026-07-13T05:30:24.128Z"
   },
   "LINK-USDT": {
     "signal": "SCANNED",
-    "price": 7.943,
+    "price": 7.9257,
     "direction": "SELL",
     "voteTally": "3/5",
     "agreeing": [
@@ -43,7 +55,7 @@
     "swingHigh": 8.1354,
     "swingLow": 7.5724,
     "atr1h": 0.06417231424123036,
-    "updatedAt": "2026-07-13T05:15:26.948Z"
+    "updatedAt": "2026-07-13T05:30:39.220Z"
   },
   "XRP-USDT": {
     "signal": "NO_AGREEMENT",
@@ -163,24 +175,24 @@
   "TRX-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.3307,
+    "price": 0.3306,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "NEUTRAL",
     "bias30m": "BULLISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-13T05:15:35.755Z"
+    "updatedAt": "2026-07-13T05:30:47.831Z"
   },
   "AVAX-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 6.507,
+    "price": 6.477,
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
     "bias1h": "NEUTRAL",
     "bias30m": "NEUTRAL",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-07-13T05:15:24.646Z"
+    "updatedAt": "2026-07-13T05:30:37.073Z"
   },
   "DOT-USDT": {
     "signal": "SCANNED",
