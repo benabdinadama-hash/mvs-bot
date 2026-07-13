@@ -1,6 +1,31 @@
 [
   {
     "symbol": "LINK-USDT",
+    "barTime": 1783940400,
+    "price": 7.9529,
+    "bias1d": "BEARISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
+    "htf4hAligned": true,
+    "confluenceScore": 2,
+    "confluenceLevel": "78.6%",
+    "confluencePivot": "VAH",
+    "patterns": [],
+    "absorptionVeto": false,
+    "fired": false,
+    "reason": "PATTERNS_0_OF_2",
+    "ts": "2026-07-13T11:00:39.583Z"
+  },
+  {
+    "symbol": "LINK-USDT",
     "barTime": 1783936800,
     "price": 7.967,
     "fired": false,
@@ -25290,13 +25315,5 @@
     "fired": false,
     "reason": "NO_CONFLUENCE",
     "ts": "2026-07-09T20:45:17.081Z"
-  },
-  {
-    "symbol": "SOL-USDT",
-    "barTime": 1783627200,
-    "price": 78.26,
-    "fired": false,
-    "reason": "NO_CONFLUENCE",
-    "ts": "2026-07-09T20:45:12.704Z"
   }
 ]
