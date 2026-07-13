@@ -1,5 +1,67 @@
 [
   {
+    "symbol": "MNT-USDT",
+    "barTime": 1783962000,
+    "price": 0.4249,
+    "bias1d": "BEARISH",
+    "bias4h": "BEARISH",
+    "bias1h": "BEARISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BULLISH",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "1H"
+    ],
+    "htf4hAligned": true,
+    "confluenceScore": 1,
+    "confluenceLevel": "61.8%",
+    "confluencePivot": "VAL",
+    "patterns": [],
+    "absorptionVeto": false,
+    "fired": false,
+    "reason": "PATTERNS_0_OF_2",
+    "ts": "2026-07-13T17:30:52.007Z"
+  },
+  {
+    "symbol": "LINK-USDT",
+    "barTime": 1783962000,
+    "price": 7.8833,
+    "bias1d": "BEARISH",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BEARISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "1H",
+      "30m",
+      "15m"
+    ],
+    "htf4hAligned": true,
+    "confluenceScore": 2,
+    "confluenceLevel": "78.6%",
+    "confluencePivot": "VAH",
+    "patterns": [],
+    "absorptionVeto": false,
+    "fired": false,
+    "reason": "PATTERNS_0_OF_2",
+    "ts": "2026-07-13T17:30:39.061Z"
+  },
+  {
+    "symbol": "ETH-USDT",
+    "bias1d": "NEUTRAL",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-07-13T17:30:23.989Z"
+  },
+  {
     "symbol": "LINK-USDT",
     "barTime": 1783962000,
     "price": 7.8987,
@@ -25786,32 +25848,5 @@
     "fired": false,
     "reason": "NO_3OF5_AGREEMENT",
     "ts": "2026-07-09T22:45:35.529Z"
-  },
-  {
-    "symbol": "BNB-USDT",
-    "bias1d": "BEARISH",
-    "bias4h": "BULLISH",
-    "bias1h": "BEARISH",
-    "bias30m": "NEUTRAL",
-    "bias15m": "NEUTRAL",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-07-09T22:45:30.858Z"
-  },
-  {
-    "symbol": "LINK-USDT",
-    "barTime": 1783634400,
-    "price": 7.7629,
-    "fired": false,
-    "reason": "POC_CONFLUENCE_TOO_LOOSE",
-    "ts": "2026-07-09T22:45:28.668Z"
-  },
-  {
-    "symbol": "AVAX-USDT",
-    "barTime": 1783634400,
-    "price": 6.704,
-    "fired": false,
-    "reason": "NO_CONFLUENCE",
-    "ts": "2026-07-09T22:45:26.473Z"
   }
 ]
