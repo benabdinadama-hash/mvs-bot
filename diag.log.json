@@ -1,5 +1,30 @@
 [
   {
+    "symbol": "LINK-USDT",
+    "barTime": 1783944000,
+    "price": 7.9363,
+    "bias1d": "BEARISH",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BULLISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
+    "htf4hAligned": true,
+    "confluenceScore": 2,
+    "confluenceLevel": "78.6%",
+    "confluencePivot": "VAH",
+    "patterns": [],
+    "absorptionVeto": false,
+    "fired": false,
+    "reason": "PATTERNS_0_OF_2",
+    "ts": "2026-07-13T12:15:25.247Z"
+  },
+  {
     "symbol": "MNT-USDT",
     "barTime": 1783940400,
     "price": 0.4257,
@@ -25383,13 +25408,5 @@
     "fired": false,
     "reason": "NO_3OF5_AGREEMENT",
     "ts": "2026-07-09T21:00:29.293Z"
-  },
-  {
-    "symbol": "XRP-USDT",
-    "barTime": 1783630800,
-    "price": 1.09794,
-    "fired": false,
-    "reason": "NO_CONFLUENCE",
-    "ts": "2026-07-09T21:00:24.840Z"
   }
 ]
