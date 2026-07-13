@@ -1,5 +1,5 @@
 {
-  "_lastRunAt": "2026-07-13T16:00:54.115Z",
+  "_lastRunAt": "2026-07-13T16:15:44.979Z",
   "SOL-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
@@ -14,24 +14,24 @@
   "ETH-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 1776.79,
+    "price": 1777.6,
     "bias1d": "NEUTRAL",
     "bias4h": "BULLISH",
     "bias1h": "BEARISH",
     "bias30m": "NEUTRAL",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-07-13T16:00:25.271Z"
+    "updatedAt": "2026-07-13T16:15:16.702Z"
   },
   "LINK-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 7.9326,
+    "price": 7.9349,
     "bias1d": "BEARISH",
     "bias4h": "NEUTRAL",
     "bias1h": "BULLISH",
     "bias30m": "BEARISH",
     "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-13T16:00:40.751Z"
+    "updatedAt": "2026-07-13T16:15:31.994Z"
   },
   "XRP-USDT": {
     "signal": "NO_AGREEMENT",
@@ -148,15 +148,28 @@
     "updatedAt": "2026-07-13T10:30:46.810Z"
   },
   "AVAX-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 6.561,
+    "signal": "SCANNED",
+    "price": 6.528,
+    "direction": "SELL",
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "30m",
+      "15m"
+    ],
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
-    "bias1h": "BULLISH",
-    "bias30m": "NEUTRAL",
-    "bias15m": "NEUTRAL",
-    "updatedAt": "2026-07-13T16:00:38.542Z"
+    "bias1h": "NEUTRAL",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "poc": 6.364315,
+    "vah": 6.7198649999999995,
+    "val": 6.364315,
+    "swingHigh": 6.832,
+    "swingLow": 6.285,
+    "atr1h": 0.07470136096222661,
+    "updatedAt": "2026-07-13T16:15:29.699Z"
   },
   "DOT-USDT": {
     "signal": "SCANNED",
@@ -194,7 +207,7 @@
   },
   "MNT-USDT": {
     "signal": "SCANNED",
-    "price": 0.4254,
+    "price": 0.4263,
     "direction": "SELL",
     "voteTally": "3/5",
     "agreeing": [
@@ -212,7 +225,7 @@
     "val": 0.426358,
     "swingHigh": 0.4351,
     "swingLow": 0.4163,
-    "atr1h": 0.0021182624807714163,
-    "updatedAt": "2026-07-13T16:00:54.106Z"
+    "atr1h": 0.0020383865892877437,
+    "updatedAt": "2026-07-13T16:15:44.972Z"
   }
 }
