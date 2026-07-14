@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — MONTHLY VALUE SNIPER v10.15.7  (strategy.js — LIVE RUNNER)
+ *  MVS — MONTHLY VALUE SNIPER v10.15.8  (strategy.js — LIVE RUNNER)
  *
  *  All decision logic now lives in core.js (shared with backtest.js).
  *  This file only: fetches KuCoin data, calls core.js, sends Telegram
@@ -450,8 +450,52 @@ const runStrategy = async (symbol) => {
     // to backtest.js. Bug fix: this used to be hand-rolled here with an
     // extra 0.1×ATR pad stacked on top of the ±1×ATR band (~1.1×ATR total),
     // while backtest.js used exactly ±1.0×ATR — see core.js v10.1 fix log.
+    //
+    // v10.15.8 CRITICAL FIX: THE actual root cause of the persistent
+    // "scattered stale symbols" saga, found after v10.15.4 (timeout),
+    // v10.15.5 (git merge strategy), and v10.15.6/7 (atomic writes) had
+    // all already shipped and the exact same symptom still kept coming
+    // back. All three of those were real fixes for real risks, but NONE
+    // of them were this. Traced by noticing something the crash/race
+    // theories couldn't explain: the SAME handful of symbols were silent
+    // in EVERY run, every time, for hours — not a shifting, probabilistic
+    // pattern a race condition would produce. And there were zero
+    // EXCEPTION entries, zero INSUFFICIENT_DATA entries, zero
+    // NO_3OF5_AGREEMENT entries for them either — meaning the vote WAS
+    // resolving for these symbols, they just kept landing here, in the
+    // one gate in the entire pipeline that was ALWAYS silent by design:
+    // no logDiag, no saveState, just a console.log that only exists in a
+    // GitHub Actions log nobody was checking. A symbol whose price
+    // legitimately sits far from its 1H Fib pocket for hours (completely
+    // normal — a trending symbol can go a long time without retracing)
+    // would hit this exact branch every single scan, and NOTHING would
+    // ever update — making a totally healthy, actively-scanned symbol
+    // look identical to a genuinely broken one in /status. That's what
+    // was actually being reported as "stale," across multiple rounds.
+    // Fixed: this now updates state.json (so /status reflects the
+    // CURRENT price/bias and a fresh `updatedAt` even when there's
+    // nothing more to say) and logs to diag.log.json with a real reason,
+    // matching every other gate in the pipeline instead of being the one
+    // silent exception. `NO_3OF5_AGREEMENT` already logs at this same
+    // frequency without any problem, so there's no real log-spam concern
+    // that justified staying silent here.
     if (!core.isNearZone(price, fib, atr1h, config.NEAR_ZONE_ATR_MULT)) {
       console.log(`  ⏳ Price not near 1H zone ($${fib.zoneLow.toFixed(2)}–$${fib.zoneHigh.toFixed(2)}). Waiting.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'NOT_NEAR_ZONE' });
+      // v10.15.8 fix, corrected: this is NOT a "no agreement" state — the
+      // vote already resolved (direction is BUY/SELL by this point in the
+      // code, 3+ of 5 timeframes agreed) — it's specifically waiting for
+      // price to approach the 1H Fib zone. Labeling it NO_AGREEMENT (as
+      // the first pass of this fix did) would have shown contradictory
+      // text in /status like "NO AGREEMENT (BUY)" — a real direction
+      // alongside a label saying there isn't one. Caught before shipping
+      // by re-checking how commands.js actually renders signal+direction
+      // together, not by assuming the first fix was correct.
+      saveState(symbol, {
+        signal: 'WAITING_FOR_ZONE', direction, price,
+        bias1d: bias1d?.bias, bias4h: bias4h?.bias, bias1h: bias1h.bias,
+        bias30m: bias30m?.bias, bias15m: bias15m?.bias,
+      });
       return;
     }
 
