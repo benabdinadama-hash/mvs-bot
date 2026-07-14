@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15.7-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.8-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -724,6 +724,62 @@ and `config.js` if you want the exact numbers behind each change.
   (written via shell `echo` in `mvs-scan.yml`, not Node) is safe as-is —
   confirmed nothing anywhere in the codebase ever calls `JSON.parse` on
   it, so a torn read there has no code path that could crash from it.
+- **v10.15.8 — (2026-07-12) THE FINAL root cause of the "stale symbols in
+  /status" saga. v10.15.4, v10.15.5, and v10.15.6/7 were all real,
+  legitimate fixes for real risks — and the exact same symptom still came
+  back after all of them had deployed, which is what made this one worth
+  finding properly instead of assuming it was already fixed.**
+  - **What ruled out every previous theory:** the same handful of symbols
+    were silent in every single run, every time, for hours — not a
+    shifting, probabilistic pattern the way a race condition or a killed
+    job would produce. And there were zero `EXCEPTION` entries, zero
+    `INSUFFICIENT_*_DATA` entries, zero `NO_3OF5_AGREEMENT` entries for
+    them either. The timing also didn't fit a hang: a full 14-symbol scan
+    was completing in ~26 seconds total, which is barely more than the
+    13 mandatory 2-second inter-symbol delays alone — meaning every
+    symbol, including the silent ones, was resolving almost instantly,
+    not timing out.
+  - **Found it: the vote WAS resolving for these symbols.** They kept
+    landing in the one gate in the entire pipeline that was silent by
+    design since it was first written — the "price isn't near the 1H Fib
+    zone yet" check. That gate never called `logDiag()` or `saveState()`,
+    only `console.log()` (which only exists in a GitHub Actions run log
+    nobody was checking in real time). A symbol trending for hours without
+    retracing into its Fib pocket — a completely normal, common market
+    condition — would hit this exact branch every single scan, and
+    NOTHING would ever update. That makes a perfectly healthy,
+    actively-scanned symbol look byte-for-byte identical in `/status` to
+    one that's genuinely broken, which is exactly what kept getting
+    reported as "stale" across multiple rounds, even after three rounds
+    of real infrastructure fixes.
+  - **Why this one was harder to find than the others:** it isn't a
+    crash, a race, or a timeout — it's a working-as-originally-designed
+    silent path that turned out to be the wrong design once `/status`
+    staleness detection existed to notice it (that detector was added in
+    v10.15.4, after this silent gate had already existed for many
+    versions). The gate itself was never broken; the assumption that
+    silence here was harmless was.
+  - **Fix: this gate now behaves like every other gate in the pipeline** —
+    logs `NOT_NEAR_ZONE` to `diag.log.json` and calls `saveState()` with
+    a new `WAITING_FOR_ZONE` signal plus the current price/bias/
+    `updatedAt`, mirroring the structure of the genuine `NO_AGREEMENT`
+    path just above it in the code. **Deliberately a distinct label, not
+    reused `NO_AGREEMENT`** — caught before shipping, by re-checking how
+    `commands.js` actually renders `signal` + `direction` together: at
+    this point in the pipeline the vote HAS already resolved (`direction`
+    is BUY/SELL, 3+ of 5 timeframes agreed — that's how execution reached
+    this line at all), so labeling it `NO_AGREEMENT` would have shown
+    contradictory text like "NO AGREEMENT (BUY)" in `/status`. First pass
+    of this exact fix used `NO_AGREEMENT` and would have shipped that
+    contradiction; fixed before delivery. `NO_3OF5_AGREEMENT` already
+    logs at this same "most common outcome" frequency without any
+    problem, so the original concern about log spam doesn't hold up in
+    practice.
+  - **What to expect after this deploys:** `/status`'s `⚠️ Stale` warning
+    (added in v10.15.4) should now only ever fire for a genuine problem —
+    every actively-scanned symbol will show a fresh `updatedAt` every ~15
+    min regardless of whether it's near its zone or not, because now
+    every outcome updates state, not just the interesting ones.
 
 
 ## ⚠️ Important: Why KuCoin?
@@ -912,6 +968,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **D9** Volatility Regime (v10.15, **OFF by default since v10.15.1**) | Current 1H ATR is in the outer 5% of this symbol's own trailing 200-bar history (either extreme) | Skip (`VOLATILITY_REGIME_GATED`) if enabled. Reverted to off by default after a confirmed backtest regression — see changelog. Toggle: `config.VOLATILITY_REGIME_ENABLED`. |
 | **D10** Signal Cooldown (v10.15.3 — now logged) | Same direction fired within the last `config.SIGNAL_COOLDOWN_BARS` 1H bars | Skip (`SIGNAL_COOLDOWN`). Existed since early versions but was never written to `diag.log.json` until this fix — see changelog. |
 | **D11** TP2 Extension Too Short (v10.15.3 — now logged) | TP2 (1H VAH/VAL) doesn't clear TP1 by ≥ `config.TP2_MIN_EXTENSION_RR` | Skip (`TP2_EXTENSION_TOO_SHORT`). Existed since v10.5 but was console-log-only until this fix — see changelog. |
+| **D12** Not Near Zone (v10.15.8 — now logged) | Price isn't within `ATR×config.NEAR_ZONE_ATR_MULT` of the 1H Fib pocket | Skip (`NOT_NEAR_ZONE`) AND updates `state.json` with current price/bias. The single most common outcome on any scan — was completely silent through v10.15.7 (no diag entry, no state update at all), which is the actual reason behind the multi-round "symbols look stale in /status" reports — see changelog. |
 
 ---
 
@@ -995,9 +1052,14 @@ STEP 3:  1H structure — get the swing/Fib pocket from the 1H bias vote.
            • Price broke the 1H swing entirely → structural remap alert, stop.
            • Price already beyond 1H Fib 88.6% → D4 over-extended, stop.
            • Price not within ATR×config.NEAR_ZONE_ATR_MULT of the zone
-             → wait silently (no diag log entry — this is the single most
-             common "nothing happened" case on any given scan; see
-             Troubleshooting below if this is confusing you in the logs).
+             → skip (`NOT_NEAR_ZONE`, v10.15.8 — see changelog). This is
+             the single most common "nothing happened" case on any given
+             scan (a symbol can legitimately trend for hours without
+             retracing into its Fib pocket) — through v10.15.7 this was
+             silent (no diag entry, no state.json update at all), which
+             made a perfectly healthy, actively-scanned symbol look
+             identical to a genuinely broken one in `/status`. Now logs
+             and updates state like every other gate.
 STEP 4:  1H Confluence Check — does the 60–80% Fib pocket overlap 1H POC,
          VAH, or VAL? Score >= 1 (within ATR×config.CONFLUENCE_ATR_MULT)
          required for VAH/VAL; POC entries need score >= 2 (tight
@@ -1435,6 +1497,7 @@ mvs-bot/
 | Problem | Likely Cause | Fix |
 |---------|-------------|-----|
 | No signals after several days | Confluence or 3-of-5 vote never firing | Check `diag.log.json` — look at the `reason` field distribution. `NO_3OF5_AGREEMENT` dominating means timeframes rarely agree (expected — that's the gate working, and stricter with 5 TFs than the old 3); `NO_CONFLUENCE` dominating means widen `CONFLUENCE_ATR_MULT` in `config.js` (current default is `0.85`; try `1.0`); `POC_NO1H_GATED` dominating (v10.12) means most of your recent candidate setups were POC pivot without 1H confirmation — that's the gate working as designed (it's the confirmed weakest segment), not a bug, but if frequency drops too far below target, set `POC_REQUIRE_1H_CONFIRM: false` in `config.js` to fall back to the old size-only treatment and re-backtest to compare; `POC_PROMINENCE_GATED` dominating (v10.13) means POC pivot but a contested (non-decisive) volume peak — same idea, toggle `POC_PROMINENCE_REQUIRE_DECISIVE: false` to fall back to size-only if frequency needs it |
+| `/status` shows a symbol "stale" for hours while others update fine | Through v10.15.7: almost certainly `NOT_NEAR_ZONE` — the symbol's price has been legitimately trending away from its 1H Fib pocket, which was a completely silent code path (no diag entry, no state update) until v10.15.8 fixed it. As of v10.15.8 this now updates `state.json` every scan like every other gate, so a symbol actually stuck for hours post-upgrade means a REAL problem (check the GitHub Actions run history for the scan workflow directly — is it running at all, is it failing) rather than this specific, very common, entirely normal market condition |
 | Too many signals (noise) | Confluence/rejection too loose | Lower `CONFLUENCE_ATR_MULT` (current default `0.85`; try `0.65`) or raise `REJECTION_MIN_PATTERNS` to `3` |
 | Commands not responding | `tg-offset.json` not committed yet | Go to **Actions → MVS Commands → Run workflow** once manually to bootstrap the offset |
 | `/health` shows "Last scan run: never" | `state.json` not yet committed | Go to Actions → MVS Scan → Run workflow manually once to bootstrap |
