@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — LIVE POSITION TRACKER (position-tracker.js)  v10.15.6
+ *  MVS — LIVE POSITION TRACKER (position-tracker.js)  v10.15.8
  *
  *  NEW in v10.14. Closes the gap flagged since v10.6: this bot fired
  *  alerts but never checked what happened to them afterward — the
