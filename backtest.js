@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- *  MVS — BACKTESTER (backtest.js)  v10.15.8
+ *  MVS — BACKTESTER (backtest.js)  v10.15.9
  *
  *  Uses core.js — the EXACT same decision logic as strategy.js (live).
  *  No more hand-copied CONFIG or duplicated pure functions: this file
@@ -454,6 +454,26 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
       voteTally: resolved.tally, agreeing: resolved.agreeing,
       confluenceScore: bestScore, td9Confirms, slAtrMult,
       prominence, migration, nakedPOC, multiTFPOC,
+      // v10.15.9 NEW: per-timeframe bias, requested after root-causing a
+      // live SL hit (LINK-USDT SELL, v10.15.8-era) where the vote passed
+      // 3-of-5 (1D+30m+15m agreeing BEARISH) but the two medium
+      // timeframes NOT in that agreeing set — 4H and 1H — were both
+      // actively BULLISH, directly opposing the trade. Every other known
+      // factor on that trade was actually good (ENGULFING+CLOSE_REJECTION
+      // combo: 91.3% WR historically; CLOSE_REJECTION alone: 87.0% WR;
+      // plain 3-of-5 tally: 75.0% WR) — none of them explain the loss.
+      // The one thing that stood out was medium-timeframe disagreement,
+      // but that can't be tested properly yet: `agreeing` only lists
+      // WHICH timeframes agreed, not what the DISAGREEING ones' actual
+      // bias was (opposing vs. merely neutral are very different
+      // things, and only this new field can tell them apart). Tracked
+      // here, not gated on — one anecdote is not evidence, and gating on
+      // it now would repeat the exact mistake v10.15.1 already reverted
+      // (a plausible-sounding rule shipped without a large enough sample
+      // behind it). See "BY MID-TF AGREEMENT" in generateReport() below;
+      // needs a fresh backtest run to say anything real.
+      bias1d: cached1d?.bias ?? null, bias4h: cached4h?.bias ?? null, bias1h: bias1h.bias,
+      bias30m: cached30m?.bias ?? null, bias15m: bias15m.bias,
     };
   }
 
@@ -623,6 +643,28 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     byMultiTFPOC[key].totalRR += t.rr;
   }
 
+  // v10.15.9 NEW — requested after root-causing a live SL hit where the
+  // vote passed 3-of-5 but the two timeframes NOT in the agreeing set
+  // (4H, 1H) were both actively opposing the trade direction, not just
+  // neutral. `agreeing` alone can't distinguish "opposing" from
+  // "neutral" for the other two — this field can. First report able to
+  // answer whether that distinction actually predicts SL; needs a fresh
+  // run, this field didn't exist before this version.
+  const byMidTFAgreement = {};
+  for (const t of closed) {
+    const dirSign = t.direction === 'BUY' ? 'BULLISH' : 'BEARISH';
+    const oppSign = t.direction === 'BUY' ? 'BEARISH' : 'BULLISH';
+    const midBiases = [t.bias4h, t.bias1h].filter(b => b != null);
+    if (!midBiases.length) continue; // no data for this trade (pre-v10.15.9 or missing history)
+    const anyOpposing = midBiases.some(b => b === oppSign);
+    const key = anyOpposing ? '4H/1H opposing' : (midBiases.every(b => b === dirSign) ? '4H/1H confirming' : '4H/1H neutral/mixed');
+    if (!byMidTFAgreement[key]) byMidTFAgreement[key] = { trades: 0, wins: 0, sl: 0, totalRR: 0 };
+    byMidTFAgreement[key].trades++;
+    if (t.rr > 0) byMidTFAgreement[key].wins++;
+    if (t.result === 'SL') byMidTFAgreement[key].sl++;
+    byMidTFAgreement[key].totalRR += t.rr;
+  }
+
   const avgHoursHeld = closed.length ? (closed.reduce((s, t) => s + (t.hoursHeld || 0), 0) / closed.length).toFixed(0) : '0';
   const signalsPerWeek = closed.length ? (closed.length / (requestedDays / 7)).toFixed(2) : '0.00';
   const requestedSymbols = Object.keys(funnelsBySymbol).length ? Object.keys(funnelsBySymbol) : [...new Set(allTrades.map(t => t.symbol))];
@@ -697,6 +739,11 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     ...(Object.keys(byMultiTFPOC).length ? Object.entries(byMultiTFPOC).map(([k, v]) =>
       `  ${k.padEnd(15)} ${v.trades} trades | ${(v.wins/v.trades*100).toFixed(1)}% WR | ${v.sl} SL | ${v.totalRR.toFixed(2)}R total`)
       : ['  No closed POC-pivot trades yet on a run new enough to track this.']),
+    '',
+    '── BY MID-TF AGREEMENT (v10.15.9 NEW — is 4H/1H opposing worse?) ────',
+    ...(Object.keys(byMidTFAgreement).length ? Object.entries(byMidTFAgreement).map(([k, v]) =>
+      `  ${k.padEnd(18)} ${v.trades} trades | ${(v.wins/v.trades*100).toFixed(1)}% WR | ${v.sl} SL | ${v.totalRR.toFixed(2)}R total`)
+      : ['  No closed trades yet on a run new enough to track this.']),
     '',
     '── FUNNEL DIAGNOSTICS (15m ticks surviving each gate, per symbol) ───',
     ...requestedSymbols.flatMap(sym => {
