@@ -3,7 +3,7 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v10.15.8-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.15.9-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -780,6 +780,45 @@ and `config.js` if you want the exact numbers behind each change.
     every actively-scanned symbol will show a fresh `updatedAt` every ~15
     min regardless of whether it's near its zone or not, because now
     every outcome updates state, not just the interesting ones.
+- **v10.15.9 — (2026-07-13) investigated a real, live SL hit** (LINK-USDT
+  SELL: entry $7.94069, SL $8.13115, hit after 24h held) **and added the
+  instrumentation needed to test the one thing that stood out, instead of
+  gating on a single trade.**
+  - **Checked every known factor against this specific trade — none of
+    them explain the loss.** Patterns present: `ENGULFING` +
+    `CLOSE_REJECTION`, historically the single best combo on record
+    (91.3% WR, 0 SL, n=23). `CLOSE_REJECTION` alone: 87.0% WR historically.
+    Plain 3-of-5 vote tally: 75.0% WR historically. Prominence ratio 16.77
+    (far above the 1.5 decisive threshold). Every factor this bot already
+    tracks said this was a good setup, and by most of them, it was.
+  - **What actually stood out: the vote agreed 1D+30m+15m (BEARISH), but
+    the two timeframes NOT in that agreeing set — 4H and 1H — were both
+    actively BULLISH, directly opposing the SELL.** That's different from
+    "not confirming" — a NEUTRAL 4H/1H would be unremarkable, but an
+    OPPOSING one is a real, specific claim about the setup being fought by
+    the medium-term structure. Checked for backtest evidence: for VAH/VAL
+    pivot trades (this was a VAH pivot), 1H-in-agreeing showed 85.7% WR
+    (n=7, 0 SL) vs. 74.7% WR (n=87, 7 SL) when not — directionally
+    consistent with the same pattern already confirmed for POC pivots
+    back in v10.12, but n=7 is nowhere near enough to act on.
+  - **Deliberately NOT gated on this** — a single trade plus a 7-sample
+    hint is exactly the kind of thin evidence that led to the
+    vote-strength-sizing mistake in v10.15/v10.15.1 (shipped, then
+    reverted after a real backtest showed the cost). Not repeating that.
+  - **Instead: added `bias1d`/`bias4h`/`bias1h`/`bias30m`/`bias15m` to
+    every `backtest.js` trade record.** `agreeing` alone can only say
+    which timeframes agreed — it can't distinguish a disagreeing
+    timeframe that's OPPOSING the trade from one that's merely NEUTRAL,
+    which is exactly the distinction this hypothesis needs. New "BY
+    MID-TF AGREEMENT" report section splits closed trades into 4H/1H
+    confirming vs. opposing vs. neutral-or-mixed. This field didn't exist
+    before this version, so no existing report can answer the question —
+    run `node backtest.js` for the first real answer, ideally on a long
+    enough window that the "opposing" bucket has a real sample size
+    before drawing any conclusion from it.
+  - Nothing about gates, thresholds, or trading behavior changed in this
+    version — purely new measurement, same standing philosophy in this
+    repo: measure with an adequate sample before gating, every time.
 
 
 ## ⚠️ Important: Why KuCoin?
