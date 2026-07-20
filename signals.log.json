@@ -1,5 +1,63 @@
 [
   {
+    "symbol": "TRX-USDT",
+    "signal": "FIRED",
+    "direction": "SELL",
+    "entryTime": 1784524500,
+    "entryPrice": 0.3266876,
+    "slPrice": 0.3282369305936549,
+    "tp1Price": 0.3248,
+    "tp2Price": 0.322655,
+    "risk": 0.001549330593654863,
+    "rr1": 1.2183326190875803,
+    "rr2": 2.6028015044143125,
+    "confluencePivot": "VAH",
+    "fibPct": "78.6%",
+    "patterns": [
+      "VAH_VAL_RECLAIM"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BEARISH",
+    "bias4h": "BEARISH",
+    "bias1h": "BULLISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 5.178747168270987,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.328118,
+      "poc1d": 0.329867
+    },
+    "alertDelivered": true,
+    "time": "2026-07-20T05:17:48.318Z"
+  },
+  {
     "symbol": "ETH-USDT",
     "signal": "FIRED",
     "direction": "BUY",
