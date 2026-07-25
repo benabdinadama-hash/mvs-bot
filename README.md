@@ -1407,6 +1407,51 @@ back with a fresh backtest to confirm the trade-off.
 
 ---
 
+## Roadmap: Authenticated Order-Execution Module (PLANNED — not yet built)
+
+**Status as of v10.15.9: this repo is signal-only.** `strategy.js` and `position-tracker.js` only ever call KuCoin's *public* market-data endpoints (candles) and Telegram's `sendMessage`. There is no KuCoin API key, no HMAC request signing, and no order-placement code anywhere in this codebase. Every SL/TP1/TP2 "hit" the tracker reports is a *simulated* replay of `core.js`'s `evaluateOpenTrade()` against candle data — for logging and win-rate reporting — not a real order sitting on the exchange. Every trade today is manually opened and manually managed by Abdin on KuCoin, based on the Telegram alert.
+
+This section is the plan for closing that gap — turning MVS from a signal generator into a system that actually places and manages the trade. **Nothing below is implemented. This is a design doc to build from when ready**, not a description of current behavior.
+
+### Why this is a separate, deliberate phase (not a quick bolt-on)
+
+Signal generation being wrong costs nothing but a bad alert. Order execution being wrong costs real money — a bad symbol string, a sign error on quantity, a stale price, a retried duplicate order, or a crashed process mid-position can all lose capital in ways a signal-only bot never could. So this module gets built and tested to a higher bar than everything else in this repo, in stages, with paper/testnet trading proven first.
+
+### Phase 0 — Decisions to make before writing any code
+- [ ] **Exchange:** KuCoin (same exchange the signals are already built for — lowest-risk choice, no symbol/precision/margin-rule remapping needed) vs. Bybit/Binance (see below on Ghana access — both are usable, but would mean re-validating symbol lists, tick sizes, and margin/leverage rules against a different exchange's contract specs).
+- [ ] **Product type:** Spot vs. USDT-M perpetual futures. Futures unlock leverage and native SL/TP order types (KuCoin, Bybit, and Binance all support "stop-limit"/"stop-market" attached orders on futures) but add liquidation risk that spot doesn't have.
+- [ ] **Position sizing source of truth:** keep using `core.js`'s existing `computeRiskMultiplier()` output (already risk-tiered by pivot/pattern/vote quality) to size real order quantity — no new sizing logic, reuse what's already tested in backtest.
+- [ ] **Capital at risk per trade, and a hard daily/weekly loss circuit-breaker** (pause new entries after N consecutive losses or X% drawdown) — this is a new safety feature the current signal-only bot doesn't need but a money-moving bot does.
+
+### Phase 1 — Read-only account wiring (no orders yet)
+- Add authenticated (HMAC-signed) *read-only* KuCoin API calls: account balance, open positions, order status.
+- Prove the signing/auth layer works before it's ever allowed to write anything.
+- Telegram command to manually check "what does my KuCoin account actually show right now" — cross-checked against `open-positions.json`.
+
+### Phase 2 — Testnet / paper execution
+- Route every signal through order-placement code that hits KuCoin's **sandbox/testnet environment only** (or a locally-simulated paper-fill layer if no testnet is available for the chosen product).
+- Compare paper fills against what `position-tracker.js` would have simulated — they should match. Any divergence gets debugged here, not in Phase 3.
+- Run this phase for a meaningful stretch (weeks, not days) before touching real funds.
+
+### Phase 3 — Live execution, small size, manual kill-switch
+- Real KuCoin API keys, **trade-only permissions (withdrawals disabled at the API-key level, non-negotiable)**.
+- Start at minimum position size regardless of what `computeRiskMultiplier()` says, scale up manually only after a track record.
+- One Telegram command that instantly disables new order placement (kill switch) without needing a code deploy or GitHub Actions change.
+- Explicit logging of every real order: intent (signal) → order sent → exchange ack → fill → close. Every step auditable.
+
+### Phase 4 — Full exit management
+- Attach real stop-loss and take-profit orders at entry time (not just simulated tracking) — so capital is protected even if a GitHub Actions run is delayed or fails.
+- Handle the messier realities live trading has that backtesting doesn't: partial fills, exchange downtime, rate limits, slippage, orders rejected for insufficient balance.
+
+### Explicitly out of scope for now
+- No multi-exchange routing or smart order routing.
+- No leverage beyond whatever's decided in Phase 0 — this is not the place to also decide "and let's add leverage" mid-build.
+- No automated position-size scaling based on recent win streaks (that's a way to blow up an account, not a feature).
+
+**When ready to start:** say so, and we'll begin at Phase 0 — the decisions above need answers before any code gets written, since they shape everything downstream (which exchange's SDK/signing scheme, spot vs futures order types, etc.).
+
+---
+
 ## Deployment
 
 ### Quickstart (GitHub Actions — Recommended)
