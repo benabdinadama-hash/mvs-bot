@@ -885,6 +885,36 @@ const computeTradeLevels = ({ direction, entryPrice, swing, atr, vp, slAtrMult, 
 //     backstop for a runner that's neither hit TP2 nor come back to
 //     breakeven after an unusually long hold.
 const evaluateOpenTrade = (openTrade, bar, config) => {
+  // v10.16 FIX: same-bar SL-vs-TP1 ambiguity. A 15m candle only gives us
+  // high/low, not the true order those extremes were touched in. Every
+  // check below this point (breakeven-arm, TP1) runs against the FULL
+  // bar high/low — so a candle that, in reality, swept the active SL
+  // first and only THEN rallied back up through the breakeven point or
+  // TP1 was being recorded as a win, because nothing ever compared this
+  // bar's high/low against the SL price as it stood BEFORE this bar was
+  // processed. Conservative fix: for a trade not yet at TP1, check the
+  // pre-bar SL first. If this bar could have hit it, close the trade
+  // right here as a stop-out (or breakeven, if the SL had already been
+  // armed to entry by a prior bar) — before any breakeven-arm/TP1
+  // registration for this same bar gets a chance to overwrite it. This
+  // can only make results MORE conservative (fewer wins), never more
+  // optimistic, so it is safe to enable unconditionally.
+  if (!openTrade.tp1Hit) {
+    const preBarSlPrice = openTrade.slPrice;
+    const preBarSlHit = openTrade.direction === 'BUY' ? bar.low <= preBarSlPrice : bar.high >= preBarSlPrice;
+    if (preBarSlHit) {
+      const origRisk = Math.abs(openTrade.entryPrice - openTrade.origSlPrice);
+      const slRR = parseFloat((((preBarSlPrice - openTrade.entryPrice) / origRisk) * (openTrade.direction === 'BUY' ? 1 : -1)).toFixed(2));
+      return {
+        closed: true, trade: openTrade,
+        outcome: {
+          result: slRR === 0 ? 'BE' : 'SL', exitPrice: preBarSlPrice, rr: slRR,
+          exitTime: bar.time, hoursHeld: Math.round((bar.time - openTrade.entryTime) / 3600),
+        },
+      };
+    }
+  }
+
   if (!openTrade.beMoved) {
     const halfway = openTrade.direction === 'BUY'
       ? openTrade.entryPrice + (openTrade.tp1Price - openTrade.entryPrice) * 0.5
