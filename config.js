@@ -369,6 +369,23 @@ module.exports = {
   // of the newly-admitted bars are further from the "true" zone.
   NEAR_ZONE_ATR_MULT: 1.5,
 
+  // v10.16 NEW — wick-based zone touch, OPT-IN (off by default until
+  // backtested against THIS bot's own real KuCoin data — same discipline
+  // as SL_ATR_MULT_MATRIX_ENABLED above). Ported from GWP-bots (the
+  // multi-asset codebase forked from this one), where it graduated to
+  // default-on after a real-data A/B backtest across all three of its
+  // bots (crypto/forex/stocks) with NEAR_ZONE_USE_WICK=true:
+  //   crypto: 12→25 signals, 54.5%→66.7% WR, 4.55R→16.03R
+  //   forex:  13→30 signals, 76.9%→83.3% WR, 20.87→69.74 profit factor
+  //   stocks:  4→9  signals, 75.0%→88.9% WR, 6.91→14.89 profit factor
+  // Every metric moved the same direction at once (more signals AND
+  // higher win rate AND higher profit factor, SL hits unchanged) — the
+  // signature of a real fix, not overfitting. Worth an A/B run here too
+  // (`NEAR_ZONE_USE_WICK=true node backtest.js`) before trusting it on
+  // this bot's own 14 KuCoin pairs, which is why it isn't on by default
+  // yet — the numbers above are GWP's data, not MVS's.
+  NEAR_ZONE_USE_WICK: process.env.NEAR_ZONE_USE_WICK === 'true' ? true : false,
+
   // ── Confluence engine ───────────────────────────────────────────────────
   // Tolerance = 1H ATR × this multiplier. A Fib level within this band of
   // POC/VAH/VAL counts as confluence.
