@@ -479,7 +479,11 @@ const runStrategy = async (symbol) => {
     // silent exception. `NO_3OF5_AGREEMENT` already logs at this same
     // frequency without any problem, so there's no real log-spam concern
     // that justified staying silent here.
-    if (!core.isNearZone(price, fib, atr1h, config.NEAR_ZONE_ATR_MULT)) {
+    const struct1hCandle = data1h[data1h.length - 1];
+    const nearZonePass = config.NEAR_ZONE_USE_WICK
+      ? core.isNearZoneWick(struct1hCandle.high, struct1hCandle.low, fib, atr1h, config.NEAR_ZONE_ATR_MULT)
+      : core.isNearZone(price, fib, atr1h, config.NEAR_ZONE_ATR_MULT);
+    if (!nearZonePass) {
       console.log(`  ⏳ Price not near 1H zone ($${fib.zoneLow.toFixed(2)}–$${fib.zoneHigh.toFixed(2)}). Waiting.`);
       logDiag({ symbol, barTime, price, fired: false, reason: 'NOT_NEAR_ZONE' });
       // v10.15.8 fix, corrected: this is NOT a "no agreement" state — the

@@ -361,6 +361,22 @@ const isNearZone = (price, fib, atr, padMult) => {
   return price >= lo && price <= hi;
 };
 
+// v10.16 NEW (ported from GWP-bots, see config.js NEAR_ZONE_USE_WICK for
+// the full rationale and the cross-asset backtest evidence behind it).
+// isNearZone() above only checks the structural candle's CLOSE against
+// the padded zone — if the candle's high/low actually reached the zone
+// intrabar but closed back outside it, that setup is invisible to the
+// whole rest of the pipeline (confluence, trigger — none of it runs if
+// this gate says no). This variant checks the candle's full high/low
+// range instead, so an intrabar touch counts even if price closed away
+// from the zone. Same signature shape as isNearZone but takes the
+// candle's high/low directly instead of a single price.
+const isNearZoneWick = (candleHigh, candleLow, fib, atr, padMult) => {
+  const lo = fib.zoneLow  - atr * padMult;
+  const hi = fib.zoneHigh + atr * padMult;
+  return candleLow <= hi && candleHigh >= lo;
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 //  N-OF-M TIMEFRAME DIRECTION RESOLUTION
 //  votes: [{ tf: '4H', result: <tfBiasVote output or null> }, ...]
@@ -976,7 +992,7 @@ const evaluateOpenTrade = (openTrade, bar, config) => {
 };
 
 module.exports = {
-  calcATR, calcFib, calcVolumeProfile, tfBiasVote, isNearZone, resolveDirection,
+  calcATR, calcFib, calcVolumeProfile, tfBiasVote, isNearZone, isNearZoneWick, resolveDirection,
   confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
   detectRejection, computeTradeLevels, computeRiskMultiplier, computeTDSequential,
   computePOCProminence, computePOCMigration, computeNakedPOC, computePOCQualityMultiplier,

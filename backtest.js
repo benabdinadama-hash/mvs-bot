@@ -336,7 +336,11 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     if ((direction === 'BUY' && price1h < fib.level886) || (direction === 'SELL' && price1h > fib.level886)) continue;
     funnel.notOverExtended++;
 
-    if (!core.isNearZone(price1h, fib, atr1h, config.NEAR_ZONE_ATR_MULT)) continue;
+    const struct1hCandle = data1h[ptr1h];
+    const nearZonePass = config.NEAR_ZONE_USE_WICK
+      ? core.isNearZoneWick(struct1hCandle.high, struct1hCandle.low, fib, atr1h, config.NEAR_ZONE_ATR_MULT)
+      : core.isNearZone(price1h, fib, atr1h, config.NEAR_ZONE_ATR_MULT);
+    if (!nearZonePass) continue;
     funnel.nearZone++;
 
     const vp1h = bias1h.vp;
