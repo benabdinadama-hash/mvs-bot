@@ -1,0 +1,11 @@
+# Secrets — never commit these
+.env
+.env.local
+*.pem
+*.key
+
+# Dependencies
+node_modules/
+
+# OS junk
+.DS_Store
