@@ -23,7 +23,9 @@ const BASE_URL = process.env.BYBIT_TESTNET === 'true'
   ? 'https://api-testnet.bybit.com'
   : 'https://api.bybit.com';
 
-const RECV_WINDOW = '5000';
+const RECV_WINDOW = '20000'; // widened from 5000 — tolerates clock skew on machines
+                             // (e.g. office PCs) whose system clock isn't tightly
+                             // synced. Still well within Bybit's accepted range.
 
 if (!API_KEY || !API_SECRET) {
   throw new Error(
