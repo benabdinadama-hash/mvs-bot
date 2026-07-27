@@ -1,0 +1,28 @@
+name: MVS Bybit Auth Test (Phase 1 — read-only)
+
+# Manual-only trigger. This is a diagnostic tool, not something that
+# should run on a schedule — it exists purely to confirm the
+# BYBIT_API_KEY / BYBIT_API_SECRET secrets and the HMAC signing in
+# execution/bybit-client.js are correct.
+#
+# execution/test-auth.js calls ONLY read-only Bybit endpoints (wallet
+# balance, open positions). It never places, modifies, or cancels an
+# order. Safe to run as many times as you like.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: npm install
+      - name: Run Bybit auth smoke test (read-only)
+        env:
+          BYBIT_API_KEY:    ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+        run: node execution/test-auth.js
