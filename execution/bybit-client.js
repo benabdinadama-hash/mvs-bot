@@ -1,11 +1,9 @@
 /**
  * bybit-client.js — v5 API authenticated request helper.
  *
- * PHASE 1 (current): read-only wiring. This file is generic — it can sign
- * ANY v5 request, read or write — but nothing in the codebase calls a
- * write endpoint (order placement, leverage changes, etc.) yet. That
- * comes in later phases, deliberately, after this signing layer is
- * proven correct against read-only endpoints first.
+ * Now includes write endpoints (setLeverage, placeOrder) used by
+ * execution/execute-signal.js. Every call — read or write — goes through
+ * the same signing logic below, which was validated in Phase 1.
  *
  * Credentials come from environment variables ONLY. Never hardcode a key
  * or secret in this file, never commit a .env file (see .gitignore).
@@ -27,13 +25,23 @@ const RECV_WINDOW = '20000'; // widened from 5000 — tolerates clock skew on ma
                              // (e.g. office PCs) whose system clock isn't tightly
                              // synced. Still well within Bybit's accepted range.
 
-if (!API_KEY || !API_SECRET) {
-  throw new Error(
-    'BYBIT_API_KEY / BYBIT_API_SECRET not set. Set them as environment ' +
-    'variables (local .env for testing, GitHub Actions secrets for ' +
-    'deployment) — never hardcode them in a file.'
-  );
-}
+// v10.16 FIX: credential check moved from module-load time to request time.
+// strategy.js now requires this module unconditionally (via execute-signal.js)
+// so it can fire live signals. If this threw at require() time, ANY run
+// missing BYBIT_API_KEY/SECRET (e.g. the existing mvs-scan.yml workflow,
+// before those secrets are added to it) would crash the entire scan —
+// killing signal generation and Telegram alerts too, not just execution.
+// Checking lazily means: no credentials, no execution capability, but
+// signals/alerts keep working exactly as before.
+const assertCredentials = () => {
+  if (!API_KEY || !API_SECRET) {
+    throw new Error(
+      'BYBIT_API_KEY / BYBIT_API_SECRET not set. Set them as environment ' +
+      'variables (GitHub Actions secrets for deployment) before any Bybit ' +
+      'request — read or write — can be made.'
+    );
+  }
+};
 
 // Bybit v5 signing: HMAC-SHA256(timestamp + apiKey + recvWindow + payload)
 // For GET: payload = sorted query string. For POST: payload = raw JSON body string.
@@ -43,6 +51,7 @@ const sign = (timestamp, payload) => {
 };
 
 const request = async (method, path, params = {}) => {
+  assertCredentials();
   const timestamp = Date.now().toString();
   let url = BASE_URL + path;
   let payload = '';
@@ -85,4 +94,18 @@ const request = async (method, path, params = {}) => {
 module.exports = {
   get: (path, params) => request('GET', path, params),
   post: (path, params) => request('POST', path, params),
+
+  // --- Write endpoints (Phase 3 — real order placement) ---
+
+  setLeverage: (symbol, leverage) => request('POST', '/v5/position/set-leverage', {
+    category: 'linear', symbol,
+    buyLeverage: String(leverage), sellLeverage: String(leverage),
+  }),
+
+  placeOrder: ({ symbol, side, qty, slPrice, tpPrice }) => request('POST', '/v5/order/create', {
+    category: 'linear', symbol, side, orderType: 'Market', qty: String(qty),
+    stopLoss: slPrice ? String(slPrice) : undefined,
+    takeProfit: tpPrice ? String(tpPrice) : undefined,
+    timeInForce: 'IOC',
+  }),
 };
