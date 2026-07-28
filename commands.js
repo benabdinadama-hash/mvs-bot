@@ -342,6 +342,32 @@ Built by Abdin | Asterix Holdings Ltd | Accra, Ghana`
   );
 };
 
+// ── /pause & /resume — the execution kill switch ───────────────────────────
+// Toggles execution/kill-switch.json. executeSignal() checks this BEFORE
+// doing anything else on every signal — see execution/execute-signal.js.
+// This is the fast, no-deploy-needed way to stop new live orders.
+const killSwitch = require('./execution/kill-switch');
+
+const cmdPause = async () => {
+  killSwitch.setPaused(true);
+  await send(
+`⏸️ *Execution PAUSED*
+
+No new live orders will be placed until you send /resume.
+Signals will still fire and alert as normal — only order execution is stopped.`
+  );
+};
+
+const cmdResume = async () => {
+  killSwitch.setPaused(false);
+  await send(
+`▶️ *Execution RESUMED*
+
+New signals will be executed again (subject to DRY_RUN, max concurrent
+trades, and leverage-cap logic in execution/execute-signal.js).`
+  );
+};
+
 const COMMANDS = {
   '/scan':      cmdScan,
   '/status':    cmdStatus,
@@ -353,6 +379,8 @@ const COMMANDS = {
   '/pairs':     cmdPairs,
   '/signal':    cmdSignal,
   '/source':    cmdSource,
+  '/pause':     cmdPause,
+  '/resume':    cmdResume,
 };
 
 // ─────────────────────────────────────────────────────────────────────────

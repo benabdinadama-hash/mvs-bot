@@ -64,6 +64,7 @@ const config = require('./config');
 const MVS_VERSION = require('./package.json').version;
 const core   = require('./core');
 const { checkOpenPositions } = require('./position-tracker');
+const { executeSignal } = require('./execution/execute-signal');
 
 // ── Telegram send — pure axios, 10s timeout, retries on transient failure ──
 // v10.4 FIX: this used to catch a failure/timeout and just return null —
@@ -869,6 +870,24 @@ risk capital you can't afford to lose on a single position.
       rr1: parseFloat(levels.rr1.toFixed(2)), rr2: parseFloat(levels.rr2.toFixed(2)),
       pivot: bestPivot.name, patterns: rejection.patterns,
     });
+
+    // v10.16 NEW — real (or dry-run) order execution on Bybit. This is
+    // deliberately AFTER the Telegram alert and saveOpenPosition() above,
+    // so the signal is always recorded/alerted first regardless of what
+    // happens in execution. See execution/execute-signal.js for the full
+    // logic (kill switch, leverage cap, position sizing, DRY_RUN).
+    try {
+      const execResult = await executeSignal({
+        symbol, direction, entryPrice: bestFibLevel,
+        slPrice: levels.slPrice, tp1Price: levels.tp1Price,
+      });
+      console.log(`  ↳ execution result:`, JSON.stringify(execResult));
+    } catch (err) {
+      // Execution failures must NEVER crash the scan loop or block other
+      // symbols — a signal that fails to execute is still a valid,
+      // correctly-alerted signal. Log loudly and move on.
+      console.error(`  ❌ executeSignal threw for ${symbol}:`, err.message);
+    }
 
   } catch (err) {
     console.error(`  ❌ Error processing ${symbol}:`, err.message);

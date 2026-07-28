@@ -1450,6 +1450,59 @@ Signal generation being wrong costs nothing but a bad alert. Order execution bei
 
 **When ready to start:** say so, and we'll begin at Phase 0 — the decisions above need answers before any code gets written, since they shape everything downstream (which exchange's SDK/signing scheme, spot vs futures order types, etc.).
 
+**Status update:** Phase 0 and 1 are done (Bybit, USDT-M perpetuals, $1 margin/trade, 20x ceiling with auto-cap-down, auth verified). Live order execution (`execution/execute-signal.js`, `execution/watcher.js`) is written and wired in — `DRY_RUN` is currently `false`, per explicit instruction, before a full testnet/paper-trading pass. That's a deliberate, informed risk tradeoff, not an oversight — logged here for the record.
+
+---
+
+## Kill Switch — Security Model
+
+`/pause` and `/resume` (see Telegram Commands above) toggle `execution/kill-switch.json`, which `executeSignal()` checks before every single order — see `execution/execute-signal.js`. This raised an obvious question: **could a stranger message the bot and pause/resume trading without the owner's consent?**
+
+No — and this isn't a new safeguard added because of that question, it's already how every command in this bot has worked from the start. The exact mechanism, in `commands.js`:
+
+```js
+const chatId = msg && msg.chat && msg.chat.id;
+...
+if (String(chatId) !== String(config.TELEGRAM_CHAT_ID)) {
+  console.log(`  Ignored update ${update.update_id} from chat ${chatId} (not our chat)`);
+  continue;
+}
+```
+
+Every incoming Telegram update carries the `chat.id` of whoever sent it. Before any command — `/pause`, `/resume`, `/scan`, anything — is allowed to run, that `chat.id` is compared against `config.TELEGRAM_CHAT_ID`, the one chat ID the bot's owner set during setup. A message from any other chat is logged as ignored and nothing executes. This isn't a permissions system bolted onto `/pause` specifically — it's the gate every single command already has to pass through, so `/pause`/`/resume` inherit it automatically with zero extra code.
+
+**Practical implication:** the only way someone else could trigger `/pause` is if they had access to the Telegram account tied to `TELEGRAM_CHAT_ID` itself (i.e., your phone/Telegram login) — at which point they could do far more damage through other means (reading your alerts, impersonating you elsewhere) than pausing a bot. Ordinary bot exposure — someone finding the bot's username and messaging it — changes nothing, because their `chat.id` will never match yours.
+
+---
+
+## Always-On Execution — Free, No Server Required
+
+GitHub Actions can't run this (Bybit blocks cloud-provider IP ranges — see the earlier troubleshooting history in this README/chat). Free cloud VMs (AWS/GCP/Oracle free tiers) sit on the same blocked IP ranges, so they don't help either. The genuinely free option left is your own phone, on its real mobile/WiFi IP, running continuously in the background — not a terminal window you have to keep open.
+
+### One-time setup (Termux)
+
+1. Install the **Termux:Boot** add-on from **F-Droid** (not the Play Store — Google's Play Store version of Termux doesn't support the boot add-on).
+2. In Android's own Settings → Apps → Termux → Battery: set to **"Unrestricted"** / disable battery optimization for Termux specifically. Without this, Android's Doze mode can still freeze the process even with a wake lock held.
+3. Create `execution/.env.sh` on your phone (see `execution/.env.sh.example` for the format) with your real Bybit credentials. This file is git-ignored — it never gets committed.
+4. Copy `execution/termux-boot-start.sh` to `~/.termux/boot/start-mvs-watcher.sh` on your phone (this is Termux's own boot folder, separate from the cloned repo — copy it there, don't just leave it in the repo folder). Edit the `REPO_PATH` line inside to match wherever you cloned the repo.
+5. Run once manually to start it immediately, without waiting for a reboot:
+   ```
+   bash execution/start-watcher.sh
+   ```
+
+From this point on, the watcher restarts automatically every time your phone reboots, and stays alive in the background between reboots via the wake lock — no terminal window needs to stay open, no manual relaunch needed.
+
+### Checking it's alive
+
+```
+pgrep -f "node execution/watcher.js"
+```
+Returns a process ID if running, nothing if not. Logs land in `execution/logs/watcher-YYYYMMDD.log`.
+
+### The one recurring task this doesn't remove: the 90-day key expiry
+
+Because the Bybit API key has **no IP restriction** (a deliberate choice — your phone's IP isn't stable enough to whitelist), Bybit auto-expires it after roughly 90 days. This is Bybit's own policy, not something any hosting setup can code around. Every ~3 months: generate a new key on Bybit, update `execution/.env.sh` on your phone, and update the `BYBIT_API_KEY`/`BYBIT_API_SECRET` GitHub Actions secrets too. Small, infrequent, but real — worth a calendar reminder rather than finding out mid-signal that the key quietly expired.
+
 ---
 
 ## Deployment
@@ -1490,6 +1543,8 @@ node strategy.js
 | `/about` | Strategy overview + how to run your own backtest |
 | `/signal` | How to read a signal |
 | `/source` | GitHub link |
+| `/pause` | Stop new live order execution (signals still fire/alert normally) — see security note below |
+| `/resume` | Re-enable live order execution |
 | `/help` | List all commands |
 
 ---
