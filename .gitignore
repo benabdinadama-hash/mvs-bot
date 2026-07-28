@@ -1,5 +1,7 @@
-# Secrets — never commit these
+# Secrets — never commit these (explicit names, NOT a wildcard, so the
+# .example template files below stay trackable and visible in the repo)
 .env
+.env.sh
 .env.local
 *.pem
 *.key
