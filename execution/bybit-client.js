@@ -102,10 +102,22 @@ module.exports = {
     buyLeverage: String(leverage), sellLeverage: String(leverage),
   }),
 
+  // mode: 0 = One-Way (Merged Single), 3 = Hedge Mode (Both Side).
+  // MVS uses One-Way. Pass { coin: 'USDT' } to switch ALL USDT perpetuals
+  // at once (recommended, one call), or { symbol: 'BTCUSDT' } for just one.
+  // See execution/set-position-mode.js for the one-time setup script.
+  setPositionMode: ({ symbol, coin, mode }) => request('POST', '/v5/position/switch-mode', {
+    category: 'linear', ...(symbol ? { symbol } : { coin }), mode,
+  }),
+
   placeOrder: ({ symbol, side, qty, slPrice, tpPrice }) => request('POST', '/v5/order/create', {
     category: 'linear', symbol, side, orderType: 'Market', qty: String(qty),
     stopLoss: slPrice ? String(slPrice) : undefined,
     takeProfit: tpPrice ? String(tpPrice) : undefined,
     timeInForce: 'IOC',
+    positionIdx: 0, // One-Way Mode — MVS only ever holds one direction per
+                     // symbol at a time, never a simultaneous long+short
+                     // hedge. Requires the account itself to also be set
+                     // to One-Way Mode — see execution/set-position-mode.js.
   }),
 };
