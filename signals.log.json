@@ -1,5 +1,63 @@
 [
   {
+    "symbol": "ADA-USDT",
+    "signal": "FIRED",
+    "direction": "SELL",
+    "entryTime": 1785364200,
+    "entryPrice": 0.1657188,
+    "slPrice": 0.1696345694329531,
+    "tp1Price": 0.16101987668045628,
+    "tp2Price": 0.158435,
+    "risk": 0.003915769432953103,
+    "rr1": 1.1999999999999986,
+    "rr2": 1.8601197350138363,
+    "confluencePivot": "VAH",
+    "fibPct": "78.6%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BEARISH",
+    "bias4h": "BEARISH",
+    "bias1h": "BULLISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 3.923802036369644,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.165219,
+      "poc1d": 0.16610550000000002
+    },
+    "alertDelivered": true,
+    "time": "2026-07-29T22:41:15.335Z"
+  },
+  {
     "symbol": "DOGE-USDT",
     "signal": "FIRED",
     "direction": "SELL",
