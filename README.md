@@ -1407,50 +1407,56 @@ back with a fresh backtest to confirm the trade-off.
 
 ---
 
-## Roadmap: Authenticated Order-Execution Module (PLANNED — not yet built)
+## Order-Execution Module — Bybit Live Trading (BUILT & LIVE)
 
-**Status as of v10.15.9: this repo is signal-only.** `strategy.js` and `position-tracker.js` only ever call KuCoin's *public* market-data endpoints (candles) and Telegram's `sendMessage`. There is no KuCoin API key, no HMAC request signing, and no order-placement code anywhere in this codebase. Every SL/TP1/TP2 "hit" the tracker reports is a *simulated* replay of `core.js`'s `evaluateOpenTrade()` against candle data — for logging and win-rate reporting — not a real order sitting on the exchange. Every trade today is manually opened and manually managed by Abdin on KuCoin, based on the Telegram alert.
+**Status: this module is built, tested, and actively executing real trades.** `strategy.js` now calls `execution/execute-signal.js` after every fired signal, which places real orders on Bybit (USDT-M perpetuals) via `execution/bybit-client.js`. `execution/watcher.js` runs continuously on a phone (via Termux — see "Always-On Execution" below) to catch signals and execute them, since Bybit blocks GitHub Actions' cloud IP ranges outright (see Known Issues below).
 
-This section is the plan for closing that gap — turning MVS from a signal generator into a system that actually places and manages the trade. **Nothing below is implemented. This is a design doc to build from when ready**, not a description of current behavior.
+The section below is kept as-is from the original planning phase — it's a useful record of the design reasoning, and every phase in it is now complete. See "Current Status & Known Issues" at the end of this section for what's actually true today, and "Kill Switch — Security Model" / "Always-On Execution" further down for the operational details.
 
 ### Why this is a separate, deliberate phase (not a quick bolt-on)
 
 Signal generation being wrong costs nothing but a bad alert. Order execution being wrong costs real money — a bad symbol string, a sign error on quantity, a stale price, a retried duplicate order, or a crashed process mid-position can all lose capital in ways a signal-only bot never could. So this module gets built and tested to a higher bar than everything else in this repo, in stages, with paper/testnet trading proven first.
 
-### Phase 0 — Decisions to make before writing any code
-- [ ] **Exchange:** KuCoin (same exchange the signals are already built for — lowest-risk choice, no symbol/precision/margin-rule remapping needed) vs. Bybit/Binance (see below on Ghana access — both are usable, but would mean re-validating symbol lists, tick sizes, and margin/leverage rules against a different exchange's contract specs).
-- [ ] **Product type:** Spot vs. USDT-M perpetual futures. Futures unlock leverage and native SL/TP order types (KuCoin, Bybit, and Binance all support "stop-limit"/"stop-market" attached orders on futures) but add liquidation risk that spot doesn't have.
-- [ ] **Position sizing source of truth:** keep using `core.js`'s existing `computeRiskMultiplier()` output (already risk-tiered by pivot/pattern/vote quality) to size real order quantity — no new sizing logic, reuse what's already tested in backtest.
-- [ ] **Capital at risk per trade, and a hard daily/weekly loss circuit-breaker** (pause new entries after N consecutive losses or X% drawdown) — this is a new safety feature the current signal-only bot doesn't need but a money-moving bot does.
+### Phase 0 — Decisions made
+- [x] **Exchange:** Bybit (not KuCoin — chosen for Ghana accessibility and USDT-M perpetual support).
+- [x] **Product type:** USDT-M perpetual futures, One-Way position mode.
+- [x] **Position sizing:** fixed $1 margin per trade, leverage ceiling 20x with automatic cap-down (`execution/leverage.js`) when a signal's technical SL is wider than the leverage's liquidation buffer allows.
+- [x] **Circuit breaker:** `MAX_CONCURRENT_TRADES = 3` in `execution/execute-signal.js`, plus the kill switch (see below) for a manual stop.
 
-### Phase 1 — Read-only account wiring (no orders yet)
-- Add authenticated (HMAC-signed) *read-only* KuCoin API calls: account balance, open positions, order status.
-- Prove the signing/auth layer works before it's ever allowed to write anything.
-- Telegram command to manually check "what does my KuCoin account actually show right now" — cross-checked against `open-positions.json`.
+### Phase 1 — Read-only account wiring
+- [x] Authenticated (HMAC-signed) Bybit v5 API calls — `execution/bybit-client.js`.
+- [x] Verified via `execution/test-auth.js` (wallet balance + open positions, read-only, no orders touched).
+- [x] `execution/check-status.js` and `execution/check-telegram.js` — manual verification tools, run anytime from Termux.
 
 ### Phase 2 — Testnet / paper execution
-- Route every signal through order-placement code that hits KuCoin's **sandbox/testnet environment only** (or a locally-simulated paper-fill layer if no testnet is available for the chosen product).
-- Compare paper fills against what `position-tracker.js` would have simulated — they should match. Any divergence gets debugged here, not in Phase 3.
-- Run this phase for a meaningful stretch (weeks, not days) before touching real funds.
+- [ ] **Skipped, by explicit informed decision** — went straight to live with the $3 balance treated as disposable test capital. Documented risk tradeoff, not an oversight (see "Current Status & Known Issues" below).
 
 ### Phase 3 — Live execution, small size, manual kill-switch
-- Real KuCoin API keys, **trade-only permissions (withdrawals disabled at the API-key level, non-negotiable)**.
-- Start at minimum position size regardless of what `computeRiskMultiplier()` says, scale up manually only after a track record.
-- One Telegram command that instantly disables new order placement (kill switch) without needing a code deploy or GitHub Actions change.
-- Explicit logging of every real order: intent (signal) → order sent → exchange ack → fill → close. Every step auditable.
+- [x] Real Bybit API key, **Withdrawal permission disabled at the key level**.
+- [x] $1 margin per trade, leverage auto-capped per trade (never manually tuned per-trade in the moment).
+- [x] `/pause` and `/resume` Telegram commands — instant kill switch, no code deploy needed (see "Kill Switch — Security Model" below).
+- [x] Every execution attempt logged: signal caught → leverage/sizing computed → order sent → result (success or specific failure reason) — see `execution/logs/watcher-*.log`.
 
 ### Phase 4 — Full exit management
-- Attach real stop-loss and take-profit orders at entry time (not just simulated tracking) — so capital is protected even if a GitHub Actions run is delayed or fails.
-- Handle the messier realities live trading has that backtesting doesn't: partial fills, exchange downtime, rate limits, slippage, orders rejected for insufficient balance.
+- [x] Real stop-loss and take-profit attached directly on the order at entry time (`execution/bybit-client.js` → `placeOrder`) — not just simulated tracking.
+- [x] Handles real-world failure modes as they've actually occurred: wrong position mode (fixed), insufficient margin (fails safely, logs, moves on), credential/session issues (documented in Known Issues below).
 
 ### Explicitly out of scope for now
 - No multi-exchange routing or smart order routing.
 - No leverage beyond whatever's decided in Phase 0 — this is not the place to also decide "and let's add leverage" mid-build.
 - No automated position-size scaling based on recent win streaks (that's a way to blow up an account, not a feature).
 
-**When ready to start:** say so, and we'll begin at Phase 0 — the decisions above need answers before any code gets written, since they shape everything downstream (which exchange's SDK/signing scheme, spot vs futures order types, etc.).
+**When ready to start:** say so, and we'll begin at Phase 0 — the decisions above need answers before any code gets written, since they shape everything downstream (which exchange's SDK/signing scheme, spot vs futures order types, etc.). *(Historical note: this line is preserved from the original planning doc — Phase 0 is long since decided, see above.)*
 
-**Status update:** Phase 0 and 1 are done (Bybit, USDT-M perpetuals, $1 margin/trade, 20x ceiling with auto-cap-down, auth verified). Live order execution (`execution/execute-signal.js`, `execution/watcher.js`) is written and wired in — `DRY_RUN` is currently `false`, per explicit instruction, before a full testnet/paper-trading pass. That's a deliberate, informed risk tradeoff, not an oversight — logged here for the record.
+### Current Status & Known Issues (for future reference)
+
+As of the most recent live signals: **4 real signals processed, 1 stopped out (SL), 1 execution skipped on insufficient margin** — small sample, genuinely encouraging start. Issues hit and resolved along the way, kept here so they're not re-debugged from scratch later:
+
+- **Error 10001 "position idx not match position mode"** — account was in Hedge Mode, orders assumed One-Way. Fixed once via `execution/set-position-mode.js` (switches the whole USDT category to One-Way in one call). Also fixed permanently in code: `bybit-client.js`'s `placeOrder` now sends `positionIdx: 0` explicitly.
+- **Error 110012 "not enough for new leverage"** — not a bug, a real balance/margin constraint. At very low account balances (~$1 available), there's no buffer for fees/funding, and orders fail cleanly (logged, no crash). Solved by keeping enough headroom in Unified Trading, not by any code change.
+- **Credentials not loading in a fresh Termux session** — `export`-ing variables only lasts for that terminal session; closing Termux clears them. Fixed by sourcing `execution/.env.sh` from both `~/.bashrc` and `~/.profile` (Termux inconsistently uses one or the other depending on how it's launched), so credentials auto-load on every new session.
+- **Watcher process dying unexpectedly** — despite wake-lock + battery-unrestricted + Termux:Boot, the background watcher has needed manual restarting more than once in practice. Not fully solved — see "Always-On Execution" below for the current mitigation (habit of checking `pgrep` regularly), since phone-based background processes are inherently less bulletproof than a dedicated server.
+- **Entry price vs. live fill price** — signals show a technical trigger price; live execution uses **Market orders** (confirmed working well, kept deliberately — see commit history/chat for the full reasoning), so real fills happen at whatever price the market is at when the watcher catches the signal (up to ~60s after the signal fires), not the exact alert price. This is expected slippage, not a bug.
 
 ---
 
@@ -1485,23 +1491,29 @@ GitHub Actions can't run this (Bybit blocks cloud-provider IP ranges — see the
 2. In Android's own Settings → Apps → Termux → Battery: set to **"Unrestricted"** / disable battery optimization for Termux specifically. Without this, Android's Doze mode can still freeze the process even with a wake lock held.
 3. Create `execution/.env.sh` on your phone (see `execution/.env.sh.example` for the format) with your real Bybit credentials. This file is git-ignored — it never gets committed.
 4. Copy `execution/termux-boot-start.sh` to `~/.termux/boot/start-mvs-watcher.sh` on your phone (this is Termux's own boot folder, separate from the cloned repo — copy it there, don't just leave it in the repo folder). Edit the `REPO_PATH` line inside to match wherever you cloned the repo.
-5. Run once manually to start it immediately, without waiting for a reboot:
+5. Make credentials auto-load on every future Termux session (Termux inconsistently uses `.bashrc` or `.profile` depending on launch method, so cover both):
+   ```
+   echo 'source ~/mvs-bot/execution/.env.sh' >> ~/.bashrc && echo 'source ~/mvs-bot/execution/.env.sh' >> ~/.profile
+   ```
+6. Run once manually to start it immediately, without waiting for a reboot:
    ```
    bash execution/start-watcher.sh
    ```
 
 From this point on, the watcher restarts automatically every time your phone reboots, and stays alive in the background between reboots via the wake lock — no terminal window needs to stay open, no manual relaunch needed.
 
-### Checking it's alive
+### Checking it's alive, and checking on trades
 
 ```
 pgrep -f "node execution/watcher.js"
 ```
 Returns a process ID if running, nothing if not. Logs land in `execution/logs/watcher-YYYYMMDD.log`.
 
+For a full picture (balance, real Bybit positions labeled bot-vs-manual, kill switch state, recent log lines) in one command: `node execution/check-status.js`. For the signal-generation side specifically (same info as Telegram's `/status`/`/positions`, read locally, no need to open Telegram): `node execution/check-telegram.js`.
+
 ### The one recurring task this doesn't remove: the 90-day key expiry
 
-Because the Bybit API key has **no IP restriction** (a deliberate choice — your phone's IP isn't stable enough to whitelist), Bybit auto-expires it after roughly 90 days. This is Bybit's own policy, not something any hosting setup can code around. Every ~3 months: generate a new key on Bybit, update `execution/.env.sh` on your phone, and update the `BYBIT_API_KEY`/`BYBIT_API_SECRET` GitHub Actions secrets too. Small, infrequent, but real — worth a calendar reminder rather than finding out mid-signal that the key quietly expired.
+Because the Bybit API key has **no IP restriction** (a deliberate choice — your phone's IP isn't stable enough to whitelist), Bybit auto-expires it after 90 days. This is Bybit's own policy. **Renewal keeps the same key and secret — no code or GitHub secrets need updating:** Bybit app → API → your key → Edit (under IP Address) → select "No IP restriction" again → Submit. That resets the clock another 90 days from that moment. Set a calendar reminder a few days before the actual expiry date shown on the key's own page, not after.
 
 ---
 
