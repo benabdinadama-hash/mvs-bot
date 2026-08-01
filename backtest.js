@@ -42,7 +42,11 @@
 const axios  = require('axios');
 const fs     = require('fs');
 const path   = require('path');
-const config = require('./config');
+// v10.16 NEW: optional config override for A/B backtest comparisons —
+// set MVS_CONFIG_OVERRIDE=./config.variant-xyz to test a variant without
+// ever touching the live config.js. Unset (the default) = identical
+// behavior to before this change, live/production runs are unaffected.
+const config = require(process.env.MVS_CONFIG_OVERRIDE || './config');
 const core   = require('./core');
 // v10.14: package.json is now the ONE place the version string lives.
 // Every report header / console log below reads MVS_VERSION instead of
