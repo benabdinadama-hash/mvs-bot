@@ -677,11 +677,23 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
   const signalsPerWeek = closed.length ? (closed.length / (requestedDays / 7)).toFixed(2) : '0.00';
   const requestedSymbols = Object.keys(funnelsBySymbol).length ? Object.keys(funnelsBySymbol) : [...new Set(allTrades.map(t => t.symbol))];
 
+  // v10.16 FIX: this line used to be a hardcoded literal string that
+  // always said "1D+4H+1H+30m+15m ... (1H zone, 15m trigger)" regardless
+  // of which config actually ran — meaning an A/B variant test (e.g.
+  // MVS_CONFIG_OVERRIDE swapping STRUCT_TIMEFRAME to 2H) produced a
+  // report that silently mislabeled itself as the baseline. Now built
+  // from the config that's actually active, so the report can never
+  // again claim to be testing something other than what it really tested.
+  const tfLabel = (tf) => tf.replace('day', 'D').replace('hour', 'H').replace('min', 'm');
+  const zoneLabel = tfLabel(config.STRUCT_TIMEFRAME);
+  const triggerLabel = tfLabel(config.TRIGGER_TIMEFRAME);
+  const tfSummary = `${tfLabel(config.DAILY_TIMEFRAME)}+${tfLabel(config.BIAS_TIMEFRAME)}+${zoneLabel}+${tfLabel(config.HALF_TIMEFRAME)}+${triggerLabel}`;
+
   const lines = [
     '═══════════════════════════════════════════════════════════════════',
     ` MVS v${MVS_VERSION} — BACKTEST REPORT`,
     ` Period: Last ${requestedDays} days  |  Symbols: ${requestedSymbols.join(', ')}`,
-    ' 1D+4H+1H+30m+15m — 3-of-5 timeframe vote (1H zone, 15m trigger)',
+    ` ${tfSummary} — 3-of-5 timeframe vote (${zoneLabel} zone, ${triggerLabel} trigger)`,
     '═══════════════════════════════════════════════════════════════════',
     '',
     '⚠️  This is a backtest, not a live-performance guarantee. No setting',
