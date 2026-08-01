@@ -571,6 +571,16 @@ module.exports = {
   // for how to A/B it before ever setting this true in the live config.
   MID_POCKET_EXCLUDE: process.env.MID_POCKET_EXCLUDE === 'true' ? true : false,
 
+  // v10.16 NEW — real-money circuit breaker. If this many bot-opened
+  // trades close as real losses IN A ROW, execution/protect.js
+  // auto-engages the kill switch (same flag /pause uses) and sends a
+  // Telegram alert. Requires no manual monitoring to trigger — this is
+  // what actually protects capital during an unexpected losing streak,
+  // as opposed to the kill switch alone, which only helps if a human
+  // notices something's wrong and acts.
+  MAX_CONSECUTIVE_LOSSES: process.env.MAX_CONSECUTIVE_LOSSES
+    ? parseInt(process.env.MAX_CONSECUTIVE_LOSSES, 10) : 3,
+
   // #2 — POC MIGRATION: has POC been drifting toward the trade direction
   // across recent windows (real, forming consensus / fair value moving),
   // or is it static / jumping around (balance, not trend)?
