@@ -33,9 +33,11 @@ const recordOpened = ({ symbol, side, orderId, entryTime, margin, leverage }) =>
   save(entries);
 };
 
-const recordClosed = (orderId) => {
+const recordClosed = (orderId, { realizedPnl, closeReason } = {}) => {
   const entries = load();
-  const updated = entries.map(e => e.orderId === orderId ? { ...e, status: 'closed', closedAt: Date.now() } : e);
+  const updated = entries.map(e => e.orderId === orderId
+    ? { ...e, status: 'closed', closedAt: Date.now(), realizedPnl: realizedPnl ?? null, closeReason: closeReason ?? 'unknown' }
+    : e);
   save(updated);
 };
 
@@ -43,4 +45,11 @@ const countOpen = () => load().filter(e => e.status === 'open').length;
 
 const getOpen = () => load().filter(e => e.status === 'open');
 
-module.exports = { recordOpened, recordClosed, countOpen, getOpen, LEDGER_FILE };
+// Most recent N CLOSED trades, newest first — used by protect.js to
+// check consecutive-loss / drawdown rules. Never includes open trades.
+const getRecentClosed = (n = 10) => load()
+  .filter(e => e.status === 'closed')
+  .sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0))
+  .slice(0, n);
+
+module.exports = { recordOpened, recordClosed, countOpen, getOpen, getRecentClosed, LEDGER_FILE };

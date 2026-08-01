@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { executeSignal } = require('./execute-signal');
+const { runProtectionCycle } = require('./protect');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const SIGNALS_LOG = path.join(REPO_ROOT, 'signals.log.json');
@@ -75,10 +76,12 @@ const checkForNewSignals = async () => {
 
   // Run once immediately, then on the interval.
   pullLatest();
+  await runProtectionCycle();
   await checkForNewSignals();
 
   setInterval(async () => {
     pullLatest();
+    await runProtectionCycle();
     await checkForNewSignals();
   }, POLL_INTERVAL_MS);
 })();
