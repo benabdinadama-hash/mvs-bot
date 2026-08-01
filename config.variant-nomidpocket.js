@@ -569,7 +569,7 @@ module.exports = {
   // Small samples on all three, so this is a real hypothesis worth
   // testing, not yet a proven fact — see config.variant-nomidpocket.js
   // for how to A/B it before ever setting this true in the live config.
-  MID_POCKET_EXCLUDE: process.env.MID_POCKET_EXCLUDE === 'true' ? true : false,
+  MID_POCKET_EXCLUDE: true, // <-- the one change in this variant
 
   // #2 — POC MIGRATION: has POC been drifting toward the trade direction
   // across recent windows (real, forming consensus / fair value moving),

@@ -575,6 +575,21 @@ const runStrategy = async (symbol) => {
     }
 
     const fibPct = bestFibLevel === fib.level618 ? '61.8%' : bestFibLevel === fib.level786 ? '78.6%' : '70% mid-pocket';
+
+    // v10.16 NEW (A/B test — OFF by default, see config.js
+    // MID_POCKET_EXCLUDE): the "70%-mid" Fib candidate (fibMid, neither
+    // the 61.8% nor 78.6% named ratio) has underperformed consistently
+    // across three independent backtest runs — 58.3% WR vs 82-83% for
+    // the two named ratios, on comparable trade counts (12 vs 34/12).
+    // Gated here, same position/style as the POC gates just above, so a
+    // rejected mid-pocket setup skips the remaining pipeline the same
+    // way a rejected POC setup does.
+    if (bestFibLevel === fibMid && config.MID_POCKET_EXCLUDE) {
+      console.log(`  ⚠️ Mid-pocket Fib (neither 61.8% nor 78.6%) — historically the weakest Fib segment. Skipping.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'MID_POCKET_EXCLUDED' });
+      return;
+    }
+
     console.log(`  ✅ CONFLUENCE (score ${bestScore}): Fib ${fibPct} ($${bestFibLevel.toFixed(2)}) ↔ ${bestPivot.name} ($${bestPivot.price.toFixed(2)})`);
 
     // ── STEP 5: 4H ZONE CROSS-CHECK ──────────────────────────────────────

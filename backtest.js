@@ -376,6 +376,10 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     // reused below (as `prominence`) without recomputing.
     const prominenceForGate = core.computePOCProminence(vp1h);
     if (!core.isPOCProminenceTrusted(bestPivot.name, prominenceForGate, config)) continue;
+    // v10.16 NEW (A/B test — OFF by default): mirrors the live gate in
+    // strategy.js — see config.js MID_POCKET_EXCLUDE for the per-run
+    // evidence (58.3% WR vs 82-83% across three independent backtests).
+    if (bestFibLevel === fibMid && config.MID_POCKET_EXCLUDE) continue;
     funnel.prominenceOk++;
     funnel.confluenceOk++;
 
