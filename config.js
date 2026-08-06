@@ -569,7 +569,23 @@ module.exports = {
   // Small samples on all three, so this is a real hypothesis worth
   // testing, not yet a proven fact — see config.variant-nomidpocket.js
   // for how to A/B it before ever setting this true in the live config.
-  MID_POCKET_EXCLUDE: process.env.MID_POCKET_EXCLUDE === 'true' ? true : false,
+  // v10.16 UPDATE: flipped ON by default (was off). The isolated A/B test
+  // showed +4pp win rate / -16% frequency (see README backtest history).
+  // Now corroborated live too: of 13 real trades since going live, the
+  // ONLY mid-pocket entry (LINK-USDT, 2026-07-12) was one of only 2 real
+  // losses. Small sample, but directionally consistent across both
+  // backtest and live — no longer treating this as unproven.
+  MID_POCKET_EXCLUDE: process.env.MID_POCKET_EXCLUDE === 'false' ? false : true,
+
+  // v10.16 NEW — real-money circuit breaker. If this many bot-opened
+  // trades close as real losses IN A ROW, execution/protect.js
+  // auto-engages the kill switch (same flag /pause uses) and sends a
+  // Telegram alert. Requires no manual monitoring to trigger — this is
+  // what actually protects capital during an unexpected losing streak,
+  // as opposed to the kill switch alone, which only helps if a human
+  // notices something's wrong and acts.
+  MAX_CONSECUTIVE_LOSSES: process.env.MAX_CONSECUTIVE_LOSSES
+    ? parseInt(process.env.MAX_CONSECUTIVE_LOSSES, 10) : 3,
 
   // #2 — POC MIGRATION: has POC been drifting toward the trade direction
   // across recent windows (real, forming consensus / fair value moving),

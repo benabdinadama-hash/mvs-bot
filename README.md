@@ -3,6 +3,17 @@
 
 ![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
+
+## Why "Monthly Value Sniper"
+
+The name is genuinely technical, not arbitrary — and it's staying permanently.
+
+- **"Value"** — Volume Profile's Value Area (POC/VAH/VAL, the standard terms for where the most volume actually traded). The entire strategy is built around identifying these zones.
+- **"Monthly"** — the original `BIAS_VP_LOOKBACK` (≈200 × 4H bars ≈ 33 days) was explicitly built to catch multi-week/monthly-scale structure, distinct from the faster trigger timeframes. The system has since grown into a full 5-timeframe vote (1D/4H/1H/30m/15m), so "Monthly" now describes its original anchor rather than its only timeframe — but that's the strategy's own history, worth keeping rather than erasing.
+- **"Sniper"** — patient, precise, confluence-based entries rather than chasing price. This fits *better* now than when it was coined: this bot no longer just alerts, it actually fires real trades on Bybit.
+
+Considered renaming this to reflect that it now executes live (not just signals) — decided against it. The name has real history and real meaning behind it, and a rename would touch working Termux paths, clone URLs, and months of documentation for a purely cosmetic gain. See "Value Sniper-Crypto: Execute" in earlier project notes if curious what the alternative would have looked like — but MVS is the permanent name.
+
 ![Version](https://img.shields.io/badge/Version-v10.15.9-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
