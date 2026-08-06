@@ -3,6 +3,64 @@
     "symbol": "POL-USDT",
     "signal": "FIRED",
     "direction": "SELL",
+    "entryTime": 1785978000,
+    "entryPrice": 0.0747226,
+    "slPrice": 0.07568869406865968,
+    "tp1Price": 0.07355,
+    "tp2Price": 0.0729145,
+    "risk": 0.0009660940686596758,
+    "rr1": 1.21375344082882,
+    "rr2": 1.8715568790402572,
+    "confluencePivot": "VAH",
+    "fibPct": "78.6%",
+    "patterns": [
+      "VAH_VAL_RECLAIM"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BEARISH",
+    "bias4h": "BEARISH",
+    "bias1h": "BULLISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BEARISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 3.8626785994143957,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.0801385,
+      "poc1d": 0.091652
+    },
+    "alertDelivered": true,
+    "time": "2026-08-06T01:16:07.675Z"
+  },
+  {
+    "symbol": "POL-USDT",
+    "signal": "FIRED",
+    "direction": "SELL",
     "entryTime": 1785811500,
     "entryPrice": 0.0731724,
     "slPrice": 0.07402090264149468,
