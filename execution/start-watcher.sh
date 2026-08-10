@@ -15,10 +15,10 @@ cd "$(dirname "$0")/.." || exit 1  # repo root, assuming this script lives in ex
 # Create this file once — see execution/.env.example for the format, but
 # note: THIS script needs shell "export KEY=value" syntax specifically,
 # not the plain KEY=value dotenv format.
-if [ -f "execution/.env.sh" ]; then
-  source execution/.env.sh
+if [ -f "execution/keys.sh" ]; then
+  source execution/keys.sh
 else
-  echo "❌ execution/.env.sh not found. Create it first — see instructions."
+  echo "❌ execution/keys.sh not found. Create it first — see instructions."
   exit 1
 fi
 

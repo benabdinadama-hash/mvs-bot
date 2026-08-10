@@ -23,7 +23,7 @@ const killSwitch = require('./kill-switch');
 // wait. Risk accepted knowingly — logged here for the record, not as a
 // lecture, just so future-you remembers this was a deliberate call.
 const DRY_RUN = false;
-const MARGIN_PER_TRADE_USDT = 1;
+const MARGIN_PER_TRADE_USDT = 2;
 const MAX_LEVERAGE = 20;
 const MAX_CONCURRENT_TRADES = 3;
 // ─────────────────────────────────────────────────────────────────────────────
