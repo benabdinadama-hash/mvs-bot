@@ -25,8 +25,20 @@ const ledger = require('./position-ledger');
 const killSwitch = require('./kill-switch');
 const config = require('../config');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const MAX_CONSECUTIVE_LOSSES = config.MAX_CONSECUTIVE_LOSSES || 3;
+
+// Same files position-tracker.js uses for the SIGNAL side (Telegram's
+// "OPEN" display, check-telegram.js). Read/written directly here too —
+// see syncSignalSide() below for why.
+const OPEN_POSITIONS_FILE = path.join(__dirname, '..', 'open-positions.json');
+const STATE_FILE = path.join(__dirname, '..', 'state.json');
+const loadJSON = (file, fallback) => {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
+};
+const saveJSON = (file, data) => fs.writeFileSync(file, JSON.stringify(data, null, 2));
 
 // Standalone Telegram alert — deliberately NOT reusing strategy.js's
 // sendSafe/commands.js's send, so this safety-critical module has no
@@ -88,6 +100,52 @@ const reconcileLedger = async () => {
   }
 };
 
+// v10.17 FIX (revised) — checking against reconcileLedger() alone isn't
+// enough: DOT-USDT was tagged [manual/other] in check-status.js output,
+// meaning it was never opened by execute-signal.js and so was never in
+// the bot's own ledger to begin with — reconcileLedger() has nothing to
+// reconcile for it. This checks EVERY entry in open-positions.json (the
+// file Telegram/check-telegram.js actually displays) directly against
+// Bybit's real position list, regardless of whether the trade was bot-
+// executed or placed manually. If Bybit shows no real open position
+// matching that symbol+direction, the signal side is force-closed to
+// match reality. Safe: only ever removes an entry, never invents one,
+// and only acts when Bybit explicitly confirms zero matching exposure.
+const syncOrphanedSignals = async () => {
+  const openPositions = loadJSON(OPEN_POSITIONS_FILE, {});
+  const symbols = Object.keys(openPositions);
+  if (symbols.length === 0) return;
+
+  for (const symbol of symbols) {
+    try {
+      const entry = openPositions[symbol];
+      const positions = await bybit.get('/v5/position/list', { category: 'linear', symbol });
+      const stillOpen = (positions.result?.list || []).some(p =>
+        parseFloat(p.size) > 0 && p.side === entry.direction
+      );
+      if (stillOpen) continue; // genuinely still open — leave it alone
+
+      delete openPositions[symbol];
+      saveJSON(OPEN_POSITIONS_FILE, openPositions);
+
+      const state = loadJSON(STATE_FILE, {});
+      if (state[symbol]) {
+        state[symbol] = {
+          ...state[symbol],
+          signal: 'CLOSED_EXCHANGE',
+          exitTime: Math.floor(Date.now() / 1000),
+          updatedAt: new Date().toISOString(),
+          note: 'Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown.',
+        };
+        saveJSON(STATE_FILE, state);
+      }
+      console.log(`[protect] ${symbol} was stuck OPEN on the signal side — Bybit confirms 0 real position, force-synced closed.`);
+    } catch (err) {
+      console.error(`[protect] syncOrphanedSignals failed for ${symbol}: ${err.message} — left as-is, will retry next cycle.`);
+    }
+  }
+};
+
 const checkCircuitBreaker = async () => {
   if (killSwitch.isPaused()) return; // already paused, nothing to check
 
@@ -110,7 +168,8 @@ const checkCircuitBreaker = async () => {
 // Single entry point called from watcher.js each cycle.
 const runProtectionCycle = async () => {
   await reconcileLedger();
+  await syncOrphanedSignals();
   await checkCircuitBreaker();
 };
 
-module.exports = { runProtectionCycle, reconcileLedger, checkCircuitBreaker, MAX_CONSECUTIVE_LOSSES };
+module.exports = { runProtectionCycle, reconcileLedger, syncOrphanedSignals, checkCircuitBreaker, MAX_CONSECUTIVE_LOSSES };
