@@ -78,7 +78,11 @@ jobs:
             echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'"}' > state.json
           fi
 
-          git add -f --ignore-errors .ping.json state.json signals.log.json diag.log.json open-positions.json
+          for f in .ping.json state.json signals.log.json diag.log.json open-positions.json; do
+            if [ -f "$f" ]; then
+              git add -f "$f"
+            fi
+          done
 
           if git diff --cached --quiet && git diff --staged --quiet; then
             echo "Nothing to commit."
