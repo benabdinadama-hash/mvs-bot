@@ -1,0 +1,143 @@
+name: MVS Scan
+
+on:
+  workflow_dispatch: {}   # Triggered by cron-job.org every 15 min (primary)
+  schedule:
+    # Backup trigger, native to GitHub — fires on its own schedule even if
+    # cron-job.org has an outage, its token expires, or its ping silently
+    # stops. GitHub's own scheduler can lag a few minutes under load, which
+    # is why this is a backup and not the primary trigger. strategy.js has
+    # a duplicate-run guard so if this and cron-job.org ever land close
+    # together, the second one exits immediately instead of double-firing.
+    - cron: '*/15 * * * *'
+  push:
+    branches: [main]
+
+concurrency:
+  group: mvs-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    # v10.15.4 CRITICAL FIX: was 6 minutes — measurably too tight. Worst
+    # case for node strategy.js alone: 14 symbols x 5 parallel timeframe
+    # fetches, each up to 2 attempts at a 15s client timeout + 800ms retry
+    # wait, plus a 2s courtesy delay between symbols, comes to ~7.6
+    # minutes BEFORE even counting checkout/npm-install overhead or the
+    # commit/push step. Root-caused from a live report of specific
+    # symbols (TRX-USDT worst, ~24h+ stale; LINK/AVAX/BTC also affected)
+    # going stale in state.json while others updated normally — confirmed
+    # via diag.log.json showing TRX's entries simply STOP for a long
+    # stretch, no EXCEPTION or error reason logged, consistent with the
+    # whole job being killed mid-run rather than a per-symbol failure.
+    # This matters more than a single missed scan: "Commit and push state
+    # files" is a SEPARATE, LATER step — if the job is killed while
+    # `node strategy.js` is still running, NOTHING from that run is ever
+    # committed, not even symbols already successfully processed earlier
+    # in the same run. Raised to 12 minutes: comfortable margin above the
+    # ~7.6-minute worst case, while staying safely under the 15-minute
+    # scan interval so a slow run can still fully finish before the next
+    # one is due (concurrency below queues rather than overlaps, so this
+    # doesn't risk two scans running at once).
+    timeout-minutes: 12
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run MVS scan
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          BYBIT_API_KEY:      ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET:   ${{ secrets.BYBIT_API_SECRET }}
+        run: node strategy.js
+
+      - name: Commit and push state files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "mvs-bot"
+          git config user.email "mvs-bot@users.noreply.github.com"
+
+          echo "{\"lastPing\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" > .ping.json
+
+          if [ ! -f state.json ]; then
+            echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'"}' > state.json
+          fi
+
+          git add -f .ping.json state.json signals.log.json diag.log.json open-positions.json 2>/dev/null || true
+          git update-index --add state.json .ping.json open-positions.json 2>/dev/null || true
+
+          echo "--- DEBUG: git status before the commit check ---"
+          git status
+          echo "--- DEBUG: git diff --cached --stat ---"
+          git diff --cached --stat
+          echo "--- DEBUG: ls -la state.json .ping.json ---"
+          ls -la state.json .ping.json 2>&1
+          echo "--- DEBUG: end ---"
+
+          if git diff --cached --quiet && git diff --staged --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "MVS scan $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          # v10.15.5 CRITICAL FIX: was `git pull --rebase --autostash origin
+          # main`. Root-caused from a live report of specific symbols
+          # (ETH, BTC, ADA, AVAX, LINK, LTC, POL) going stale for hours
+          # while others stayed fresh, in a SCATTERED, non-contiguous
+          # pattern that varied run to run — not consistent with a single
+          # slow run getting killed by the job timeout (already fixed in
+          # v10.15.4), and not consistent with any per-symbol error either
+          # (diag.log.json showed zero EXCEPTION or gate-rejection entries
+          # for the affected symbols during the exact windows they went
+          # stale — the loop simply never reached them in whichever runs
+          # happened during that stretch).
+          #
+          # The real mechanism: state.json (and the other log files here)
+          # get FULLY REWRITTEN by every single run — every symbol's
+          # `updatedAt` changes on every run. If two runs' commits ever
+          # overlap even slightly (the 5-min isDuplicateRun() guard in
+          # strategy.js reduces this but the window between cron-job.org's
+          # ping and the native GitHub schedule backup can still overlap),
+          # a plain `git pull --rebase` tries to line-by-line TEXT-merge
+          # two versions of the same JSON blob where EVERY line differs —
+          # at best a full-file conflict that fails the rebase outright
+          # (silently losing that whole run's freshly-scanned data, since
+          # `git push` never executes after a failed rebase); at worst,
+          # for hunks that don't textually collide, a partial byte-level
+          # blend of two DIFFERENT runs' per-symbol data into one
+          # internally-inconsistent file — exactly the "some symbols
+          # reflect one run, others reflect a different, older run" pattern
+          # observed.
+          #
+          # Fix: fetch + merge with -X ours instead of rebase. state.json/
+          # diag.log.json/signals.log.json/open-positions.json/.ping.json
+          # are self-contained, fully-regenerated outputs of THIS run —
+          # they were never meant to be incrementally text-merged with a
+          # different run's version. On any real conflict, keep this run's
+          # complete, internally-consistent version wholesale rather than
+          # attempting (and risking a bad blend of) a line-level merge.
+          # Non-conflicting changes elsewhere in the repo (e.g. a manual
+          # edit via the GitHub web UI mid-run) still merge in normally —
+          # -X ours only decides what happens for hunks that actually
+          # collide, not the whole repo.
+          git fetch origin main
+          git merge -X ours --no-edit origin/main
+
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          echo "✅ Pushed successfully"
