@@ -34,11 +34,82 @@ const saveExecuted = (data) => fs.writeFileSync(EXECUTED_LOG, JSON.stringify(dat
 
 const signalKey = (s) => `${s.symbol}_${s.entryTime}`;
 
+// v10.18 FIX — pullLatest() used to be a bare `git pull --quiet`, which
+// silently fails FOREVER (not just once) whenever there's a conflict,
+// and every subsequent pull just repeats the same failure — this is
+// exactly what happened on 2026-08-13: protect.js's syncOrphanedSignals()
+// wrote a local change to open-positions.json, that diverged from what
+// GitHub Actions had committed remotely, and from that point on EVERY
+// pull failed with "untracked working tree files would be overwritten,"
+// silently, for hours — including the pull that would have delivered
+// the SOL-USDT signal this function exists to catch. The bot never
+// executed it; it had to be placed manually.
+// Two independent failure modes, both handled below:
+//  1. A stale .git/index.lock left behind by a killed/crashed git
+//     process (blocks ALL git commands, not just pull, until removed).
+//  2. Local uncommitted changes to open-positions.json / state.json —
+//     the only two files this bot's LOCAL side (protect.js) ever
+//     writes — conflicting with what GitHub Actions committed remotely.
+//     Both are safe to discard before pulling: state.json is rewritten
+//     fresh from Bybit/scan data every cycle, and open-positions.json's
+//     local edits are pure deletions of entries Bybit confirms are
+//     closed (see protect.js syncOrphanedSignals) — if discarded, the
+//     very next protect cycle just re-derives and re-deletes them from
+//     Bybit truth again. Nothing is lost either way; new remote signals
+//     ARE, which is what actually matters.
+const LOCK_FILE = path.join(REPO_ROOT, '.git', 'index.lock');
+const LOCK_STALE_MS = 2 * 60 * 1000; // 2 min — a real git op finishes in ms; anything older is garbage from a dead process
+
+const clearStaleLock = () => {
+  try {
+    const stat = fs.statSync(LOCK_FILE);
+    if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+      fs.unlinkSync(LOCK_FILE);
+      console.log('[watcher] Removed stale .git/index.lock (older than 2 min — from a previous killed process).');
+    }
+  } catch { /* no lock file present — nothing to do, this is the normal case */ }
+};
+
 const pullLatest = () => {
+  clearStaleLock();
   try {
     execSync('git pull --quiet', { cwd: REPO_ROOT, stdio: 'pipe' });
   } catch (err) {
-    console.error(`[watcher] git pull failed: ${err.message} — will retry next cycle.`);
+    const msg = err.message || '';
+    const isLocalConflict = msg.includes('untracked working tree files would be overwritten')
+      || msg.includes('Your local changes to the following files would be overwritten');
+    if (isLocalConflict) {
+      console.error('[watcher] git pull blocked by local open-positions.json/state.json — discarding and retrying (both are safely re-derivable, see comment above).');
+      try {
+        // Deliberately plain `rm`, not `git checkout --`: the real error
+        // ("untracked working tree files would be overwritten") means
+        // git does NOT consider these tracked-and-modified on this local
+        // branch — `git checkout --` only works on files git already
+        // tracks and fails with "did not match any file(s) known to
+        // git" here. Removing the file outright works for both that
+        // case AND a genuinely-tracked-and-modified case, since either
+        // way `git pull` immediately below recreates it fresh from the
+        // merged remote result.
+        for (const f of ['open-positions.json', 'state.json']) {
+          const fp = path.join(REPO_ROOT, f);
+          if (fs.existsSync(fp)) fs.unlinkSync(fp);
+        }
+        execSync('git pull --quiet', { cwd: REPO_ROOT, stdio: 'pipe' });
+        // A file we deleted above might not have been part of THIS
+        // pull's incoming diff (e.g. only open-positions.json changed
+        // remotely, not state.json) — git's merge only recreates files
+        // it actually merged, so a deleted-but-undiffed file would
+        // otherwise stay missing from disk. Force both back to exactly
+        // what's now in HEAD (guaranteed to succeed post-pull) so
+        // neither file is ever left missing.
+        execSync('git checkout HEAD -- open-positions.json state.json', { cwd: REPO_ROOT, stdio: 'pipe' });
+        console.log('[watcher] Pull recovered after discarding local changes.');
+      } catch (err2) {
+        console.error(`[watcher] Pull still failing after recovery attempt: ${err2.message} — will retry next cycle.`);
+      }
+    } else {
+      console.error(`[watcher] git pull failed: ${msg} — will retry next cycle.`);
+    }
   }
 };
 
