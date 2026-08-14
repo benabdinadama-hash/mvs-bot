@@ -120,8 +120,21 @@ const syncOrphanedSignals = async () => {
     try {
       const entry = openPositions[symbol];
       const positions = await bybit.get('/v5/position/list', { category: 'linear', symbol });
+      // v10.18 FIX: was `p.side === entry.direction`. Bybit's API returns
+      // side as 'Buy'/'Sell' (title case); this bot's `direction` field
+      // is 'BUY'/'SELL' (all-caps) EVERYWHERE ELSE in the codebase — see
+      // strategy.js direction === 'BUY' checks throughout. That case
+      // mismatch meant this comparison could never be true, so EVERY
+      // genuinely-open position got force-closed on the signal side on
+      // EVERY single protect cycle (confirmed live: SOL-USDT and
+      // AVAX-USDT both showing this every 60s while check-status.js
+      // simultaneously confirmed both were still genuinely open on
+      // Bybit with real non-zero PnL). Real trades/real SL-TP protection
+      // were never affected — this function only ever touches the
+      // Telegram-facing signal-side files — but state.json/Telegram's
+      // "open" display was being spuriously wiped every cycle.
       const stillOpen = (positions.result?.list || []).some(p =>
-        parseFloat(p.size) > 0 && p.side === entry.direction
+        parseFloat(p.size) > 0 && p.side?.toUpperCase() === entry.direction?.toUpperCase()
       );
       if (stillOpen) continue; // genuinely still open — leave it alone
 
