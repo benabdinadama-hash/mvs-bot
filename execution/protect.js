@@ -90,13 +90,31 @@ const reconcileLedger = async () => {
         console.log(`[protect] Reconciled ${entry.symbol} ${entry.side} — realized PnL: ${closeInfo.realizedPnl}`);
       } else {
         // Not open, but no matching closed-PnL record found yet (can lag
-        // slightly behind). Leave as 'open' — will retry next cycle.
+        // slightly behind). Mark it pending — see position-ledger.js
+        // markPendingClose(): this starts a bounded clock so it can
+        // never get stuck here forever, even if the exact-match never
+        // arrives.
+        ledger.markPendingClose(entry.orderId);
         console.log(`[protect] ${entry.symbol} ${entry.side} no longer open, but no closed-PnL match yet — will recheck next cycle.`);
       }
     } catch (err) {
       // Never let a reconciliation failure block the rest of the cycle.
       console.error(`[protect] Reconciliation failed for ${entry.symbol}: ${err.message}`);
     }
+  }
+
+  // v10.19 — bounded self-healing fallback. Any entry that's been stuck
+  // "pending close" for more than 5 minutes gets force-closed here
+  // (realizedPnl left null/unknown — check Bybit's trade history
+  // directly for the exact figure). This guarantees countOpen() can
+  // never overcount forever and silently block real future signals,
+  // regardless of why the exact-match path above didn't resolve it.
+  const forced = ledger.forceCloseStalePending();
+  for (const entry of forced) {
+    console.log(`[protect] ⚠️ ${entry.symbol} ${entry.side} force-closed after being stuck unmatched for 5+ min — countOpen() unblocked. Check Bybit's trade history directly for the real exit PnL.`);
+    await sendAlert(
+      `⚠️ *Ledger self-heal*\n${entry.symbol} ${entry.side} was stuck in the bot's ledger as "open" for 5+ minutes after actually closing on Bybit, and has now been force-marked closed so new signals aren't blocked.\n\nExact realized PnL wasn't found automatically — check Bybit's trade history for ${entry.symbol} around ${new Date(entry.entryTime).toISOString()} if you want the precise figure.`
+    );
   }
 };
 
