@@ -227,6 +227,13 @@ module.exports = {
     'ADA-USDT', 'DOGE-USDT', 'AVAX-USDT', 'LINK-USDT',
     'BNB-USDT', 'DOT-USDT', 'LTC-USDT', 'TRX-USDT', 'POL-USDT',
     'MNT-USDT', // v10.14: added — Mantle
+    // v10.18 (frequency, ported from gwp-bots v1.1.9) — 6 additional
+    // liquid, long-established KuCoin/Bybit-listed pairs. Lower risk
+    // than the pattern/VWAP changes above: this only widens WHICH
+    // symbols get scanned, doesn't touch entry-quality logic, and
+    // MAX_CONCURRENT_TRADES (execute-signal.js) already caps total real
+    // exposure at 3 regardless of symbol count.
+    'ATOM-USDT', 'NEAR-USDT', 'APT-USDT', 'ARB-USDT', 'OP-USDT', 'SUI-USDT',
   ],
 
   // ── Timeframes ──────────────────────────────────────────────────────────
@@ -469,7 +476,35 @@ module.exports = {
   // (no network access to api.kucoin.com on this box). Run
   // `node backtest.js` after deploying and check the PATTERN FREQUENCY /
   // BY outcome sections against the reports from this session.
-  SOLO_ELIGIBLE_PATTERNS: ['VAH_VAL_RECLAIM', 'CLOSE_REJECTION'],
+  SOLO_ELIGIBLE_PATTERNS: ['VAH_VAL_RECLAIM', 'CLOSE_REJECTION', 'LIQUIDITY_SWEEP'],
+
+  // ── v10.18 FREQUENCY ADDITIONS (ported from gwp-bots v1.1.9) ─────────────
+  // THIS IS LIVE-MONEY CODE — unlike gwp-bots (alert-only), a scan here
+  // that fires can place a real leveraged order within the same minute.
+  // The two genuinely NEW mechanisms below (liquidity sweep pattern,
+  // VWAP confluence pivot) default to FALSE — pushing this file changes
+  // nothing about live trading until you deliberately flip them on
+  // after running `node backtest.js` and reviewing the results. The two
+  // pure timing/throttle nudges (lookback bars, cooldown) are enabled by
+  // default since they're the same category of change already validated
+  // as "recovers missed setups, not a quality dilution" on gwp-bots —
+  // still worth confirming against your own backtest before trusting
+  // them, but lower-risk than the two new mechanisms.
+  //
+  // MVS_TRIGGER_LOOKBACK_BARS: how many of the most recent 15m candles
+  // detectRejection() checks (this candle, and if it didn't qualify, up
+  // to this many before it). 1 = old hardcoded single-candle behavior.
+  MVS_TRIGGER_LOOKBACK_BARS: parseInt(process.env.MVS_TRIGGER_LOOKBACK_BARS, 10) || 2,
+  // Liquidity sweep + reclaim trigger pattern — see core.js detectRejection
+  // for the mechanism. Real order-flow terminology (stop-hunt + reclaim),
+  // pure price action, zero lag. OFF by default here — flip to true via
+  // env var only after backtest review.
+  MVS_LIQUIDITY_SWEEP_ENABLED: process.env.MVS_LIQUIDITY_SWEEP_ENABLED === 'true' ? true : false,
+  MVS_LIQUIDITY_SWEEP_LOOKBACK_BARS: parseInt(process.env.MVS_LIQUIDITY_SWEEP_LOOKBACK_BARS, 10) || 10,
+  // Anchored VWAP as a 4th confluence pivot alongside POC/VAH/VAL — see
+  // core.js calcAnchoredVWAP. OFF by default here — flip to true via env
+  // var only after backtest review.
+  MVS_VWAP_CONFLUENCE_ENABLED: process.env.MVS_VWAP_CONFLUENCE_ENABLED === 'true' ? true : false,
 
   // ── Absorption veto ─────────────────────────────────────────────────────
   // Vetoes a trigger when an opposing full-body candle sits at the zone
@@ -489,7 +524,13 @@ module.exports = {
   // gate already passed ~99% in the ETH funnel), but it does let
   // fast-trending symbols like LTC (16 of 97 backtest trades) re-signal
   // sooner instead of sitting out a trend.
-  SIGNAL_COOLDOWN_BARS: 3,
+  // v10.18 (frequency, ported from gwp-bots v1.1.9): 3→2. Pure re-alert
+  // throttle between signals on the SAME symbol+direction — every
+  // re-alert still independently passes every gate above from scratch.
+  // Not yet re-backtested here (no network access to api.kucoin.com on
+  // this box) — run `node backtest.js` and check trade clustering
+  // before trusting live.
+  SIGNAL_COOLDOWN_BARS: 2,
 
   // ── ATR ─────────────────────────────────────────────────────────────────
   ATR_PERIOD: 14,

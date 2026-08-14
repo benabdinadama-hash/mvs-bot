@@ -516,7 +516,7 @@ const runStrategy = async (symbol) => {
       swingHigh: swing1h.high, swingLow: swing1h.low, atr1h,
     });
 
-    // ── STEP 4: CONFLUENCE CHECK (Fib × POC/VAH/VAL on 1H) ───────────────
+    // ── STEP 4: CONFLUENCE CHECK (Fib × POC/VAH/VAL/VWAP on 1H) ───────────
     const fibMid = (fib.zoneHigh + fib.zoneLow) / 2;
     const checkLevels = [fib.level618, fib.level786, fibMid];
     const checkPivots = [
@@ -524,6 +524,14 @@ const runStrategy = async (symbol) => {
       { name: 'VAH', price: vp1h.vahPrice },
       { name: 'VAL', price: vp1h.valPrice },
     ];
+    // v10.18 (frequency, ported from gwp-bots v1.1.9) — anchored VWAP as
+    // a 4th pivot, same 1H swing window that produced swing1h/fib above.
+    // See config.js MVS_VWAP_CONFLUENCE_ENABLED for why this defaults to
+    // false here (unlike gwp-bots) — this is live-money code.
+    if (config.MVS_VWAP_CONFLUENCE_ENABLED) {
+      const vwapAnchor = core.calcAnchoredVWAP(data1h.slice(-config.STRUCT_FIB_LOOKBACK), direction);
+      if (vwapAnchor != null) checkPivots.push({ name: 'VWAP', price: vwapAnchor });
+    }
 
     let bestScore = 0, bestFibLevel = null, bestPivot = null;
     for (const lvl of checkLevels) {
@@ -629,7 +637,8 @@ const runStrategy = async (symbol) => {
       data15m, entryZoneLow, entryZoneHigh, direction,
       { poc: vp1h.pocPrice, vah: vp1h.vahPrice, val: vp1h.valPrice },
       config.ABSORPTION_BODY_RATIO, config.REJECTION_MIN_PATTERNS, config.ALLOW_SOLO_TRIGGER,
-      config.SOLO_ELIGIBLE_PATTERNS
+      config.SOLO_ELIGIBLE_PATTERNS, config.MVS_TRIGGER_LOOKBACK_BARS,
+      config.MVS_LIQUIDITY_SWEEP_ENABLED, config.MVS_LIQUIDITY_SWEEP_LOOKBACK_BARS
     );
 
     logDiag({

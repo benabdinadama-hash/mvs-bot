@@ -469,49 +469,91 @@ const isZoneInvalidated = (closePrice, zoneRef, atr, direction, atrMult) => {
 //  that decides which patterns count as "strong enough alone" — no more
 //  editing core.js to change strategy behavior.
 // ─────────────────────────────────────────────────────────────────────────
-const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorptionBodyRatio, minPatterns = 2, allowSolo = false, soloPatterns = ['VAH_VAL_RECLAIM', 'CLOSE_REJECTION']) => {
-  if (candles.length < 2) return { valid: false, patterns: [], absorptionVeto: false, score: 0, solo: false };
+// v10.18 (frequency, ported from gwp-bots v1.1.9) — two additions:
+//  1. lookbackBars: was hardcoded to check ONLY the very last candle.
+//     This is a scan-timing artifact, not a quality filter — a valid
+//     setup that formed one candle ago but wasn't caught because the
+//     scan ran a few seconds late shouldn't be treated differently from
+//     one caught bang on time. Defaults to 1 (== old hardcoded
+//     behavior, zero behavior change) — see config.js MVS_TRIGGER_LOOKBACK_BARS
+//     for where this is actually set.
+//  2. LIQUIDITY_SWEEP pattern — see gwp-bots/shared/core.js for full
+//     rationale (same function, unchanged): price wicks through a
+//     recent prior swing extreme and closes back inside it — real
+//     order-flow terminology, pure price action, zero lag. Gated by
+//     sweepEnabled (config.js MVS_LIQUIDITY_SWEEP_ENABLED, defaults
+//     FALSE here — see that config for why this defaults differently
+//     than gwp-bots).
+const detectRejection = (candles, zoneLow, zoneHigh, direction, pivots, absorptionBodyRatio, minPatterns = 2, allowSolo = false, soloPatterns = ['VAH_VAL_RECLAIM', 'CLOSE_REJECTION'], lookbackBars = 1, sweepEnabled = false, sweepLookbackBars = 10) => {
+  if (candles.length < 2) return { valid: false, patterns: [], absorptionVeto: false, score: 0, solo: false, barsAgo: 0 };
 
-  const c = candles[candles.length - 1];
-  const p = candles[candles.length - 2];
+  const checkOne = (idx) => {
+    const c = candles[idx];
+    const p = candles[idx - 1];
+    if (!c || !p) return null;
 
-  const touchedZone = c.low <= zoneHigh && c.high >= zoneLow;
-  if (!touchedZone) return { valid: false, patterns: [], absorptionVeto: false, score: 0, solo: false };
+    const touchedZone = c.low <= zoneHigh && c.high >= zoneLow;
+    if (!touchedZone) return null;
 
-  const body = Math.abs(c.close - c.open);
-  const fullRange = c.high - c.low;
-  const bodyRatio = fullRange > 0 ? body / fullRange : 0;
+    const body = Math.abs(c.close - c.open);
+    const fullRange = c.high - c.low;
+    const bodyRatio = fullRange > 0 ? body / fullRange : 0;
 
-  let absorptionVeto = false;
-  if (bodyRatio > absorptionBodyRatio) {
-    if (direction === 'SELL' && c.close > c.open) absorptionVeto = true;
-    if (direction === 'BUY'  && c.close < c.open) absorptionVeto = true;
+    let absorptionVeto = false;
+    if (bodyRatio > absorptionBodyRatio) {
+      if (direction === 'SELL' && c.close > c.open) absorptionVeto = true;
+      if (direction === 'BUY'  && c.close < c.open) absorptionVeto = true;
+    }
+
+    const patterns = [];
+    const { poc, vah, val } = pivots;
+
+    if (direction === 'BUY') {
+      if (poc && c.low < poc && c.close > poc) patterns.push('POC_RECLAIM');
+      if (val && c.low < val && c.close > val) patterns.push('VAH_VAL_RECLAIM');
+      const lowerWick = Math.min(c.open, c.close) - c.low;
+      if (lowerWick > body * 1.5 && body > 0) patterns.push('PIN_BAR');
+      if (c.close > c.open && c.close > p.close && c.open < p.open) patterns.push('ENGULFING');
+      if (c.low <= zoneHigh && c.close > zoneHigh) patterns.push('CLOSE_REJECTION');
+    } else {
+      if (poc && c.high > poc && c.close < poc) patterns.push('POC_RECLAIM');
+      if (vah && c.high > vah && c.close < vah) patterns.push('VAH_VAL_RECLAIM');
+      const upperWick = c.high - Math.max(c.open, c.close);
+      if (upperWick > body * 1.5 && body > 0) patterns.push('PIN_BAR');
+      if (c.close < c.open && c.close < p.close && c.open > p.open) patterns.push('ENGULFING');
+      if (c.high >= zoneLow && c.close < zoneLow) patterns.push('CLOSE_REJECTION');
+    }
+
+    if (sweepEnabled) {
+      const priorWindow = candles.slice(Math.max(0, idx - sweepLookbackBars), idx);
+      if (priorWindow.length >= 3) {
+        if (direction === 'BUY') {
+          const priorSwingLow = Math.min(...priorWindow.map(d => d.low));
+          if (c.low < priorSwingLow && c.close > priorSwingLow) patterns.push('LIQUIDITY_SWEEP');
+        } else {
+          const priorSwingHigh = Math.max(...priorWindow.map(d => d.high));
+          if (c.high > priorSwingHigh && c.close < priorSwingHigh) patterns.push('LIQUIDITY_SWEEP');
+        }
+      }
+    }
+
+    const score = patterns.length;
+    const solo = allowSolo && score === 1 && soloPatterns.includes(patterns[0]);
+    const valid = !absorptionVeto && (score >= minPatterns || solo);
+    return { valid, patterns, absorptionVeto, score, solo };
+  };
+
+  for (let barsAgo = 0; barsAgo < lookbackBars; barsAgo++) {
+    const idx = candles.length - 1 - barsAgo;
+    if (idx < 1) break;
+    const result = checkOne(idx);
+    if (result && result.valid) return { ...result, barsAgo };
   }
-
-  const patterns = [];
-  const { poc, vah, val } = pivots;
-
-  if (direction === 'BUY') {
-    if (poc && c.low < poc && c.close > poc) patterns.push('POC_RECLAIM');
-    if (val && c.low < val && c.close > val) patterns.push('VAH_VAL_RECLAIM');
-    const lowerWick = Math.min(c.open, c.close) - c.low;
-    if (lowerWick > body * 1.5 && body > 0) patterns.push('PIN_BAR');
-    if (c.close > c.open && c.close > p.close && c.open < p.open) patterns.push('ENGULFING');
-    if (c.low <= zoneHigh && c.close > zoneHigh) patterns.push('CLOSE_REJECTION');
-  } else {
-    if (poc && c.high > poc && c.close < poc) patterns.push('POC_RECLAIM');
-    if (vah && c.high > vah && c.close < vah) patterns.push('VAH_VAL_RECLAIM');
-    const upperWick = c.high - Math.max(c.open, c.close);
-    if (upperWick > body * 1.5 && body > 0) patterns.push('PIN_BAR');
-    if (c.close < c.open && c.close < p.close && c.open > p.open) patterns.push('ENGULFING');
-    if (c.high >= zoneLow && c.close < zoneLow) patterns.push('CLOSE_REJECTION');
-  }
-
-  const score = patterns.length;
-  const solo = allowSolo && score === 1 && soloPatterns.includes(patterns[0]);
-  const valid = !absorptionVeto && (score >= minPatterns || solo);
-
-  return { valid, patterns, absorptionVeto, score, solo };
+  // No bar in the lookback window produced a valid signal — return the
+  // most recent candle's evaluation (barsAgo 0) for diagnostic logging,
+  // even though it's not valid, so callers/logs see WHY it didn't fire.
+  const fallback = checkOne(candles.length - 1) || { valid: false, patterns: [], absorptionVeto: false, score: 0, solo: false };
+  return { ...fallback, barsAgo: 0 };
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -620,6 +662,41 @@ const computePOCProminence = (vp) => {
   const pocVol = volArr[pocIdx];
   const prominenceRatio = avgNeighbor > 0 ? pocVol / avgNeighbor : (pocVol > 0 ? Infinity : 1);
   return { prominenceRatio, computed: true };
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+//  ANCHORED VWAP — ported from the same v1.1.9 addition validated on
+//  gwp-bots (backtest: crypto +2.6x signals / forex +2.8x, win rates
+//  unchanged, 0 SL hits across 73 trades). Added here as a 4th
+//  confluence pivot alongside POC/VAH/VAL in strategy.js/backtest.js.
+//  See gwp-bots/shared/core.js for the full design rationale — same
+//  function, unchanged. THIS IS LIVE-MONEY CODE: unlike gwp-bots
+//  (alert-only), MVS_VWAP_CONFLUENCE_ENABLED defaults to false in
+//  config.js specifically so pushing this file does NOT change live
+//  trading behavior until you deliberately flip it on after reviewing
+//  `node backtest.js` results on your own data. Returns null (never a
+//  fabricated number) if the window is too short or has no usable
+//  volume — callers must treat null as "not available this scan."
+const calcAnchoredVWAP = (fibData, direction) => {
+  if (!Array.isArray(fibData) || fibData.length < 3) return null;
+  const anchorPrice = direction === 'BUY'
+    ? Math.min(...fibData.map(d => d.low))
+    : Math.max(...fibData.map(d => d.high));
+  const anchorIdx = direction === 'BUY'
+    ? fibData.findIndex(d => d.low === anchorPrice)
+    : fibData.findIndex(d => d.high === anchorPrice);
+  if (anchorIdx === -1) return null;
+  const window = fibData.slice(anchorIdx);
+  if (window.length < 2) return null;
+  let cumPV = 0, cumVol = 0;
+  for (const c of window) {
+    const typicalPrice = (c.high + c.low + c.close) / 3;
+    const vol = c.volume > 0 ? c.volume : 0;
+    cumPV += typicalPrice * vol;
+    cumVol += vol;
+  }
+  if (cumVol <= 0) return null;
+  return cumPV / cumVol;
 };
 
 //  #2 — POC MIGRATION. A POC that has been drifting steadily in one
@@ -995,7 +1072,7 @@ module.exports = {
   calcATR, calcFib, calcVolumeProfile, tfBiasVote, isNearZone, isNearZoneWick, resolveDirection,
   confluenceScore, checkHTFZoneAlignment, isZoneInvalidated,
   detectRejection, computeTradeLevels, computeRiskMultiplier, computeTDSequential,
-  computePOCProminence, computePOCMigration, computeNakedPOC, computePOCQualityMultiplier,
+  computePOCProminence, calcAnchoredVWAP, computePOCMigration, computeNakedPOC, computePOCQualityMultiplier,
   isPOCProminenceTrusted, evaluateOpenTrade,
   calcATRSeries, calcATRPercentile, computeMultiTFPOCAlignment, computeVoteStrengthMultiplier,
 };

@@ -351,6 +351,13 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     const fibMid = (fib.zoneHigh + fib.zoneLow) / 2;
     const checkLevels = [fib.level618, fib.level786, fibMid];
     const checkPivots = [{ name: 'POC', price: vp1h.pocPrice }, { name: 'VAH', price: vp1h.vahPrice }, { name: 'VAL', price: vp1h.valPrice }];
+    // v10.18 (frequency, ported from gwp-bots v1.1.9) — mirrors strategy.js:
+    // anchored VWAP as a 4th pivot, same window1h slice that produced
+    // bias1h/swing1h above.
+    if (config.MVS_VWAP_CONFLUENCE_ENABLED) {
+      const vwapAnchor = core.calcAnchoredVWAP(window1h.slice(-config.STRUCT_FIB_LOOKBACK), direction);
+      if (vwapAnchor != null) checkPivots.push({ name: 'VWAP', price: vwapAnchor });
+    }
     let bestScore = 0, bestFibLevel = null, bestPivot = null;
     for (const lvl of checkLevels) for (const pivot of checkPivots) {
       const sc = core.confluenceScore(lvl, pivot.price, atr1h, config.CONFLUENCE_ATR_MULT);
@@ -400,7 +407,8 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     const rejection = core.detectRejection(window15m, entryZoneLow, entryZoneHigh, direction,
       { poc: vp1h.pocPrice, vah: vp1h.vahPrice, val: vp1h.valPrice },
       config.ABSORPTION_BODY_RATIO, config.REJECTION_MIN_PATTERNS, config.ALLOW_SOLO_TRIGGER,
-      config.SOLO_ELIGIBLE_PATTERNS);
+      config.SOLO_ELIGIBLE_PATTERNS, config.MVS_TRIGGER_LOOKBACK_BARS,
+      config.MVS_LIQUIDITY_SWEEP_ENABLED, config.MVS_LIQUIDITY_SWEEP_LOOKBACK_BARS);
     if (!rejection.valid) continue;
     funnel.triggerOk++;
 
