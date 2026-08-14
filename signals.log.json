@@ -1,5 +1,63 @@
 [
   {
+    "symbol": "POL-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1786742100,
+    "entryPrice": 0.07440999999999999,
+    "slPrice": 0.07239517363667004,
+    "tp1Price": 0.07682779163599593,
+    "tp2Price": 0.077475,
+    "risk": 0.002014826363329947,
+    "rr1": 1.2000000000000013,
+    "rr2": 1.5212228983019762,
+    "confluencePivot": "VAL",
+    "fibPct": "61.8%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "4H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BEARISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 6.87714281028961,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.0746625,
+      "poc1d": 0.091652
+    },
+    "alertDelivered": true,
+    "time": "2026-08-14T21:30:44.634Z"
+  },
+  {
     "symbol": "AVAX-USDT",
     "signal": "FIRED",
     "direction": "SELL",
