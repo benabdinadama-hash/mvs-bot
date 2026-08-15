@@ -14,7 +14,7 @@ The name is genuinely technical, not arbitrary — and it's staying permanently.
 
 Considered renaming this to reflect that it now executes live (not just signals) — decided against it. The name has real history and real meaning behind it, and a rename would touch working Termux paths, clone URLs, and months of documentation for a purely cosmetic gain. See "Value Sniper-Crypto: Execute" in earlier project notes if curious what the alternative would have looked like — but MVS is the permanent name.
 
-![Version](https://img.shields.io/badge/Version-v10.15.9-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.19-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -831,6 +831,91 @@ and `config.js` if you want the exact numbers behind each change.
     version — purely new measurement, same standing philosophy in this
     repo: measure with an adequate sample before gating, every time.
 
+- **v10.18 — (2026-08-14) two real live-money bugs found and fixed via
+  actual production logs, plus a requested frequency pass.**
+  - **`watcher.js` `pullLatest()` could fail forever, silently — root
+    cause of a real missed trade.** Was a bare `git pull --quiet`; once
+    `protect.js`'s local writes to `open-positions.json`/`state.json`
+    diverged from a remote GitHub Actions commit, EVERY subsequent pull
+    failed the same way, for hours, including the pull that would have
+    delivered a real fired signal (SOL-USDT BUY, 2026-08-13) — the bot
+    never saw it; it was placed manually instead. Now: detects this
+    exact conflict, discards the two locally-written files (both are
+    fully re-derivable — see the code comment), retries, and restores
+    both from HEAD so neither is ever left missing even if only one was
+    part of the incoming diff. Also clears a stale `.git/index.lock`
+    (>2 min old) if one's blocking things. Confirmed live afterward:
+    SOL-USDT and AVAX-USDT signals both auto-executed correctly on the
+    very next cycle.
+  - **`protect.js` `syncOrphanedSignals()` case-sensitivity bug — every
+    genuinely-open position was being force-closed on the signal side,
+    every single cycle.** Was `p.side === entry.direction`; Bybit's API
+    returns `'Buy'/'Sell'`, this bot's `direction` field is
+    `'BUY'/'SELL'` everywhere else in the codebase — the comparison
+    could never be true. Confirmed live: SOL-USDT and AVAX-USDT both
+    showed "stuck OPEN... force-synced closed" every 60s while
+    `check-status.js` simultaneously confirmed both were genuinely open
+    with real non-zero PnL. Real trades/real SL-TP protection were never
+    touched by this (the function only writes Telegram-facing signal-side
+    files) — but that display was being spuriously wiped constantly.
+    Fixed with a case-insensitive comparison.
+  - **Frequency pass, ported from the same validated changes on the
+    sibling `gwp-bots` repo** (backtest there: crypto +2.6x signals,
+    forex +2.8x, win rates unchanged, 0 SL across 73 trades). Adapted to
+    this bot's actual 5-TF/1H structure, not copy-pasted:
+    - `MVS_TRIGGER_LOOKBACK_BARS` (default 2, was hardcoded to 1) —
+      `detectRejection()` now checks up to N recent 15m candles instead
+      of only the very latest. Scan-timing recovery, not a quality
+      change — every candle checked passes the identical gates.
+    - `SIGNAL_COOLDOWN_BARS` 3→2. Pure re-alert throttle, not a quality
+      gate.
+    - `SYMBOLS` 14→20 (added ATOM/NEAR/APT/ARB/OP/SUI-USDT). Only widens
+      scan breadth — `MAX_CONCURRENT_TRADES` already caps real exposure
+      regardless of symbol count.
+    - New `LIQUIDITY_SWEEP` trigger pattern and anchored-VWAP 4th
+      confluence pivot (`calcAnchoredVWAP`) — same mechanisms as
+      gwp-bots, full rationale in `core.js`. **Both default OFF here**
+      (`MVS_LIQUIDITY_SWEEP_ENABLED` / `MVS_VWAP_CONFLUENCE_ENABLED`),
+      unlike gwp-bots' default-on — this bot places real orders the
+      moment a scan fires, so these stay opt-in via env var until
+      validated against `node backtest.js` on this bot's own data.
+  - `MARGIN_PER_TRADE_USDT` 2 → 1.5 (explicit request).
+
+- **v10.19 — (2026-08-14) the bot's own trade ledger could get stuck
+  "open" forever after a real close, silently blocking future trades —
+  found live, fixed with a bounded self-healing fallback.**
+  - **`our-positions.json` (`position-ledger.js`) has no relation to the
+    signal-side files v10.18 fixed above — it's what `execute-signal.js`
+    actually reads via `ledger.countOpen()` to enforce
+    `MAX_CONCURRENT_TRADES`.** `protect.js`'s `reconcileLedger()` could
+    only mark an entry closed by finding an exact match in Bybit's
+    closed-PnL history; confirmed live, AVAX-USDT sat in "no longer
+    open, but no closed-PnL match yet" every single cycle for 12+ hours
+    across multiple watcher restarts, never once resolving. Exact root
+    cause of the match failure itself wasn't confirmable without live
+    Bybit API access to test against (a timestamp-window or pagination
+    edge case in `/v5/position/closed-pnl` is the leading suspect) —
+    rather than guess at that blindly, added a bounded fallback instead:
+    any entry stuck "pending close" for more than 5 minutes now gets
+    force-marked closed (`realizedPnl` left `null`/unknown — check
+    Bybit's trade history directly for the exact figure) with a
+    Telegram alert, so `countOpen()` can never overcount forever
+    regardless of why the exact-match path didn't resolve.
+  - **Caught and fixed a second, subtler bug while building the first
+    fix:** a position with just ONE transient "not open" cycle (an API
+    blip) that went back to genuinely open afterward would still get
+    force-closed 5 minutes after that single old blip, since nothing
+    cleared the pending-close mark on reopen. Added
+    `clearPendingClose()`, called whenever a position is confirmed
+    genuinely still open — proved both directions with real
+    reproductions before shipping: a sustained absence still
+    self-heals after 5 min, and a one-off blip followed by sustained
+    presence does NOT get wrongly force-closed.
+  - Remediation for the already-stuck state this was found in: reset
+    `our-positions.json` to `[]` once (see chat) — real positions on
+    Bybit were never affected by any of this, only the bot's internal
+    bookkeeping of them.
+
 
 ## ⚠️ Important: Why KuCoin?
 
@@ -1052,7 +1137,7 @@ removed overfit filters).
 **Generate a current, honest number yourself:**
 
 ```bash
-node backtest.js                    # all 14 symbols, config.BACKTEST_DAYS
+node backtest.js                    # all 20 symbols, config.BACKTEST_DAYS
 ```
 
 The report (`backtest-report.txt`) prints signals/week, win rate, no-loss
@@ -1261,7 +1346,7 @@ Run it yourself — numbers below are illustrative of *how to read the
 report*, not a performance claim:
 
 ```bash
-node backtest.js                    # all 14 symbols, config.BACKTEST_DAYS (360)
+node backtest.js                    # all 20 symbols, config.BACKTEST_DAYS (360)
 node backtest.js SOL-USDT 180       # single symbol, custom window
 ```
 
@@ -1468,6 +1553,7 @@ As of the most recent live signals: **4 real signals processed, 1 stopped out (S
 - **Credentials not loading in a fresh Termux session** — `export`-ing variables only lasts for that terminal session; closing Termux clears them. Fixed by sourcing `execution/.env.sh` from both `~/.bashrc` and `~/.profile` (Termux inconsistently uses one or the other depending on how it's launched), so credentials auto-load on every new session.
 - **Watcher process dying unexpectedly** — despite wake-lock + battery-unrestricted + Termux:Boot, the background watcher has needed manual restarting more than once in practice. Not fully solved — see "Always-On Execution" below for the current mitigation (habit of checking `pgrep` regularly), since phone-based background processes are inherently less bulletproof than a dedicated server.
 - **Entry price vs. live fill price** — signals show a technical trigger price; live execution uses **Market orders** (confirmed working well, kept deliberately — see commit history/chat for the full reasoning), so real fills happen at whatever price the market is at when the watcher catches the signal (up to ~60s after the signal fires), not the exact alert price. This is expected slippage, not a bug.
+- **(2026-08-14, v10.18/v10.19) Three real live-money bugs found via production logs and fixed** — full detail in the changelog above, summarized here since this section is the "current status" reference: (1) `watcher.js` could fail to pull new signals forever, silently, after one local/remote file conflict — root cause of one real missed trade, now self-heals; (2) a case-sensitivity bug made `protect.js` force-close the Telegram-facing signal-side display for every genuinely-open position, every cycle — real trades/protection were never affected, just that display; (3) the bot's own trade ledger (`our-positions.json`, what `MAX_CONCURRENT_TRADES` actually reads) had no way to un-stick an entry that failed its exact-match reconciliation — confirmed stuck for 12+ hours straight on one real trade — now self-heals with a bounded 5-minute fallback. Confirmed live afterward: a fresh signal (POL-USDT) was caught and auto-executed correctly, and `check-status.js`'s ledger count matched reality for the first time in this debugging session.
 
 ---
 
@@ -1494,7 +1580,7 @@ Every incoming Telegram update carries the `chat.id` of whoever sent it. Before 
 
 ## Always-On Execution — Free, No Server Required
 
-GitHub Actions can't run this (Bybit blocks cloud-provider IP ranges — see the earlier troubleshooting history in this README/chat). Free cloud VMs (AWS/GCP/Oracle free tiers) sit on the same blocked IP ranges, so they don't help either. The genuinely free option left is your own phone, on its real mobile/WiFi IP, running continuously in the background — not a terminal window you have to keep open.
+GitHub Actions can't run this (Bybit blocks cloud-provider IP ranges — see the earlier troubleshooting history in this README/chat). AWS/GCP free-tier VMs sit on well-established, widely-blocked datacenter IP ranges, so they're not worth trying. **Oracle Cloud's Always-Free tier is the one exception worth testing rather than ruling out** — it hasn't actually been tested against Bybit yet, and if its IP range turns out to be accepted, it would be a genuinely free, always-on alternative to the phone (no Android battery/Doze/background-data fighting). The plan: once a card is available for Oracle's signup verification (no charge — Always-Free is really free, the card is identity verification only), spin up an Ampere A1 instance and test ONE read-only Bybit API call from it before moving anything real over. Until that test happens, the genuinely-confirmed-working free option is your own phone, on its real mobile/WiFi IP, running continuously in the background — not a terminal window you have to keep open.
 
 ### One-time setup (Termux)
 
@@ -1666,7 +1752,7 @@ mvs-bot/
 | KuCoin returns empty data | Temporary API issue | Wait a few minutes and re-run. KuCoin public API has occasional timeouts |
 | Actions tab shows no runs | Workflows not enabled | Go to repo → Actions tab → enable workflows |
 | Want to test WITHOUT the solo-trigger rule | `ALLOW_SOLO_TRIGGER` defaults to `true` in `config.js` (it's a net-positive rule for the reclaim/close-rejection patterns per backtest data, so it's on by default — see `config.js` for the exact patterns and reasoning) | Set to `false`, or run `ALLOW_SOLO_TRIGGER=false node backtest.js`, and compare the funnel/win-rate against the default before disabling live |
-| Backtest feels slow | 360+ day backtest across 14 symbols fetches and replays a lot of 15m data | Normal — expect low tens of seconds per symbol depending on connection. Run a single symbol (`node backtest.js SOL-USDT`) while iterating on config changes |
+| Backtest feels slow | 360+ day backtest across 20 symbols fetches and replays a lot of 15m data | Normal — expect low tens of seconds per symbol depending on connection. Run a single symbol (`node backtest.js SOL-USDT`) while iterating on config changes |
 | A workflow shows as "disabled" in the Actions tab | Genuine 60-day gap where all of a workflow's triggers failed (rare — `keepalive.yml` exists specifically to prevent this) | Click into the workflow → **Enable workflow**, or just push any commit to the repo, which re-enables all previously auto-disabled scheduled workflows |
 
 ---
