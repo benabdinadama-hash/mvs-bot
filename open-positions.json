@@ -31,5 +31,22 @@
     "patterns": [
       "CLOSE_REJECTION"
     ]
+  },
+  "SUI-USDT": {
+    "symbol": "SUI-USDT",
+    "direction": "SELL",
+    "entryTime": 1786764600,
+    "entryPrice": 0.6936508,
+    "slPrice": 0.7004702777015981,
+    "tp1Price": 0.6854674267580824,
+    "tp2Price": 0.682781,
+    "origSlPrice": 0.7004702777015981,
+    "rr1": 1.2,
+    "rr2": 1.59,
+    "pivot": "POC",
+    "patterns": [
+      "ENGULFING",
+      "CLOSE_REJECTION"
+    ]
   }
 }
