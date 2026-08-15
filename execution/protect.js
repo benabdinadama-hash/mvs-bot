@@ -82,7 +82,10 @@ const reconcileLedger = async () => {
       // avoids an unnecessary closed-pnl call for genuinely-still-open trades.
       const positions = await bybit.get('/v5/position/list', { category: 'linear', symbol: entry.symbol });
       const stillOpen = (positions.result?.list || []).some(p => parseFloat(p.size) > 0 && p.side === entry.side);
-      if (stillOpen) continue;
+      if (stillOpen) {
+        ledger.clearPendingClose(entry.orderId); // undo any stale mark from an earlier transient blip
+        continue;
+      }
 
       const closeInfo = await findRealizedClose(entry);
       if (closeInfo) {
