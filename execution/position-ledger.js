@@ -90,6 +90,25 @@ const forceCloseStalePending = (maxPendingMs = 5 * 60 * 1000) => {
   return forced;
 };
 
+// v10.19.1 FIX — a position that had ONE transient "not open" cycle
+// (a brief Bybit API blip, or a rapid close-then-reopen) would get
+// pendingCloseSince set, then if it went back to genuinely open for
+// the next 10+ cycles, forceCloseStalePending() would still force-close
+// it 5 minutes after that single old blip — wrongly, since it's been
+// fine the whole time since. Called whenever protect.js confirms a
+// position IS still open, to clear any stale pending-close mark from
+// an earlier transient blip so only a SUSTAINED absence can ever
+// trigger the stale fallback.
+const clearPendingClose = (orderId) => {
+  const entries = load();
+  const updated = entries.map(e =>
+    (e.orderId === orderId && e.pendingCloseSince)
+      ? { ...e, pendingCloseSince: null }
+      : e
+  );
+  save(updated);
+};
+
 const countOpen = () => load().filter(e => e.status === 'open').length;
 
 const getOpen = () => load().filter(e => e.status === 'open');
@@ -101,4 +120,4 @@ const getRecentClosed = (n = 10) => load()
   .sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0))
   .slice(0, n);
 
-module.exports = { recordOpened, recordClosed, markPendingClose, forceCloseStalePending, countOpen, getOpen, getRecentClosed, LEDGER_FILE };
+module.exports = { recordOpened, recordClosed, markPendingClose, clearPendingClose, forceCloseStalePending, countOpen, getOpen, getRecentClosed, LEDGER_FILE };
