@@ -438,6 +438,34 @@ module.exports = {
   //  compare the new POC-pivot WR/SL numbers against the reports above.
   MIN_CONFLUENCE_POC: 2,
 
+  // ── v10.20 (2026-08-15) — same treatment, now extended to VAH/VAL ──────
+  // The v10.3 finding above was specifically about SL risk concentrating
+  // on POC. This is a DIFFERENT finding, from a fresh 360-day/112-signal
+  // backtest: VAH/VAL's own confluenceScore==1 trades (the loosest
+  // tolerance — Fib level within a full ATR of the pivot, not half) are
+  // NOT disproportionately SL-prone (1 SL across both scores combined,
+  // same as before), but they ARE a meaningfully weaker WIN RATE — more
+  // of them wash out as breakeven scratches / timeouts instead of real
+  // wins:
+  //   score==1 (full population): 32 trades, 71.9% WR, 23.84R total
+  //   score==2 (full population): 79 trades, 83.5% WR, 83.49R total
+  // That's the entire VAH/VAL score==1 population (POC already can't
+  // appear here — it's gated to score>=2 by MIN_CONFLUENCE_POC above).
+  // Raising this cuts total signal frequency ~29% (111→79 on this
+  // dataset) — a real tradeoff, not free. Compensating for it is
+  // exactly why MVS_LIQUIDITY_SWEEP_ENABLED / MVS_VWAP_CONFLUENCE_ENABLED
+  // below are being turned on in this same version: two dormant, already-
+  // built-but-unused signal sources designed specifically to recover
+  // frequency from setups the traditional POC/VAH/VAL-only confluence
+  // check doesn't catch. NOT yet re-backtested with both changes
+  // together on this box (no network access to api.kucoin.com here) —
+  // this pairing is a considered, evidence-backed recommendation, not a
+  // confirmed final number. Run `node backtest.js` after deploying and
+  // check the combined win-rate AND frequency before treating this as
+  // truly final; revert this one gate back to 1 (or disable one of the
+  // two new sources) if the combined result doesn't hold up.
+  MIN_CONFLUENCE_VAH_VAL: parseInt(process.env.MIN_CONFLUENCE_VAH_VAL, 10) || 2,
+
   // ── Rejection / trigger candle (2-of-5 rule, on the 15m trigger TF) ────
   // Patterns: POC_RECLAIM, VAH_VAL_RECLAIM, PIN_BAR, ENGULFING, CLOSE_REJECTION
   REJECTION_MIN_PATTERNS: parseInt(process.env.REJECTION_MIN_PATTERNS, 10) || 2,
@@ -481,30 +509,38 @@ module.exports = {
   // ── v10.18 FREQUENCY ADDITIONS (ported from gwp-bots v1.1.9) ─────────────
   // THIS IS LIVE-MONEY CODE — unlike gwp-bots (alert-only), a scan here
   // that fires can place a real leveraged order within the same minute.
-  // The two genuinely NEW mechanisms below (liquidity sweep pattern,
-  // VWAP confluence pivot) default to FALSE — pushing this file changes
-  // nothing about live trading until you deliberately flip them on
-  // after running `node backtest.js` and reviewing the results. The two
-  // pure timing/throttle nudges (lookback bars, cooldown) are enabled by
-  // default since they're the same category of change already validated
-  // as "recovers missed setups, not a quality dilution" on gwp-bots —
-  // still worth confirming against your own backtest before trusting
-  // them, but lower-risk than the two new mechanisms.
   //
-  // MVS_TRIGGER_LOOKBACK_BARS: how many of the most recent 15m candles
-  // detectRejection() checks (this candle, and if it didn't qualify, up
-  // to this many before it). 1 = old hardcoded single-candle behavior.
+  // v10.18: shipped with the two genuinely NEW mechanisms below
+  // (liquidity sweep pattern, VWAP confluence pivot) defaulted OFF,
+  // pending backtest review before trusting them live.
+  //
+  // v10.20 (2026-08-15): turned ON by deliberate design decision, not
+  // just habit — they're the compensating half of a paired change. The
+  // same session that flips these on also raised MIN_CONFLUENCE_VAH_VAL
+  // to 2 (see that setting above), a real, evidence-backed win-rate
+  // improvement (71.9%→83.5% WR on the affected trades, fresh 360-day/
+  // 112-signal backtest) that on its own cuts total signal frequency
+  // ~29%. These two sources exist specifically to recover frequency
+  // from setups the traditional POC/VAH/VAL-only confluence check
+  // doesn't catch, so turning them on together with the stricter gate
+  // is the intended pairing, not two independent decisions.
+  // NOT yet confirmed together on real data — this exact combination
+  // (stricter VAH/VAL gate + VWAP + sweep, all at once) has never been
+  // backtested, since the dataset above only ran with the new sources
+  // off. Run `node backtest.js` after deploying this and check BOTH the
+  // win rate AND the total signal count against the 111-trade/80.2%
+  // baseline before calling this truly final — that comparison is the
+  // one piece of evidence this change is still missing.
   MVS_TRIGGER_LOOKBACK_BARS: parseInt(process.env.MVS_TRIGGER_LOOKBACK_BARS, 10) || 2,
   // Liquidity sweep + reclaim trigger pattern — see core.js detectRejection
   // for the mechanism. Real order-flow terminology (stop-hunt + reclaim),
-  // pure price action, zero lag. OFF by default here — flip to true via
-  // env var only after backtest review.
-  MVS_LIQUIDITY_SWEEP_ENABLED: process.env.MVS_LIQUIDITY_SWEEP_ENABLED === 'true' ? true : false,
+  // pure price action, zero lag.
+  MVS_LIQUIDITY_SWEEP_ENABLED: process.env.MVS_LIQUIDITY_SWEEP_ENABLED === 'false' ? false : true,
   MVS_LIQUIDITY_SWEEP_LOOKBACK_BARS: parseInt(process.env.MVS_LIQUIDITY_SWEEP_LOOKBACK_BARS, 10) || 10,
   // Anchored VWAP as a 4th confluence pivot alongside POC/VAH/VAL — see
-  // core.js calcAnchoredVWAP. OFF by default here — flip to true via env
-  // var only after backtest review.
-  MVS_VWAP_CONFLUENCE_ENABLED: process.env.MVS_VWAP_CONFLUENCE_ENABLED === 'true' ? true : false,
+  // core.js calcAnchoredVWAP.
+  MVS_VWAP_CONFLUENCE_ENABLED: process.env.MVS_VWAP_CONFLUENCE_ENABLED === 'false' ? false : true,
+
 
   // ── Absorption veto ─────────────────────────────────────────────────────
   // Vetoes a trigger when an opposing full-body candle sits at the zone
