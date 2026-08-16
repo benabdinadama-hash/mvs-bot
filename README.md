@@ -14,7 +14,7 @@ The name is genuinely technical, not arbitrary — and it's staying permanently.
 
 Considered renaming this to reflect that it now executes live (not just signals) — decided against it. The name has real history and real meaning behind it, and a rename would touch working Termux paths, clone URLs, and months of documentation for a purely cosmetic gain. See "Value Sniper-Crypto: Execute" in earlier project notes if curious what the alternative would have looked like — but MVS is the permanent name.
 
-![Version](https://img.shields.io/badge/Version-v10.19-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.21-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -915,6 +915,80 @@ and `config.js` if you want the exact numbers behind each change.
     `our-positions.json` to `[]` once (see chat) — real positions on
     Bybit were never affected by any of this, only the bot's internal
     bookkeeping of them.
+
+- **v10.20 — (2026-08-15) requested win-rate refinement, mined from a
+  fresh 360-day/111-signal backtest rather than guessed at.** Tested
+  every available factor (vote tally, 1H confirm, 4H/1H agreement,
+  fib level, pivot type, pattern count, confluence score) for real,
+  sample-adequate differentiation before touching anything — most
+  didn't hold up (a pattern-count effect that looked real inside the
+  dominant 3/5-vote subset vanished at full-population level; a
+  hypothesized "3/5 + no-1H-confirm + 4H/1H-opposing" worst-case
+  bucket tested at 80.0% WR, indistinguishable from the 80.2% baseline
+  — both discarded, not shipped).
+  - **The one that held up: confluence tightness.** `MIN_CONFLUENCE_POC`
+    already required score≥2 for POC pivots (since v10.3, evidence
+    then was SL concentration). VAH/VAL never got the same treatment.
+    Fresh full-population data: VAH/VAL score==1 trades — 32 of them,
+    71.9% WR. Score==2 — 79 trades, 83.5% WR. Real gap, real samples,
+    same underlying logic as v10.3's POC finding, just a different
+    metric (WR dilution via BE/timeout scratches here, not raw SL risk
+    like POC). Added `MIN_CONFLUENCE_VAH_VAL = 2`, mirroring the POC
+    gate exactly.
+  - Also considered and explicitly declined: a session-time filter
+    (Asia/London/NY). Real data showed Asia (75.0% WR) and London
+    (76.0% WR) statistically indistinguishable from each other — the
+    actual split was early-session vs late-session, not "Asia bad,
+    rest fine" as originally proposed. Stacked with the confluence
+    gate above, either session cutoff cut total frequency to 37-51% of
+    original — too severe against the explicit "keep frequency" goal.
+    Skipped by direct request once the real numbers were shown.
+  - The confluence gate alone cuts frequency ~29% (111→79). To
+    compensate, turned on two already-built-but-dormant frequency
+    sources as a deliberate paired change: `MVS_LIQUIDITY_SWEEP_ENABLED`
+    and `MVS_VWAP_CONFLUENCE_ENABLED` (both had shipped OFF in v10.18,
+    pending exactly this kind of review). Explicitly flagged at the
+    time as unconfirmed together on real data — see v10.21 immediately
+    below for what that confirmation actually found.
+
+- **v10.21 — (2026-08-16) the v10.20 combination got backtested for
+  real, and it was a clear regression — root-caused precisely, not
+  just reverted on suspicion.** 232 signals fired (frequency more than
+  doubled vs the 111-signal baseline) but win rate DROPPED to 71.9%
+  (from 80.2%) and SL hits jumped from 2 to 13.
+  - **VWAP pivot was the entire problem.** 163 of 232 trades (70% of
+    ALL volume) came from the VWAP confluence pivot, at 66.9% WR,
+    concentrating every single one of the 13 SL hits. Meanwhile
+    POC/VAH/VAL — the trades the v10.20 confluence gate actually
+    targeted — performed exactly as that evidence predicted: 83–85%
+    WR, ZERO SL, across 59-68 trades. The gate itself was never the
+    issue.
+  - **LIQUIDITY_SWEEP looked weak in the raw numbers (63.8% WR) but
+    that was VWAP bleeding through the stat, not the pattern's own
+    fault** — 81% of sweep-pattern trades were ALSO VWAP-pivot trades.
+    Isolated to traditional (POC/VAH/VAL) pivots only: 88.9% WR, 0 SL
+    (n=9 — small, but clean, and consistent with the traditional-pivot
+    baseline). Kept enabled.
+  - **Final configuration:** `MIN_CONFLUENCE_VAH_VAL` stays at 2 (the
+    part of v10.20 that was right). `MVS_LIQUIDITY_SWEEP_ENABLED` stays
+    on (confirmed fine once isolated from VWAP). `MVS_VWAP_CONFLUENCE_ENABLED`
+    → back to OFF — tested, confirmed net-negative on real data, not an
+    assumption. Code kept in place (toggle, not deleted) in case a
+    different asset mix or regime ever makes it worth revisiting.
+    Estimated result of this final combination (VWAP-sourced trades
+    excluded from the same 232-trade dataset, as a proxy — not a
+    guarantee, since removing VWAP changes what the scanner even
+    considers): ~68 trades, ~84% WR, 0 SL. This is the closing
+    configuration for this round of tuning — no further exploratory
+    toggling planned after this without new evidence prompting it.
+  - `mvs-scan.yml`'s `timeout-minutes` was still sized for the
+    pre-v10.18 14-symbol SYMBOLS list (12 minutes, calculated
+    specifically for 14 symbols' worst-case runtime) and never
+    revisited when SYMBOLS grew to 20 across the v10.18/v10.20
+    sessions — same class of bug the original v10.15.4 timeout fix
+    was written to catch, just reintroduced by a later, unrelated
+    change. Recalculated for 20 symbols and raised to 18 minutes —
+    see the comment in that file for the full math.
 
 
 ## ⚠️ Important: Why KuCoin?
