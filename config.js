@@ -511,35 +511,57 @@ module.exports = {
   // that fires can place a real leveraged order within the same minute.
   //
   // v10.18: shipped with the two genuinely NEW mechanisms below
-  // (liquidity sweep pattern, VWAP confluence pivot) defaulted OFF,
-  // pending backtest review before trusting them live.
-  //
-  // v10.20 (2026-08-15): turned ON by deliberate design decision, not
-  // just habit — they're the compensating half of a paired change. The
-  // same session that flips these on also raised MIN_CONFLUENCE_VAH_VAL
-  // to 2 (see that setting above), a real, evidence-backed win-rate
-  // improvement (71.9%→83.5% WR on the affected trades, fresh 360-day/
-  // 112-signal backtest) that on its own cuts total signal frequency
-  // ~29%. These two sources exist specifically to recover frequency
-  // from setups the traditional POC/VAH/VAL-only confluence check
-  // doesn't catch, so turning them on together with the stricter gate
-  // is the intended pairing, not two independent decisions.
-  // NOT yet confirmed together on real data — this exact combination
-  // (stricter VAH/VAL gate + VWAP + sweep, all at once) has never been
-  // backtested, since the dataset above only ran with the new sources
-  // off. Run `node backtest.js` after deploying this and check BOTH the
-  // win rate AND the total signal count against the 111-trade/80.2%
-  // baseline before calling this truly final — that comparison is the
-  // one piece of evidence this change is still missing.
+  // (liquidity sweep pattern, VWAP confluence pivot) defaulted OFF.
+  // v10.20: turned both ON together as a paired change, to compensate
+  // for the frequency cost of raising MIN_CONFLUENCE_VAH_VAL to 2.
+  // v10.21 (2026-08-16): THE ACTUAL COMBINED BACKTEST CAME BACK, and it
+  // was a clear regression — 232 signals (up from 111, frequency more
+  // than doubled) but win rate DROPPED to 71.9% (from 80.2%) and SL
+  // hits jumped from 2 to 13. Root-caused precisely, not just reverted
+  // blind:
+  //   - VWAP pivot: 163 of 232 trades (70% of ALL volume) at 66.9% WR,
+  //     concentrating ALL 13 SL hits. This one mechanism alone explains
+  //     the entire regression.
+  //   - Meanwhile POC/VAH/VAL (the MIN_CONFLUENCE_VAH_VAL-gated
+  //     trades) performed exactly as the v10.20 evidence predicted:
+  //     83–85% WR, ZERO SL, across 59-68 trades — that gate is
+  //     confirmed working correctly.
+  //   - LIQUIDITY_SWEEP looked weak in the raw numbers (63.8% WR) but
+  //     that was VWAP bleeding through the stat, not the pattern
+  //     itself: 81% of sweep-pattern trades were ALSO VWAP-pivot
+  //     trades. Isolated to traditional (POC/VAH/VAL) pivots only,
+  //     sweep-pattern trades hit 88.9% WR, 0 SL (n=9 — small, but
+  //     clean, and consistent with the traditional-pivot baseline).
+  // Verdict: MVS_VWAP_CONFLUENCE_ENABLED → back to OFF (net negative,
+  // confirmed on real data, not assumption). MVS_LIQUIDITY_SWEEP_ENABLED
+  // stays ON (genuinely fine on the pivots that actually matter).
+  // MIN_CONFLUENCE_VAH_VAL stays at 2 (the one part of this whole
+  // v10.20/v10.21 arc that was right the first time). Expected result
+  // of this final combination, estimated from this exact dataset with
+  // VWAP-sourced trades excluded: ~68 trades, ~84% WR, 0 SL — a real
+  // step up from the 111-trade/80.2% original baseline on quality,
+  // at a real, accepted frequency cost. Re-run `node backtest.js`
+  // once more after deploying this to confirm the true number (VWAP
+  // being off changes what the scanner even considers, so this
+  // estimate is a close proxy, not a guarantee) — but this is the
+  // final recommended configuration; no further exploratory toggling
+  // planned after this.
   MVS_TRIGGER_LOOKBACK_BARS: parseInt(process.env.MVS_TRIGGER_LOOKBACK_BARS, 10) || 2,
   // Liquidity sweep + reclaim trigger pattern — see core.js detectRejection
   // for the mechanism. Real order-flow terminology (stop-hunt + reclaim),
-  // pure price action, zero lag.
+  // pure price action, zero lag. Confirmed net-positive on traditional
+  // pivots (v10.21 finding above) — stays on.
   MVS_LIQUIDITY_SWEEP_ENABLED: process.env.MVS_LIQUIDITY_SWEEP_ENABLED === 'false' ? false : true,
   MVS_LIQUIDITY_SWEEP_LOOKBACK_BARS: parseInt(process.env.MVS_LIQUIDITY_SWEEP_LOOKBACK_BARS, 10) || 10,
   // Anchored VWAP as a 4th confluence pivot alongside POC/VAH/VAL — see
-  // core.js calcAnchoredVWAP.
-  MVS_VWAP_CONFLUENCE_ENABLED: process.env.MVS_VWAP_CONFLUENCE_ENABLED === 'false' ? false : true,
+  // core.js calcAnchoredVWAP. TESTED, CONFIRMED NET NEGATIVE (v10.21
+  // finding above: dominates 70% of volume at 66.9% WR, all SL hits).
+  // Code kept in place (toggle-based, not deleted — same convention as
+  // every other tested-and-rejected idea in this file) in case a future
+  // asset mix or market regime makes it worth revisiting, but defaults
+  // OFF and there's no active plan to re-enable it.
+  MVS_VWAP_CONFLUENCE_ENABLED: process.env.MVS_VWAP_CONFLUENCE_ENABLED === 'true' ? true : false,
+
 
 
   // ── Absorption veto ─────────────────────────────────────────────────────
