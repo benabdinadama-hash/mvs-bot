@@ -551,6 +551,13 @@ const runStrategy = async (symbol) => {
       logDiag({ symbol, barTime, price, fired: false, reason: 'POC_CONFLUENCE_TOO_LOOSE' });
       return;
     }
+    // v10.20 — same check, now extended to VAH/VAL (see config.js
+    // MIN_CONFLUENCE_VAH_VAL for the fresh evidence behind this).
+    if ((bestPivot.name === 'VAH' || bestPivot.name === 'VAL') && bestScore < config.MIN_CONFLUENCE_VAH_VAL) {
+      console.log(`  ⚠️ ${bestPivot.name} confluence too loose (score ${bestScore}, need ${config.MIN_CONFLUENCE_VAH_VAL}). Skipping.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'VAH_VAL_CONFLUENCE_TOO_LOOSE' });
+      return;
+    }
 
     // v10.12: POC pivot without 1H in the agreeing vote is a confirmed
     // weak segment (168 trades, 58.3% WR, 15 of 18 total SLs in the

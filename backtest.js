@@ -365,6 +365,8 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     }
     if (bestScore < 1) continue;
     if (bestPivot.name === 'POC' && bestScore < config.MIN_CONFLUENCE_POC) continue;
+    // v10.20 — mirrors strategy.js: same check extended to VAH/VAL.
+    if ((bestPivot.name === 'VAH' || bestPivot.name === 'VAL') && bestScore < config.MIN_CONFLUENCE_VAH_VAL) continue;
     // v10.12: mirrors the live gate in strategy.js — see config.js
     // POC_REQUIRE_1H_CONFIRM for rationale. Must stay in sync with the
     // live file or the backtest stops meaning anything about live
