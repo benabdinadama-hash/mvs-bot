@@ -41,7 +41,25 @@ jobs:
     # scan interval so a slow run can still fully finish before the next
     # one is due (concurrency below queues rather than overlaps, so this
     # doesn't risk two scans running at once).
-    timeout-minutes: 12
+    #
+    # v10.18/v10.21 RECALCULATED: SYMBOLS grew 14→20 (+43%) across those
+    # sessions but this timeout was never revisited — same class of bug
+    # the v10.15.4 fix above was written to catch, just reintroduced by
+    # a later change instead of a first oversight. Same per-symbol math,
+    # scaled: ~7.6 min x (20/14) ≈ 10.9 min for strategy.js alone at
+    # worst case, +~4.4 min for checkout/npm-install/commit-push
+    # overhead (same buffer as the original calc) ≈ 15.3 min total —
+    # already AT the 15-minute scan interval in the true worst case, not
+    # comfortably under it like the original 14-symbol math achieved.
+    # Raised to 18 minutes for real margin above that. This does mean a
+    # genuine worst-case run can now take longer than the scan interval
+    # — concurrency (below) queues rather than overlaps, so the
+    # consequence is a delayed next scan during worst-case network
+    # conditions, not a killed job losing an entire run's work. That
+    # tradeoff is intentionally in favor of finishing over being killed,
+    # same priority as the original v10.15.4 fix. If SYMBOLS grows
+    # again, redo this math rather than assume 18 minutes still holds.
+    timeout-minutes: 18
     permissions:
       contents: write
 
