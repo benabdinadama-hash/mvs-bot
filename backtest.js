@@ -389,6 +389,9 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     // strategy.js — see config.js MID_POCKET_EXCLUDE for the per-run
     // evidence (58.3% WR vs 82-83% across three independent backtests).
     if (bestFibLevel === fibMid && config.MID_POCKET_EXCLUDE) continue;
+    // v10.22 — mirrors strategy.js: same 61.8% exclusion, see config.js
+    // EXCLUDE_FIB_61_8 for the evidence.
+    if (bestFibLevel === fib.level618 && config.EXCLUDE_FIB_61_8) continue;
     funnel.prominenceOk++;
     funnel.confluenceOk++;
 
