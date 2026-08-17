@@ -30,5 +30,22 @@
     "patterns": [
       "CLOSE_REJECTION"
     ]
+  },
+  "BTC-USDT": {
+    "symbol": "BTC-USDT",
+    "direction": "BUY",
+    "entryTime": 1786928400,
+    "entryPrice": 63098.435600000004,
+    "slPrice": 62505.05359353473,
+    "tp1Price": 63810.49400775834,
+    "tp2Price": 63996.971000000005,
+    "origSlPrice": 62505.05359353473,
+    "rr1": 1.2,
+    "rr2": 1.51,
+    "pivot": "VAL",
+    "patterns": [
+      "VAH_VAL_RECLAIM",
+      "ENGULFING"
+    ]
   }
 }
