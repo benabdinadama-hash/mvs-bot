@@ -14,7 +14,7 @@ The name is genuinely technical, not arbitrary — and it's staying permanently.
 
 Considered renaming this to reflect that it now executes live (not just signals) — decided against it. The name has real history and real meaning behind it, and a rename would touch working Termux paths, clone URLs, and months of documentation for a purely cosmetic gain. See "Value Sniper-Crypto: Execute" in earlier project notes if curious what the alternative would have looked like — but MVS is the permanent name.
 
-![Version](https://img.shields.io/badge/Version-v10.21-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.22-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -989,6 +989,43 @@ and `config.js` if you want the exact numbers behind each change.
     was written to catch, just reintroduced by a later, unrelated
     change. Recalculated for 20 symbols and raised to 18 minutes —
     see the comment in that file for the full math.
+
+- **v10.22 — (2026-08-16) v10.21's confirmation backtest came back
+  strong (88 trades, 80.7% WR, 2 SL, PF 31.6 — genuinely better than
+  the 111-trade/80.2% original baseline), then went one step further
+  by direct request: max out win rate, keep or increase frequency,
+  avoid SLs where possible without hurting win rate.** Full rigor
+  applied before touching anything, same as v10.20/v10.21 — most leads
+  didn't hold up:
+  - **Direction (SELL 84% vs BUY 76%) looked like a real signal, wasn't
+    one.** Fully explained by Fib-level mix — SELL-at-78.6%=87.8% WR vs
+    SELL-at-61.8%=66.7%, BUY shows the identical pattern. Gating on
+    direction would have double-counted the Fib-level effect below,
+    not added a new one. Not implemented.
+  - **A rule to avoid the 2 real SLs — not attempted.** Checked exactly
+    where they happened (BTC-USDT BUY, LTC-USDT SELL — different
+    pivots, different 1H-confirm status, no common thread). Two data
+    points can't support a generalizable rule; building one would be
+    textbook overfitting to noise, exactly what this project's
+    evidence standard has consistently rejected elsewhere.
+  - **The one real, reproducible finding: the 61.8% Fib level.** 71.4%
+    WR (30 trades) in the prior backtest, 65.4% WR (26 trades) in this
+    one — same direction both times, not a fluke. Checked for a
+    secondary factor that might rescue part of this bucket (pivot,
+    1H-confirm, vote tally, confluence score) — none held up with
+    adequate sample size inside the bucket, so this became a clean
+    full-bucket exclusion (`EXCLUDE_FIB_61_8`, same toggle convention
+    as `MID_POCKET_EXCLUDE`), not a partial one.
+  - **Explicitly NOT an SL-risk fix** — 0 SL in the 61.8% bucket in
+    both backtests. This is a pure win-rate-via-frequency trade, not a
+    loss-avoidance one, and was presented and confirmed as exactly
+    that before implementing: 88→62 trades (70% retained), 80.7%→87.1%
+    WR. Verified the code gate reproduces that exact 62/26 split
+    against the real backtest JSON before shipping it, not just
+    syntax-checked.
+  - Re-run `node backtest.js` after deploying to confirm the live
+    number — same standing practice as every other change in this
+    file.
 
 
 ## ⚠️ Important: Why KuCoin?

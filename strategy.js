@@ -605,6 +605,28 @@ const runStrategy = async (symbol) => {
       return;
     }
 
+    // v10.22 (2026-08-16) — same treatment as the mid-pocket exclusion
+    // just above, now for the 61.8% Fib level specifically, by direct
+    // request after reviewing two independent backtests: 71.4% WR (30
+    // trades) then 65.4% WR (26 trades) — reproducibly the weaker of
+    // the two named ratios, not a one-off fluke. Explicitly NOT an
+    // SL-risk finding (0 SL in this bucket across both backtests) —
+    // it's a win-rate-dilution finding (more BE/timeout scratches).
+    // Checked for a secondary differentiator that might rescue part of
+    // this bucket (pivot type, 1H-confirm, vote tally, confluence
+    // score) before cutting it wholesale — none held up with adequate
+    // sample size, so this is a clean full-bucket exclusion, not a
+    // partial one. Real, accepted tradeoff: cuts total signal frequency
+    // ~30% in exchange for win rate 80.7%→~87.1% (fresh backtest,
+    // 88→62 trades). Toggle-based, same convention as
+    // MID_POCKET_EXCLUDE — flip off via env var to get the 61.8%
+    // signals back if this trade-off turns out not to be worth it.
+    if (bestFibLevel === fib.level618 && config.EXCLUDE_FIB_61_8) {
+      console.log(`  ⚠️ 61.8% Fib — reproducibly the weaker named ratio (65-71% WR vs 82-87% for 78.6%, two independent backtests). Skipping.`);
+      logDiag({ symbol, barTime, price, fired: false, reason: 'FIB_61_8_EXCLUDED' });
+      return;
+    }
+
     console.log(`  ✅ CONFLUENCE (score ${bestScore}): Fib ${fibPct} ($${bestFibLevel.toFixed(2)}) ↔ ${bestPivot.name} ($${bestPivot.price.toFixed(2)})`);
 
     // ── STEP 5: 4H ZONE CROSS-CHECK ──────────────────────────────────────

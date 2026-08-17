@@ -676,6 +676,24 @@ module.exports = {
   // backtest and live — no longer treating this as unproven.
   MID_POCKET_EXCLUDE: process.env.MID_POCKET_EXCLUDE === 'false' ? false : true,
 
+  // v10.22 (2026-08-16) — same treatment as MID_POCKET_EXCLUDE above,
+  // now for the 61.8% Fib level specifically, by direct request after
+  // reviewing two independent backtests: 71.4% WR (30 trades) then
+  // 65.4% WR (26 trades) — reproducibly the weaker of the two named
+  // ratios (78.6% ran 82-87% WR in the same two backtests). NOT an
+  // SL-risk finding — 0 SL in the 61.8% bucket across both backtests;
+  // it's a win-rate-dilution finding (more BE/timeout scratches, not
+  // more real losses). Checked for a secondary factor that might
+  // rescue part of this bucket (pivot type, 1H-confirm, vote tally,
+  // confluence score, direction) before excluding it wholesale — none
+  // held up with adequate sample size within the bucket, so this is a
+  // clean full exclusion. Real, explicitly accepted tradeoff, not a
+  // free improvement: cuts total signal frequency ~30% (88→62 trades
+  // in the confirming backtest) for win rate 80.7%→~87.1%. ON by
+  // default per that explicit choice — set to false to get the 61.8%
+  // signals back if this trade-off doesn't hold up on more data.
+  EXCLUDE_FIB_61_8: process.env.EXCLUDE_FIB_61_8 === 'false' ? false : true,
+
   // v10.16 NEW — real-money circuit breaker. If this many bot-opened
   // trades close as real losses IN A ROW, execution/protect.js
   // auto-engages the kill switch (same flag /pause uses) and sends a
