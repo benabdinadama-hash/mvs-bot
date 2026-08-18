@@ -70,15 +70,44 @@ const clearStaleLock = () => {
   } catch { /* no lock file present — nothing to do, this is the normal case */ }
 };
 
-const pullLatest = () => {
+// v10.23 FIX — a NEW, distinct git failure mode caught live: "error:
+// cannot lock ref 'refs/remotes/origin/main': is at X but expected Y".
+// This is a ref-lock RACE, not a local-file conflict (that's the
+// isLocalConflict branch below, a different problem with a different
+// fix) — it happens when two git operations hit this same repo at
+// almost the same instant. Confirmed from the actual log: the "is at"
+// value in one error became the "expected" value in the very next
+// error, moments later — proof two concurrent git processes were both
+// updating the same ref. Most likely cause: the watcher's own
+// automatic pull racing against a manual `git pull` run from the
+// same compound status-check command Ahmed runs by hand (which
+// includes its own separate `git pull`) — right after restarting the
+// watcher, which pulls immediately on startup. This is inherently
+// transient (the other process finishes in well under a second) —
+// unlike the local-conflict case, there's nothing to discard or fix,
+// just a genuine timing collision that resolves itself. Short delay,
+// then retry once.
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const pullLatest = async () => {
   clearStaleLock();
   try {
     execSync('git pull --quiet', { cwd: REPO_ROOT, stdio: 'pipe' });
   } catch (err) {
     const msg = err.message || '';
+    const isRefLockRace = msg.includes('cannot lock ref');
     const isLocalConflict = msg.includes('untracked working tree files would be overwritten')
       || msg.includes('Your local changes to the following files would be overwritten');
-    if (isLocalConflict) {
+    if (isRefLockRace) {
+      console.error('[watcher] git pull hit a ref-lock race (another git process updated the same ref at the same instant) — waiting 3s and retrying once.');
+      await sleep(3000);
+      try {
+        execSync('git pull --quiet', { cwd: REPO_ROOT, stdio: 'pipe' });
+        console.log('[watcher] Pull recovered after the ref-lock race cleared.');
+      } catch (err2) {
+        console.error(`[watcher] Pull still hitting a ref-lock race after retry: ${err2.message} — will retry next cycle.`);
+      }
+    } else if (isLocalConflict) {
       console.error('[watcher] git pull blocked by local open-positions.json/state.json — discarding and retrying (both are safely re-derivable, see comment above).');
       try {
         // Deliberately plain `rm`, not `git checkout --`: the real error
@@ -146,12 +175,12 @@ const checkForNewSignals = async () => {
   console.log(`Polling every ${POLL_INTERVAL_MS / 1000}s. Ctrl+C to stop.\n`);
 
   // Run once immediately, then on the interval.
-  pullLatest();
+  await pullLatest();
   await runProtectionCycle();
   await checkForNewSignals();
 
   setInterval(async () => {
-    pullLatest();
+    await pullLatest();
     await runProtectionCycle();
     await checkForNewSignals();
   }, POLL_INTERVAL_MS);
