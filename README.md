@@ -14,7 +14,7 @@ The name is genuinely technical, not arbitrary — and it's staying permanently.
 
 Considered renaming this to reflect that it now executes live (not just signals) — decided against it. The name has real history and real meaning behind it, and a rename would touch working Termux paths, clone URLs, and months of documentation for a purely cosmetic gain. See "Value Sniper-Crypto: Execute" in earlier project notes if curious what the alternative would have looked like — but MVS is the permanent name.
 
-![Version](https://img.shields.io/badge/Version-v10.22-purple?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-v10.23-purple?style=for-the-badge)
 
 > *"Structure is everything. If price isn't at a pillar, it's not a trade."*
 
@@ -1026,6 +1026,46 @@ and `config.js` if you want the exact numbers behind each change.
   - Re-run `node backtest.js` after deploying to confirm the live
     number — same standing practice as every other change in this
     file.
+
+- **v10.23 — (2026-08-17/18) three cleanup items from live use, plus a
+  real live-money bug caught from actual watcher logs.**
+  - **`NEAR_ZONE_USE_WICK` promoted to permanent default (true), the
+    per-run toggle removed entirely** (`wick` input deleted from
+    `mvs-backtest.yml` too — one place to change this now, not two),
+    by explicit request after repeated toggle fatigue. Worth being
+    honest about: this is the one setting in this file adopted on
+    cross-codebase evidence (from GWP-bots, where it graduated to
+    default-on after a real A/B backtest — every metric moved the same
+    direction across all three GWP markets) rather than a backtest
+    confirmed on MVS's own 20 KuCoin pairs directly, the stricter bar
+    every other v10.20/21/22 change was held to. Recommend one
+    confirming `node backtest.js` run to see MVS's own before/after
+    numbers with this permanently on.
+  - **A second, distinct git failure mode caught live and fixed:**
+    `error: cannot lock ref 'refs/remotes/origin/main': is at X but
+    expected Y` — a ref-lock RACE, not the local-file conflict
+    v10.18's fix handles (different problem, different fix). Confirmed
+    from the actual log: the "is at" value in one occurrence became
+    the "expected" value in the very next one moments later — proof
+    two git processes hit the same ref at almost the same instant.
+    Most likely source: the watcher's own automatic pull (fires
+    immediately on restart) racing against the standalone `git pull`
+    in the manual status-check command habitually run right after
+    restarting it. `pullLatest()` now detects this specific error,
+    waits 3s, and retries once — inherently a timing collision, not
+    something to discard/fix like the local-conflict case, so a short
+    wait is the correct remedy. Complementary, zero-code fix: drop the
+    standalone `git pull` from that manual status-check habit — the
+    watcher already keeps the repo current every 60s on its own, so
+    that manual pull is redundant and is the other half of the race.
+  - `strategy.js`'s top-of-file version comment was still reading
+    "v10.15.9" — cosmetic only, not a functional bug: the actual
+    Telegram-message version (`MVS_VERSION`) already reads dynamically
+    from `package.json` at runtime, so a signal showing an old version
+    number simply meant it fired before that specific `package.json`
+    update was deployed, not that anything was stale in the running
+    code. Comment corrected for hygiene; `package.json`'s `version`
+    field is the actual source of truth, already current.
 
 
 ## ⚠️ Important: Why KuCoin?
