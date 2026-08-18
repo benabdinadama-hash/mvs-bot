@@ -8,11 +8,10 @@ on:
       days:
         description: 'Days to backtest (leave blank for config.BACKTEST_DAYS)'
         required: false
-      wick:
-        description: 'Use wick-based zone touch (NEAR_ZONE_USE_WICK) instead of close-only?'
-        required: false
-        type: boolean
-        default: false
+      # v10.23: removed the `wick` (NEAR_ZONE_USE_WICK) toggle that used
+      # to live here. That setting is now a permanent default in
+      # config.js itself (see that file) — one place to change it, not
+      # two, and no more remembering to check a box each run.
 
 jobs:
   backtest:
@@ -25,8 +24,6 @@ jobs:
           node-version: '22'
       - run: npm install
       - run: node backtest.js ${{ inputs.symbol }} ${{ inputs.days }}
-        env:
-          NEAR_ZONE_USE_WICK: ${{ inputs.wick }}
       - name: Save backtest report
         run: |
           mkdir -p /tmp/reports
