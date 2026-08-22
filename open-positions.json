@@ -16,22 +16,6 @@
       "CLOSE_REJECTION"
     ]
   },
-  "AVAX-USDT": {
-    "symbol": "AVAX-USDT",
-    "direction": "BUY",
-    "entryTime": 1787375700,
-    "entryPrice": 6.681906,
-    "slPrice": 6.180715046859986,
-    "tp1Price": 7.283335143768015,
-    "tp2Price": 7.702695,
-    "origSlPrice": 6.180715046859986,
-    "rr1": 1.2,
-    "rr2": 2.04,
-    "pivot": "VAL",
-    "patterns": [
-      "CLOSE_REJECTION"
-    ]
-  },
   "NEAR-USDT": {
     "symbol": "NEAR-USDT",
     "direction": "BUY",
@@ -46,6 +30,25 @@
     "pivot": "VAL",
     "patterns": [
       "CLOSE_REJECTION"
+    ]
+  },
+  "TRX-USDT": {
+    "symbol": "TRX-USDT",
+    "direction": "BUY",
+    "entryTime": 1787376600,
+    "entryPrice": 0.3350944,
+    "slPrice": 0.3303695638253524,
+    "tp1Price": 0.3407642034095772,
+    "tp2Price": 0.350402,
+    "origSlPrice": 0.3303695638253524,
+    "rr1": 1.2,
+    "rr2": 3.24,
+    "pivot": "VAL",
+    "patterns": [
+      "POC_RECLAIM",
+      "PIN_BAR",
+      "CLOSE_REJECTION",
+      "LIQUIDITY_SWEEP"
     ]
   }
 }
