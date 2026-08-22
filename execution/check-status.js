@@ -20,6 +20,21 @@ const line = () => console.log('─'.repeat(50));
 (async () => {
   console.log('--- MVS Status Check ---\n');
 
+  // 0. Watcher heartbeat — v10.24 addition. This is the single fastest
+  // way to tell "watcher is alive and cycling normally" apart from
+  // "watcher process still exists per pgrep, but is wedged and hasn't
+  // completed a cycle in a while" — the exact failure mode that used
+  // to require a blind 2x pkill-and-restart to even notice.
+  try {
+    const hb = JSON.parse(fs.readFileSync(path.join(__dirname, 'heartbeat.json'), 'utf8'));
+    const ageSec = Math.round((Date.now() - new Date(hb.at).getTime()) / 1000);
+    const stale = ageSec > 150; // more than ~2.5 missed cycles at 60s each
+    console.log(`💓 Watcher heartbeat: ${hb.status} — ${ageSec}s ago${stale ? '  ⚠️ STALE — likely wedged, consider restarting the watcher' : ''}`);
+  } catch {
+    console.log('💓 Watcher heartbeat: (no heartbeat.json yet — old watcher.js, or not started since this update)');
+  }
+  line();
+
   // 1. Balance
   try {
     const wallet = await bybit.get('/v5/account/wallet-balance', { accountType: 'UNIFIED' });

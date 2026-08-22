@@ -25,6 +25,22 @@ const RECV_WINDOW = '20000'; // widened from 5000 — tolerates clock skew on ma
                              // (e.g. office PCs) whose system clock isn't tightly
                              // synced. Still well within Bybit's accepted range.
 
+// v10.24 FIX — root cause of the "watcher needs 2x pkill before it's
+// clear" symptom. axios has NO default timeout. On a phone hopping
+// between 4G towers / Doze-throttled background data, a request can
+// hang on an open TCP socket indefinitely — never resolving, never
+// rejecting. Since watcher.js's setInterval keeps firing every 60s
+// regardless of whether the previous cycle finished, a single hung
+// request here didn't just delay one cycle — it let every subsequent
+// cycle pile up behind it (new pullLatest() calls, new git processes,
+// new Bybit calls), which is what actually wedges the process. A
+// wedged process is still alive (pgrep still matches it) but stops
+// doing useful work, which is exactly what forced a manual restart —
+// and sometimes twice, because a fresh watcher started while the old
+// hung request/child processes were still unwinding. Fixed at the
+// root: every request now fails fast instead of hanging forever.
+const REQUEST_TIMEOUT_MS = 15000;
+
 // v10.16 FIX: credential check moved from module-load time to request time.
 // strategy.js now requires this module unconditionally (via execute-signal.js)
 // so it can fire live signals. If this threw at require() time, ANY run
@@ -76,10 +92,48 @@ const request = async (method, path, params = {}) => {
     'Content-Type': 'application/json',
   };
 
-  try {
-    const response = await axios({ method, url, headers, data });
+  // v10.24 FIX — one retry on genuine network-level failures only
+  // (timeout / connection reset / DNS blip) — the exact class of
+  // transient error a mobile connection produces routinely. Does NOT
+  // retry on a real Bybit error response (4xx/5xx with a retCode) —
+  // that's a genuine rejection, not a network hiccup, and retrying it
+  // blindly could double-submit an order. Only ever retries once, and
+  // only for GET-safe idempotent reads plus the specific write calls
+  // below that are themselves idempotent by design (setLeverage,
+  // switch-mode) — placeOrder is deliberately excluded, see below.
+  const attempt = async () => {
+    const response = await axios({ method, url, headers, data, timeout: REQUEST_TIMEOUT_MS });
     return response.data;
+  };
+
+  try {
+    return await attempt();
   } catch (err) {
+    const isNetworkError = !err.response && (
+      err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT' ||
+      err.code === 'ECONNRESET' || err.code === 'ENOTFOUND' ||
+      err.message?.includes('timeout')
+    );
+    // Never blind-retry a real order placement on a network error — if
+    // the first attempt's request actually reached Bybit and only the
+    // RESPONSE got lost to the network blip, a retry could place the
+    // same order twice. Every other call here (reads, setLeverage,
+    // switch-mode, closed-pnl lookups) is safe to retry because
+    // repeating them changes nothing or is a no-op if already applied.
+    const isSafeToRetry = isNetworkError && path !== '/v5/order/create';
+    if (isSafeToRetry) {
+      console.error(`[bybit-client] ${method} ${path} — network error (${err.code || err.message}), retrying once after 2s...`);
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        return await attempt();
+      } catch (err2) {
+        const bybitError2 = err2.response?.data;
+        throw new Error(
+          `Bybit API request failed after retry: ${method} ${path} — ` +
+          (bybitError2 ? JSON.stringify(bybitError2) : err2.message)
+        );
+      }
+    }
     // Deliberately do NOT log err.config.headers here — that would print
     // the API key and signature to console/CI logs. Only surface the
     // exchange's own error payload, which never contains credentials.

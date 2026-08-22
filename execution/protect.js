@@ -27,6 +27,12 @@ const config = require('../config');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
+
+const REPO_ROOT = path.join(__dirname, '..');
+const GIT_TIMEOUT_MS = 25000;
+const gitExec = (cmd) =>
+  execSync(cmd, { cwd: REPO_ROOT, stdio: 'pipe', timeout: GIT_TIMEOUT_MS, killSignal: 'SIGKILL' });
 
 const MAX_CONSECUTIVE_LOSSES = config.MAX_CONSECUTIVE_LOSSES || 3;
 
@@ -132,10 +138,63 @@ const reconcileLedger = async () => {
 // matching that symbol+direction, the signal side is force-closed to
 // match reality. Safe: only ever removes an entry, never invents one,
 // and only acts when Bybit explicitly confirms zero matching exposure.
+// v10.24 FIX — root cause of "Termux and Telegram don't correlate."
+// Everything above this comment only ever wrote to the LOCAL copies of
+// open-positions.json/state.json on the phone. Telegram's messages
+// (commands.js, /status, the pinned "MVS Positions" message) run
+// entirely on GitHub Actions (mvs-commands.yml), reading whatever is
+// currently COMMITTED in the repo — which never received this fix.
+// Net effect, confirmed against real logs: the phone would correctly
+// show 0 real positions forever, Telegram would show the same stale
+// "OPEN" forever, and because watcher.js's pullLatest() discards local
+// changes to these two files on every conflicting pull (by design —
+// see watcher.js), this fix was being silently redone locally every
+// ~60s without ever once reaching GitHub. This pushes it for real, so
+// the next GitHub Actions commands run picks it up and Telegram
+// converges with reality within one 5-10 min commands cycle.
+const pushSignalSideChanges = async (summary) => {
+  try {
+    gitExec('git add -f open-positions.json state.json');
+    // Nothing staged (e.g. GitHub Actions already committed the exact
+    // same end state in the meantime) — nothing to push, not an error.
+    try {
+      gitExec('git diff --cached --quiet');
+      return; // exit code 0 = no staged diff
+    } catch { /* exit code 1 = there IS a staged diff — continue below */ }
+
+    gitExec(`git commit -m "[protect] ${summary}"`);
+
+    // Two writers touch these files: GitHub Actions (adds new open
+    // positions when a signal fires) and this function (removes ones
+    // Bybit confirms closed). A push can legitimately be rejected if
+    // GitHub Actions committed in between — pull (merge, not rebase;
+    // see watcher.js's config note) and retry, bounded so this can
+    // never hang the protection cycle forever.
+    for (let i = 0; i < 3; i++) {
+      try {
+        gitExec('git push --quiet');
+        console.log(`[protect] ✅ Pushed signal-side fix to GitHub: ${summary}`);
+        return;
+      } catch (err) {
+        if (i === 2) throw err;
+        console.error('[protect] Push rejected (GitHub Actions likely committed in between) — pulling and retrying...');
+        gitExec('git pull --quiet');
+      }
+    }
+  } catch (err) {
+    // Never let a push failure block execution/protection — the local
+    // files are already correct; this only affects how fast Telegram
+    // catches up. Next cycle (60s) will try again.
+    console.error(`[protect] Could not push signal-side fix (will retry next cycle): ${err.message}`);
+  }
+};
+
 const syncOrphanedSignals = async () => {
   const openPositions = loadJSON(OPEN_POSITIONS_FILE, {});
   const symbols = Object.keys(openPositions);
   if (symbols.length === 0) return;
+
+  const closedThisCycle = [];
 
   for (const symbol of symbols) {
     try {
@@ -174,9 +233,14 @@ const syncOrphanedSignals = async () => {
         saveJSON(STATE_FILE, state);
       }
       console.log(`[protect] ${symbol} was stuck OPEN on the signal side — Bybit confirms 0 real position, force-synced closed.`);
+      closedThisCycle.push(symbol);
     } catch (err) {
       console.error(`[protect] syncOrphanedSignals failed for ${symbol}: ${err.message} — left as-is, will retry next cycle.`);
     }
+  }
+
+  if (closedThisCycle.length > 0) {
+    await pushSignalSideChanges(`sync signal-side state — closed on Bybit: ${closedThisCycle.join(', ')}`);
   }
 };
 
@@ -206,4 +270,4 @@ const runProtectionCycle = async () => {
   await checkCircuitBreaker();
 };
 
-module.exports = { runProtectionCycle, reconcileLedger, syncOrphanedSignals, checkCircuitBreaker, MAX_CONSECUTIVE_LOSSES };
+module.exports = { runProtectionCycle, reconcileLedger, syncOrphanedSignals, checkCircuitBreaker, pushSignalSideChanges, MAX_CONSECUTIVE_LOSSES };
