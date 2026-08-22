@@ -1,5 +1,184 @@
 [
   {
+    "symbol": "NEAR-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1787375700,
+    "entryPrice": 1.6890192,
+    "slPrice": 1.5467806945402476,
+    "tp1Price": 1.8597054065517027,
+    "tp2Price": 2.144186,
+    "risk": 0.14223850545975236,
+    "rr1": 1.1999999999999993,
+    "rr2": 3.2000251867719003,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "1H"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "NEUTRAL",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 3.731595407190109,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 1.6382510000000001,
+      "poc1d": 1.6222005
+    },
+    "alertDelivered": true,
+    "time": "2026-08-22T05:15:45.623Z"
+  },
+  {
+    "symbol": "AVAX-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1787375700,
+    "entryPrice": 6.681906,
+    "slPrice": 6.180715046859986,
+    "tp1Price": 7.283335143768015,
+    "tp2Price": 7.702695,
+    "risk": 0.5011909531400134,
+    "rr1": 1.1999999999999993,
+    "rr2": 2.036726707863842,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "5/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "1H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 2.280617674446018,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 6.520555000000001,
+      "poc1d": 6.60334
+    },
+    "alertDelivered": true,
+    "time": "2026-08-22T05:15:25.352Z"
+  },
+  {
+    "symbol": "ADA-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1787375700,
+    "entryPrice": 0.1899822,
+    "slPrice": 0.16888227290733845,
+    "tp1Price": 0.21530211251119383,
+    "tp2Price": 0.2581635,
+    "risk": 0.021099927092661536,
+    "rr1": 1.1999999999999997,
+    "rr2": 3.231352397597296,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "POC_RECLAIM",
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "5/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "1H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 0.65,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 3.5165314418161437,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.1865775,
+      "poc1d": 0.16591350000000002
+    },
+    "alertDelivered": true,
+    "time": "2026-08-22T05:15:20.565Z"
+  },
+  {
     "symbol": "BTC-USDT",
     "signal": "FIRED",
     "direction": "BUY",

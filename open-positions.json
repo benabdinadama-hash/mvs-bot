@@ -1,1 +1,51 @@
-{}
+{
+  "ADA-USDT": {
+    "symbol": "ADA-USDT",
+    "direction": "BUY",
+    "entryTime": 1787375700,
+    "entryPrice": 0.1899822,
+    "slPrice": 0.16888227290733845,
+    "tp1Price": 0.21530211251119383,
+    "tp2Price": 0.2581635,
+    "origSlPrice": 0.16888227290733845,
+    "rr1": 1.2,
+    "rr2": 3.23,
+    "pivot": "VAL",
+    "patterns": [
+      "POC_RECLAIM",
+      "CLOSE_REJECTION"
+    ]
+  },
+  "AVAX-USDT": {
+    "symbol": "AVAX-USDT",
+    "direction": "BUY",
+    "entryTime": 1787375700,
+    "entryPrice": 6.681906,
+    "slPrice": 6.180715046859986,
+    "tp1Price": 7.283335143768015,
+    "tp2Price": 7.702695,
+    "origSlPrice": 6.180715046859986,
+    "rr1": 1.2,
+    "rr2": 2.04,
+    "pivot": "VAL",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ]
+  },
+  "NEAR-USDT": {
+    "symbol": "NEAR-USDT",
+    "direction": "BUY",
+    "entryTime": 1787375700,
+    "entryPrice": 1.6890192,
+    "slPrice": 1.5467806945402476,
+    "tp1Price": 1.8597054065517027,
+    "tp2Price": 2.144186,
+    "origSlPrice": 1.5467806945402476,
+    "rr1": 1.2,
+    "rr2": 3.2,
+    "pivot": "VAL",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ]
+  }
+}
