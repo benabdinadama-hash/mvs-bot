@@ -23,7 +23,44 @@ const { runProtectionCycle } = require('./protect');
 const REPO_ROOT = path.join(__dirname, '..');
 const SIGNALS_LOG = path.join(REPO_ROOT, 'signals.log.json');
 const EXECUTED_LOG = path.join(__dirname, 'executed-signals.json');
+const HEARTBEAT_FILE = path.join(__dirname, 'heartbeat.json');
 const POLL_INTERVAL_MS = 60 * 1000; // check every 60s — matches the 15m scan cadence with margin to spare
+
+// v10.24 FIX — every git exec in this file used to run with no timeout.
+// On a phone's mobile connection, `git pull`/`git push` over HTTPS can
+// hang on a half-open socket indefinitely instead of erroring. Nothing
+// downstream ever saw a failure to react to — the async function just
+// never resolved. Every git exec below now has a hard wall-clock cap;
+// killSignal SIGKILL because a plain SIGTERM doesn't reliably stop git
+// mid-network-call on Android/Termux.
+const GIT_TIMEOUT_MS = 25000;
+const gitExec = (cmd, opts = {}) =>
+  execSync(cmd, { cwd: REPO_ROOT, stdio: 'pipe', timeout: GIT_TIMEOUT_MS, killSignal: 'SIGKILL', ...opts });
+
+// v10.24 FIX — the actual mechanism behind "watcher needs 2x pkill
+// before it comes clear." setInterval fires every 60s NO MATTER WHAT,
+// even if the previous cycle (pullLatest + protect + checkForNewSignals)
+// hasn't finished. Combine that with any hang (a slow git pull, a slow
+// Bybit call) and cycles start stacking: two, three, four overlapping
+// runs all doing `git pull` at once, all fighting over .git/index.lock,
+// which is exactly the repeated "ref-lock race" / "pull blocked by
+// local changes" pairs seen twice in a row in the real watcher log —
+// two overlapping cycles hitting the same recovery path back to back.
+// The process stays alive (pgrep still matches it) while doing nothing
+// useful, and new FIRED signals in signals.log.json just sit unexecuted
+// the whole time. This flag makes a cycle skip cleanly instead of
+// stacking if the previous one is still running.
+let cycleInProgress = false;
+
+const writeHeartbeat = (status, extra = {}) => {
+  try {
+    fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify({
+      status, at: new Date().toISOString(), ...extra,
+    }, null, 2));
+  } catch (err) {
+    console.error(`[watcher] Could not write heartbeat: ${err.message}`);
+  }
+};
 
 const loadExecuted = () => {
   try { return JSON.parse(fs.readFileSync(EXECUTED_LOG, 'utf8')); }
@@ -92,7 +129,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const pullLatest = async () => {
   clearStaleLock();
   try {
-    execSync('git pull --quiet', { cwd: REPO_ROOT, stdio: 'pipe' });
+    gitExec('git pull --quiet');
   } catch (err) {
     const msg = err.message || '';
     const isRefLockRace = msg.includes('cannot lock ref');
@@ -102,7 +139,7 @@ const pullLatest = async () => {
       console.error('[watcher] git pull hit a ref-lock race (another git process updated the same ref at the same instant) — waiting 3s and retrying once.');
       await sleep(3000);
       try {
-        execSync('git pull --quiet', { cwd: REPO_ROOT, stdio: 'pipe' });
+        gitExec('git pull --quiet');
         console.log('[watcher] Pull recovered after the ref-lock race cleared.');
       } catch (err2) {
         console.error(`[watcher] Pull still hitting a ref-lock race after retry: ${err2.message} — will retry next cycle.`);
@@ -123,7 +160,7 @@ const pullLatest = async () => {
           const fp = path.join(REPO_ROOT, f);
           if (fs.existsSync(fp)) fs.unlinkSync(fp);
         }
-        execSync('git pull --quiet', { cwd: REPO_ROOT, stdio: 'pipe' });
+        gitExec('git pull --quiet');
         // A file we deleted above might not have been part of THIS
         // pull's incoming diff (e.g. only open-positions.json changed
         // remotely, not state.json) — git's merge only recreates files
@@ -131,7 +168,7 @@ const pullLatest = async () => {
         // otherwise stay missing from disk. Force both back to exactly
         // what's now in HEAD (guaranteed to succeed post-pull) so
         // neither file is ever left missing.
-        execSync('git checkout HEAD -- open-positions.json state.json', { cwd: REPO_ROOT, stdio: 'pipe' });
+        gitExec('git checkout HEAD -- open-positions.json state.json');
         console.log('[watcher] Pull recovered after discarding local changes.');
       } catch (err2) {
         console.error(`[watcher] Pull still failing after recovery attempt: ${err2.message} — will retry next cycle.`);
@@ -170,18 +207,41 @@ const checkForNewSignals = async () => {
   }
 };
 
+const runCycle = async () => {
+  if (cycleInProgress) {
+    // The previous cycle is still running — this is the case that used
+    // to silently stack overlapping git/API calls. Skip this tick
+    // cleanly instead; the next tick will try again, and the heartbeat
+    // file's age (see check-status.js) makes this visible from Termux
+    // if it keeps happening instead of resolving within a cycle or two.
+    console.error('[watcher] Previous cycle still in progress — skipping this tick instead of stacking on top of it.');
+    writeHeartbeat('skipped_overlap');
+    return;
+  }
+  cycleInProgress = true;
+  try {
+    await pullLatest();
+    await runProtectionCycle();
+    await checkForNewSignals();
+    writeHeartbeat('ok');
+  } catch (err) {
+    // v10.24 FIX — previously an uncaught error anywhere in this chain
+    // would crash the whole process silently into the log file, with
+    // nothing to auto-restart it until you noticed and ran
+    // start-watcher.sh again by hand. Logging + heartbeating here keeps
+    // the process (and setInterval) alive so it can recover on its own
+    // next tick if the error was transient.
+    console.error(`[watcher] Cycle failed: ${err.message}`);
+    writeHeartbeat('error', { error: err.message });
+  } finally {
+    cycleInProgress = false;
+  }
+};
+
 (async () => {
   console.log('--- MVS execution watcher started ---');
   console.log(`Polling every ${POLL_INTERVAL_MS / 1000}s. Ctrl+C to stop.\n`);
 
-  // Run once immediately, then on the interval.
-  await pullLatest();
-  await runProtectionCycle();
-  await checkForNewSignals();
-
-  setInterval(async () => {
-    await pullLatest();
-    await runProtectionCycle();
-    await checkForNewSignals();
-  }, POLL_INTERVAL_MS);
+  await runCycle();
+  setInterval(runCycle, POLL_INTERVAL_MS);
 })();

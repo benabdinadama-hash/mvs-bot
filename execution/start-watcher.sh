@@ -40,3 +40,18 @@ disown
 
 echo "✅ Watcher started in background. Logging to $LOG_FILE"
 echo "Check it's alive anytime with: pgrep -f 'node execution/watcher.js'"
+
+# v10.24 addition — also (re)start the watchdog, unless THIS start was
+# itself called BY the watchdog (the --from-watchdog flag prevents it
+# spawning a second copy of itself on every restart it performs).
+if [ "$1" != "--from-watchdog" ]; then
+  if pgrep -f "execution/watchdog.sh" > /dev/null; then
+    echo "✅ Watchdog already running. Nothing to do."
+  else
+    WATCHDOG_LOG="execution/logs/watchdog-$(date +%Y%m%d).log"
+    nohup bash execution/watchdog.sh >> "$WATCHDOG_LOG" 2>&1 &
+    disown
+    echo "✅ Watchdog started in background. Logging to $WATCHDOG_LOG"
+    echo "It checks execution/heartbeat.json every 3 min and auto-restarts the watcher if it ever goes stale/wedged again."
+  fi
+fi
