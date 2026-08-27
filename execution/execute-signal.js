@@ -50,6 +50,19 @@ const executeSignal = async (signal) => {
     return { executed: false, reason: 'MAX_CONCURRENT_TRADES_REACHED' };
   }
 
+  // 2b. v10.25: symbol-specific duplicate check — a backstop against
+  //     double-execution regardless of cause. The count check above
+  //     only limits the TOTAL number of open trades; it does nothing to
+  //     stop two independent execution attempts for the SAME signal
+  //     (e.g. strategy.js's inline call and watcher.js's poll loop, if
+  //     they were ever to race) from both passing it and both placing a
+  //     real order on the same symbol. This closes that gap directly,
+  //     independent of whatever process/path called executeSignal().
+  if (ledger.isSymbolOpen(bybitSymbol)) {
+    console.log(`${tag} Already have an open position on ${bybitSymbol} in our ledger — skipping to avoid a duplicate order.`);
+    return { executed: false, reason: 'SYMBOL_ALREADY_OPEN' };
+  }
+
   // 3. Leverage — capped down from the 20x ceiling if this trade's
   //    technical SL is wider than what 20x's liquidation buffer allows.
   const { leverage, slDistancePct, capped } = computeSafeLeverage(entryPrice, slPrice, MAX_LEVERAGE);

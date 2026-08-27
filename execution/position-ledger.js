@@ -113,6 +113,16 @@ const countOpen = () => load().filter(e => e.status === 'open').length;
 
 const getOpen = () => load().filter(e => e.status === 'open');
 
+// v10.25: symbol-specific check, used by execute-signal.js as a backstop
+// against double-execution — independent of WHY two execution attempts
+// might happen for the same signal (GitHub Actions + watcher.js racing,
+// a manual `node strategy.js` run on Termux overlapping with watcher.js,
+// or any future scenario not anticipated here). countOpen()/MAX_CONCURRENT_TRADES
+// only ever checked a TOTAL count, never "is this exact symbol already
+// open" — so two attempts for the same signal could both pass that
+// check and both place a real order. This closes that gap directly.
+const isSymbolOpen = (bybitSymbol) => load().some(e => e.status === 'open' && e.symbol === bybitSymbol);
+
 // Most recent N CLOSED trades, newest first — used by protect.js to
 // check consecutive-loss / drawdown rules. Never includes open trades.
 const getRecentClosed = (n = 10) => load()
@@ -120,4 +130,4 @@ const getRecentClosed = (n = 10) => load()
   .sort((a, b) => (b.closedAt || 0) - (a.closedAt || 0))
   .slice(0, n);
 
-module.exports = { recordOpened, recordClosed, markPendingClose, clearPendingClose, forceCloseStalePending, countOpen, getOpen, getRecentClosed, LEDGER_FILE };
+module.exports = { recordOpened, recordClosed, markPendingClose, clearPendingClose, forceCloseStalePending, countOpen, getOpen, isSymbolOpen, getRecentClosed, LEDGER_FILE };
