@@ -216,7 +216,7 @@
     "updatedAt": "2026-08-27T10:00:44.092Z"
   },
   "NEAR-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "entryPrice": 1.8662383999999999,
     "slPrice": 1.8029321391769295,
@@ -246,7 +246,9 @@
     "lastSignalBar": 1787824800,
     "lastSignalDir": "BUY",
     "alertDelivered": true,
-    "updatedAt": "2026-08-27T10:00:46.687Z"
+    "updatedAt": "2026-08-27T10:01:05.535Z",
+    "exitTime": 1787824865,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "APT-USDT": {
     "signal": "WAITING_FOR_ZONE",
