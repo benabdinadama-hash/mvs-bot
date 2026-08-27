@@ -929,17 +929,40 @@ risk capital you can't afford to lose on a single position.
     // so the signal is always recorded/alerted first regardless of what
     // happens in execution. See execution/execute-signal.js for the full
     // logic (kill switch, leverage cap, position sizing, DRY_RUN).
-    try {
-      const execResult = await executeSignal({
-        symbol, direction, entryPrice: bestFibLevel,
-        slPrice: levels.slPrice, tp1Price: levels.tp1Price,
-      });
-      console.log(`  ↳ execution result:`, JSON.stringify(execResult));
-    } catch (err) {
-      // Execution failures must NEVER crash the scan loop or block other
-      // symbols — a signal that fails to execute is still a valid,
-      // correctly-alerted signal. Log loudly and move on.
-      console.error(`  ❌ executeSignal threw for ${symbol}:`, err.message);
+    //
+    // v10.25 FIX: this call is now skipped entirely when running on
+    // GitHub Actions (process.env.GITHUB_ACTIONS is set by GitHub on
+    // every hosted-runner job). Reason: strategy.js runs on BOTH GitHub
+    // Actions (mvs-scan.yml, every 15 min) AND is the same file
+    // execution/watcher.js's poll loop effectively re-triggers via its
+    // own independent call to executeSignal() on Termux. Before this
+    // fix, BOTH paths could call executeSignal() for the same fired
+    // signal with no shared check between them — watcher.js only tracks
+    // signals IT has personally executed, and executeSignal()'s only
+    // safety check is a total open-trade COUNT (max 3), never "is this
+    // exact symbol already open." In practice this has stayed safe only
+    // because Bybit's IP block against GitHub Actions has held so far —
+    // not a guarantee against a huge, rotating cloud IP range. Rather
+    // than trust that indefinitely, this now makes watcher.js (Termux)
+    // the ONE code path that ever calls executeSignal() for real,
+    // matching the README's own Phase 3/4 design intent. GitHub Actions
+    // runs still fire the Telegram alert and log the signal to
+    // signals.log.json as before — watcher.js picks it up from there.
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      console.log(`  ↳ execution skipped here (running on GitHub Actions) — watcher.js on Termux will pick this signal up from signals.log.json.`);
+    } else {
+      try {
+        const execResult = await executeSignal({
+          symbol, direction, entryPrice: bestFibLevel,
+          slPrice: levels.slPrice, tp1Price: levels.tp1Price,
+        });
+        console.log(`  ↳ execution result:`, JSON.stringify(execResult));
+      } catch (err) {
+        // Execution failures must NEVER crash the scan loop or block other
+        // symbols — a signal that fails to execute is still a valid,
+        // correctly-alerted signal. Log loudly and move on.
+        console.error(`  ❌ executeSignal threw for ${symbol}:`, err.message);
+      }
     }
 
   } catch (err) {
