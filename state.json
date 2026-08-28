@@ -146,7 +146,7 @@
     "updatedAt": "2026-08-28T10:30:34.357Z"
   },
   "TRX-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "entryPrice": 0.3365606,
     "slPrice": 0.3335648598398898,
@@ -174,7 +174,9 @@
     "lastSignalBar": 1787911200,
     "lastSignalDir": "BUY",
     "alertDelivered": true,
-    "updatedAt": "2026-08-28T10:30:37.010Z"
+    "updatedAt": "2026-08-28T10:31:12.044Z",
+    "exitTime": 1787913072,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "POL-USDT": {
     "signal": "WAITING_FOR_ZONE",
