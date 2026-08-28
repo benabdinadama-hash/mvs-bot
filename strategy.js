@@ -954,7 +954,7 @@ risk capital you can't afford to lose on a single position.
       try {
         const execResult = await executeSignal({
           symbol, direction, entryPrice: bestFibLevel,
-          slPrice: levels.slPrice, tp1Price: levels.tp1Price,
+          slPrice: levels.slPrice, tp1Price: levels.tp1Price, tp2Price: levels.tp2Price,
         });
         console.log(`  ↳ execution result:`, JSON.stringify(execResult));
       } catch (err) {
