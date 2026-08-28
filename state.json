@@ -159,7 +159,7 @@
     "updatedAt": "2026-08-28T09:45:36.207Z"
   },
   "TRX-USDT": {
-    "signal": "SCANNED",
+    "signal": "CLOSED_EXCHANGE",
     "price": 0.3397,
     "direction": "BUY",
     "voteTally": "4/5",
@@ -180,7 +180,9 @@
     "swingHigh": 0.3467,
     "swingLow": 0.3338,
     "atr1h": 0.0009304757003211971,
-    "updatedAt": "2026-08-28T09:45:38.346Z"
+    "updatedAt": "2026-08-28T09:49:02.973Z",
+    "exitTime": 1787910542,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "POL-USDT": {
     "signal": "WAITING_FOR_ZONE",
