@@ -198,7 +198,7 @@ const checkForNewSignals = async () => {
     console.log(`[watcher] New signal found: ${s.symbol} ${s.direction} @ ${s.entryPrice} — executing...`);
     const result = await executeSignal({
       symbol: s.symbol, direction: s.direction,
-      entryPrice: s.entryPrice, slPrice: s.slPrice, tp1Price: s.tp1Price,
+      entryPrice: s.entryPrice, slPrice: s.slPrice, tp1Price: s.tp1Price, tp2Price: s.tp2Price,
     });
     console.log(`[watcher] Result:`, JSON.stringify(result));
 

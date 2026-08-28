@@ -27,9 +27,15 @@ const save = (entries) => {
   fs.writeFileSync(LEDGER_FILE, JSON.stringify(entries, null, 2));
 };
 
-const recordOpened = ({ symbol, side, orderId, entryTime, margin, leverage }) => {
+// v10.26: accepts any extra fields the caller wants stored (e.g. the
+// split/qty1/tp1OrderId/qty2/tp2OrderId from a genuine partial-exit
+// entry) without needing this function's signature to know about each
+// one — spreads whatever it's given straight through. Fully backward
+// compatible: the old { symbol, side, orderId, entryTime, margin,
+// leverage } shape still works exactly as before.
+const recordOpened = (details) => {
   const entries = load();
-  entries.push({ symbol, side, orderId, entryTime, margin, leverage, status: 'open' });
+  entries.push({ ...details, status: 'open' });
   save(entries);
 };
 

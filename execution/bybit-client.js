@@ -174,4 +174,21 @@ module.exports = {
                      // hedge. Requires the account itself to also be set
                      // to One-Way Mode — see execution/set-position-mode.js.
   }),
+
+  // v10.26: one leg of a genuine partial exit (TP1 or TP2) — a resting
+  // Limit order at a specific target price, reduceOnly so it can only
+  // ever shrink the existing position, never open a new one or flip
+  // direction (Bybit enforces this server-side too, but setting it
+  // explicitly is the whole point of using this over placeOrder's
+  // single Market+TP shape). GTC because this needs to sit and wait to
+  // be triggered, unlike the entry order's IOC. See execute-signal.js
+  // for why this exists — the short version: the entry order's own
+  // stopLoss (Full mode, the default) keeps protecting whatever
+  // quantity remains after this fills, per Bybit's own docs ("Once the
+  // order is fully or partially filled, the TP/SL order will be placed
+  // for the entire position") — confirmed before relying on it here.
+  placeReduceOnlyLimit: ({ symbol, side, qty, price }) => request('POST', '/v5/order/create', {
+    category: 'linear', symbol, side, orderType: 'Limit', qty: String(qty), price: String(price),
+    reduceOnly: true, timeInForce: 'GTC', positionIdx: 0,
+  }),
 };
