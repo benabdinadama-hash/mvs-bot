@@ -3,6 +3,66 @@
     "symbol": "TRX-USDT",
     "signal": "FIRED",
     "direction": "BUY",
+    "entryTime": 1787913900,
+    "entryPrice": 0.3365606,
+    "slPrice": 0.33354343126846125,
+    "tp1Price": 0.34025,
+    "tp2Price": 0.3466355,
+    "risk": 0.003017168731538733,
+    "rr1": 1.2228020135017255,
+    "rr2": 3.3391901137931637,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "5/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "1H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 2.664746472684076,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.33609,
+      "poc1d": 0.327881
+    },
+    "alertDelivered": true,
+    "time": "2026-08-28T10:45:36.683Z"
+  },
+  {
+    "symbol": "TRX-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
     "entryTime": 1787913000,
     "entryPrice": 0.3365606,
     "slPrice": 0.3335648598398898,
