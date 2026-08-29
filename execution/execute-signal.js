@@ -73,9 +73,46 @@ const executeSignal = async (signal) => {
   //     they were ever to race) from both passing it and both placing a
   //     real order on the same symbol. This closes that gap directly,
   //     independent of whatever process/path called executeSignal().
-  if (ledger.isSymbolOpen(bybitSymbol)) {
+  const ledgerSaysOpen = ledger.isSymbolOpen(bybitSymbol);
+  if (ledgerSaysOpen) {
     console.log(`${tag} Already have an open position on ${bybitSymbol} in our ledger — skipping to avoid a duplicate order.`);
     return { executed: false, reason: 'SYMBOL_ALREADY_OPEN' };
+  }
+
+  // 2c. v10.28 FIX — defense-in-depth: don't just trust the local ledger
+  // file, confirm against Bybit's own live position list directly.
+  // Confirmed real: our-positions.json went from correctly showing an
+  // open TRXUSDT entry to a fully empty array between two check-status.js
+  // runs, while the REAL Bybit position was (and still is) genuinely
+  // open the entire time. Traced through both reconcileLedger() and
+  // watcher.js's pull-conflict recovery in detail — neither one actually
+  // deletes an entry from the ledger array (they only ever change its
+  // status field), so the exact mechanism that produced a fully empty
+  // array isn't pinned down with certainty. Rather than guess at one
+  // specific cause and patch only that, this closes the CONSEQUENCE
+  // directly: isSymbolOpen() saying "no" is no longer trusted alone —
+  // the exchange itself is asked too, as the one source of truth that
+  // can't be out of sync with itself. Logs loudly if the two ever
+  // disagree, so a recurrence is visible in the log even before it
+  // matters for a new trade.
+  try {
+    const livePositions = await bybit.get('/v5/position/list', { category: 'linear', symbol: bybitSymbol });
+    const realOpenPosition = (livePositions.result?.list || []).find(p => parseFloat(p.size) > 0);
+    if (realOpenPosition) {
+      if (!ledgerSaysOpen) {
+        console.error(`${tag} ⚠️ LEDGER MISMATCH: our-positions.json says ${bybitSymbol} is not open, but Bybit shows a real ` +
+          `open position (size=${realOpenPosition.size}, side=${realOpenPosition.side}). Trusting Bybit — refusing to enter. ` +
+          `The local ledger is out of sync with reality and should be checked manually.`);
+      }
+      console.log(`${tag} Bybit's own position list shows ${bybitSymbol} already has a real open position — skipping to avoid a duplicate order.`);
+      return { executed: false, reason: 'SYMBOL_ALREADY_OPEN_ON_EXCHANGE' };
+    }
+  } catch (err) {
+    // Can't confirm either way — refuse to enter rather than risk a
+    // duplicate. This is a stricter gate than the ledger check above,
+    // never a looser one.
+    console.error(`${tag} Failed to verify live position state on Bybit: ${err.message} — refusing to execute rather than risk a duplicate.`);
+    return { executed: false, reason: 'POSITION_CHECK_FAILED', error: err.message };
   }
 
   // 3. v10.27 FIX — fetch a live price and validate the signal's target
