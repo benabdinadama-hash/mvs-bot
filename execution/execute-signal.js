@@ -78,14 +78,69 @@ const executeSignal = async (signal) => {
     return { executed: false, reason: 'SYMBOL_ALREADY_OPEN' };
   }
 
-  // 3. Leverage — capped down from the 20x ceiling if this trade's
+  // 3. v10.27 FIX — fetch a live price and validate the signal's target
+  //    levels are still ahead of it before ever entering. Confirmed root
+  //    cause of a real bad fill: TRX-USDT fired at 10:45 (theoretical
+  //    entry 0.3365606, TP1 0.34025) but didn't actually execute until
+  //    11:52 — 67 minutes later, almost certainly the git-pull/DNS
+  //    failures visible in the watcher log around that time. By then the
+  //    REAL market price had already climbed to 0.3405 — past where TP1
+  //    was calculated. The TP1 reduce-only limit order was placed BELOW
+  //    the live price and filled INSTANTLY the moment it was submitted,
+  //    capturing essentially zero profit (44 TRX exited at ~breakeven)
+  //    instead of ever being a genuine resting target. This check catches
+  //    that before entry ever happens, not after.
+  let lastPrice;
+  try {
+    const tickerRes = await bybit.getTicker(bybitSymbol);
+    const rawPrice = tickerRes?.result?.list?.[0]?.lastPrice;
+    if (tickerRes.retCode !== 0 || !rawPrice) {
+      throw new Error(`getTicker failed or returned no price: ${tickerRes.retMsg || 'empty result'} (code ${tickerRes.retCode})`);
+    }
+    lastPrice = parseFloat(rawPrice);
+  } catch (err) {
+    console.error(`${tag} Failed to fetch live price for staleness check: ${err.message}`);
+    return { executed: false, reason: 'TICKER_FETCH_FAILED', error: err.message };
+  }
+
+  // Reject if price has already blown through the stop-loss level —
+  // entering now would mean starting the trade already invalidated
+  // relative to its own risk boundary.
+  const pastSl = direction === 'BUY' ? lastPrice <= slPrice : lastPrice >= slPrice;
+  if (pastSl) {
+    console.error(`${tag} Live price ${lastPrice} is already at/through the stop-loss ${slPrice} — thesis invalidated. Skipping.`);
+    return { executed: false, reason: 'SIGNAL_STALE_PAST_SL', lastPrice, slPrice };
+  }
+
+  // Reject if price has already consumed most/all of the intended move
+  // to TP1 — requires at least MIN_REMAINING_PCT of the ORIGINAL
+  // theoretical distance (from the signal's stale entryPrice to TP1)
+  // still ahead of the live price. This is the exact check that would
+  // have caught the TRX case: remainingToTp1 was negative (price had
+  // already passed TP1 entirely).
+  const MIN_REMAINING_PCT = 0.15;
+  if (tp1Price) {
+    const originalToTp1 = direction === 'BUY' ? (tp1Price - entryPrice) : (entryPrice - tp1Price);
+    const remainingToTp1 = direction === 'BUY' ? (tp1Price - lastPrice) : (lastPrice - tp1Price);
+    if (originalToTp1 > 0 && remainingToTp1 < originalToTp1 * MIN_REMAINING_PCT) {
+      const pctLeft = Math.round((remainingToTp1 / originalToTp1) * 100);
+      console.error(`${tag} Signal is stale — live price ${lastPrice} has already consumed most/all of the move to TP1 ${tp1Price} ` +
+        `(theoretical entry was ${entryPrice}, only ~${pctLeft}% of the original TP1 distance remains, need ≥${MIN_REMAINING_PCT * 100}%). Skipping — market has moved past this setup.`);
+      return { executed: false, reason: 'SIGNAL_STALE_PRICE_MOVED', lastPrice, tp1Price, entryPrice, pctOfMoveRemaining: pctLeft };
+    }
+  }
+
+  // 4. Leverage — capped down from the 20x ceiling if this trade's
   //    technical SL is wider than what 20x's liquidation buffer allows.
-  const { leverage, slDistancePct, capped } = computeSafeLeverage(entryPrice, slPrice, MAX_LEVERAGE);
+  //    Uses the LIVE price, not the signal's stale theoretical entryPrice
+  //    — this is what the real entry (a Market order) will actually fill
+  //    near, so sizing math should be based on it too.
+  const { leverage, slDistancePct, capped } = computeSafeLeverage(lastPrice, slPrice, MAX_LEVERAGE);
   if (capped) {
     console.log(`${tag} SL distance ${slDistancePct}% is wide — leverage auto-capped to ${leverage}x (ceiling is ${MAX_LEVERAGE}x).`);
   }
 
-  // 4. Quantity — respecting the exchange's real lot-size rules for this
+  // 5. Quantity — respecting the exchange's real lot-size rules for this
   //    symbol (this is the step that prevents "wrong decimal" mistakes).
   let instrument;
   try {
@@ -96,7 +151,7 @@ const executeSignal = async (signal) => {
   }
 
   const notional = MARGIN_PER_TRADE_USDT * leverage;
-  const rawQty = notional / entryPrice;
+  const rawQty = notional / lastPrice;
   const qty = roundQtyDown(rawQty, instrument.qtyStep);
 
   if (qty < instrument.minOrderQty) {
@@ -131,19 +186,19 @@ const executeSignal = async (signal) => {
   const plan = {
     symbol: bybitSymbol, side, qty, leverage,
     marginUsdt: MARGIN_PER_TRADE_USDT, notionalUsdt: parseFloat(notional.toFixed(2)),
-    entryPrice, slPrice: roundedSl, slDistancePct,
+    theoreticalEntryPrice: entryPrice, lastPrice, slPrice: roundedSl, slDistancePct,
     ...(canSplit
       ? { split: true, qty1, tp1Price: roundedTp1, qty2, tp2Price: roundedTp2 }
       : { split: false, tp1Price: roundedTp1, note: roundedTp2 ? 'position too small to split into two legal partial exits — full qty exits at TP1' : 'no tp2Price on this signal — single-TP behavior' }),
   };
 
-  // 5. DRY RUN — compute and log everything above, touch nothing real.
+  // 6. DRY RUN — compute and log everything above, touch nothing real.
   if (DRY_RUN) {
     console.log(`${tag} [DRY RUN] Would place order:`, JSON.stringify(plan, null, 2));
     return { executed: false, reason: 'DRY_RUN', plan };
   }
 
-  // 6. LIVE — set leverage, place the entry (SL always attached — Bybit's
+  // 7. LIVE — set leverage, place the entry (SL always attached — Bybit's
   //    default "Full" mode SL automatically keeps protecting whatever
   //    quantity remains after a partial TP fill, confirmed against
   //    Bybit's own docs before relying on this: "Once the order is fully

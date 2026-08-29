@@ -191,4 +191,10 @@ module.exports = {
     category: 'linear', symbol, side, orderType: 'Limit', qty: String(qty), price: String(price),
     reduceOnly: true, timeInForce: 'GTC', positionIdx: 0,
   }),
+
+  // v10.27: fresh live price, fetched right before executing a signal —
+  // see execute-signal.js for why. Public endpoint (no auth strictly
+  // required) but reused through the same signed request() helper for
+  // consistency (retry/timeout handling all just works the same way).
+  getTicker: (symbol) => request('GET', '/v5/market/tickers', { category: 'linear', symbol }),
 };
