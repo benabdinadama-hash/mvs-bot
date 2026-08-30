@@ -2,29 +2,29 @@
   "ETH-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "BUY",
-    "price": 2505.26,
+    "price": 2499.63,
     "bias1d": "BULLISH",
     "bias4h": "BULLISH",
     "bias1h": "NEUTRAL",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:10.931Z"
+    "updatedAt": "2026-08-30T19:45:11.631Z"
   },
-  "_lastRunAt": "2026-08-30T19:30:53.046Z",
+  "_lastRunAt": "2026-08-30T19:45:53.185Z",
   "SOL-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "BUY",
-    "price": 106.21,
+    "price": 105.61,
     "bias1d": "BULLISH",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
     "bias30m": "BULLISH",
-    "bias15m": "NEUTRAL",
-    "updatedAt": "2026-08-30T19:30:13.135Z"
+    "bias15m": "BEARISH",
+    "updatedAt": "2026-08-30T19:45:13.813Z"
   },
   "BTC-USDT": {
     "signal": "SCANNED",
-    "price": 78909.7,
+    "price": 78798.3,
     "direction": "BUY",
     "voteTally": "3/5",
     "agreeing": [
@@ -42,12 +42,82 @@
     "val": 78096.7465,
     "swingHigh": 81469,
     "swingLow": 76880.9,
-    "atr1h": 279.52815138426365,
-    "updatedAt": "2026-08-30T19:30:15.375Z"
+    "atr1h": 288.2852942414059,
+    "updatedAt": "2026-08-30T19:45:15.997Z"
   },
   "XRP-USDT": {
     "signal": "SCANNED",
-    "price": 1.41478,
+    "price": 1.41063,
+    "direction": "BUY",
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "30m",
+      "15m"
+    ],
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "poc": 1.4139737000000001,
+    "vah": 1.4734493,
+    "val": 1.3930471,
+    "swingHigh": 1.474,
+    "swingLow": 1.36386,
+    "atr1h": 0.01131051366549013,
+    "updatedAt": "2026-08-30T19:45:18.182Z"
+  },
+  "ADA-USDT": {
+    "signal": "NO_AGREEMENT",
+    "direction": null,
+    "price": 0.2031,
+    "bias1d": "NEUTRAL",
+    "bias4h": "BEARISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "updatedAt": "2026-08-30T19:45:20.381Z"
+  },
+  "DOGE-USDT": {
+    "signal": "NO_AGREEMENT",
+    "direction": null,
+    "price": 0.0857,
+    "bias1d": "NEUTRAL",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BEARISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "updatedAt": "2026-08-30T19:45:22.570Z"
+  },
+  "AVAX-USDT": {
+    "signal": "SCANNED",
+    "price": 7.4,
+    "direction": "BUY",
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "1H",
+      "30m",
+      "15m"
+    ],
+    "bias1d": "BULLISH",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BULLISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "poc": 7.274794999999999,
+    "vah": 7.466315,
+    "val": 7.274794999999999,
+    "swingHigh": 7.592,
+    "swingLow": 7.193,
+    "atr1h": 0.04377401903255706,
+    "updatedAt": "2026-08-30T19:45:24.749Z"
+  },
+  "LINK-USDT": {
+    "signal": "SCANNED",
+    "price": 11.5793,
     "direction": "BUY",
     "voteTally": "4/5",
     "agreeing": [
@@ -61,186 +131,116 @@
     "bias1h": "NEUTRAL",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "poc": 1.4139737000000001,
-    "vah": 1.4734493,
-    "val": 1.3930471,
-    "swingHigh": 1.474,
-    "swingLow": 1.36386,
-    "atr1h": 0.011039799379775847,
-    "updatedAt": "2026-08-30T19:30:17.601Z"
-  },
-  "ADA-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 0.2044,
-    "bias1d": "NEUTRAL",
-    "bias4h": "BEARISH",
-    "bias1h": "BEARISH",
-    "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:19.817Z"
-  },
-  "DOGE-USDT": {
-    "signal": "NO_AGREEMENT",
-    "direction": null,
-    "price": 0.08591,
-    "bias1d": "NEUTRAL",
-    "bias4h": "NEUTRAL",
-    "bias1h": "BEARISH",
-    "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:22.018Z"
-  },
-  "AVAX-USDT": {
-    "signal": "WAITING_FOR_ZONE",
-    "direction": "BUY",
-    "price": 7.424,
-    "bias1d": "BULLISH",
-    "bias4h": "NEUTRAL",
-    "bias1h": "BULLISH",
-    "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:24.208Z"
-  },
-  "LINK-USDT": {
-    "signal": "SCANNED",
-    "price": 11.6289,
-    "direction": "BUY",
-    "voteTally": "5/5",
-    "agreeing": [
-      "1D",
-      "4H",
-      "1H",
-      "30m",
-      "15m"
-    ],
-    "bias1d": "BULLISH",
-    "bias4h": "BULLISH",
-    "bias1h": "BULLISH",
-    "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
     "poc": 11.3925525,
     "vah": 11.7860455,
     "val": 11.3376465,
     "swingHigh": 12.056,
     "swingLow": 11.1409,
-    "atr1h": 0.08348556731644273,
-    "updatedAt": "2026-08-30T19:30:26.396Z"
+    "atr1h": 0.08721413874501423,
+    "updatedAt": "2026-08-30T19:45:26.937Z"
   },
   "BNB-USDT": {
-    "signal": "SCANNED",
-    "price": 700.073,
-    "direction": "BUY",
-    "voteTally": "3/5",
-    "agreeing": [
-      "1D",
-      "30m",
-      "15m"
-    ],
+    "signal": "NO_AGREEMENT",
+    "direction": null,
+    "price": 698.902,
     "bias1d": "BULLISH",
     "bias4h": "NEUTRAL",
     "bias1h": "BEARISH",
     "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
-    "poc": 712.166705,
-    "vah": 718.433095,
-    "val": 698.3146849999999,
-    "swingHigh": 718.598,
-    "swingLow": 685.617,
-    "atr1h": 2.686938423543284,
-    "updatedAt": "2026-08-30T19:30:28.665Z"
+    "bias15m": "NEUTRAL",
+    "updatedAt": "2026-08-30T19:45:29.127Z"
   },
   "DOT-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.8613,
+    "price": 0.8586,
     "bias1d": "NEUTRAL",
     "bias4h": "NEUTRAL",
     "bias1h": "NEUTRAL",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:30.914Z"
+    "updatedAt": "2026-08-30T19:45:31.313Z"
   },
   "LTC-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "BUY",
-    "price": 49.74,
+    "price": 49.57,
     "bias1d": "BULLISH",
     "bias4h": "BEARISH",
     "bias1h": "NEUTRAL",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:33.129Z"
+    "updatedAt": "2026-08-30T19:45:33.496Z"
   },
   "TRX-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "BUY",
-    "price": 0.3405,
+    "price": 0.3401,
     "bias1d": "BULLISH",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
     "bias30m": "NEUTRAL",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-08-30T19:30:35.378Z"
+    "updatedAt": "2026-08-30T19:45:35.684Z"
   },
   "POL-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "SELL",
-    "price": 0.0999,
+    "price": 0.0996,
     "bias1d": "NEUTRAL",
     "bias4h": "BEARISH",
     "bias1h": "BEARISH",
     "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-08-30T19:30:37.619Z"
+    "updatedAt": "2026-08-30T19:45:37.868Z"
   },
   "MNT-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "BUY",
-    "price": 0.5791,
+    "price": 0.5721,
     "bias1d": "BULLISH",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
     "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:39.812Z"
+    "bias15m": "NEUTRAL",
+    "updatedAt": "2026-08-30T19:45:40.053Z"
   },
   "ATOM-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "SELL",
-    "price": 1.4948,
+    "price": 1.489,
     "bias1d": "NEUTRAL",
     "bias4h": "BEARISH",
     "bias1h": "BEARISH",
     "bias30m": "BEARISH",
     "bias15m": "BEARISH",
-    "updatedAt": "2026-08-30T19:30:42.009Z"
+    "updatedAt": "2026-08-30T19:45:42.234Z"
   },
   "NEAR-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "BUY",
-    "price": 1.9098,
+    "price": 1.8911,
     "bias1d": "BULLISH",
     "bias4h": "BULLISH",
     "bias1h": "BULLISH",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:44.225Z"
+    "updatedAt": "2026-08-30T19:45:44.419Z"
   },
   "APT-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.5469,
+    "price": 0.5428,
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
     "bias1h": "NEUTRAL",
-    "bias30m": "BULLISH",
+    "bias30m": "NEUTRAL",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:46.459Z"
+    "updatedAt": "2026-08-30T19:45:46.611Z"
   },
   "ARB-USDT": {
     "signal": "SCANNED",
-    "price": 0.0898,
+    "price": 0.0892,
     "direction": "SELL",
     "voteTally": "3/5",
     "agreeing": [
@@ -251,36 +251,36 @@
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
     "bias1h": "BEARISH",
-    "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "NEUTRAL",
     "poc": 0.092193,
     "vah": 0.094257,
     "val": 0.08944099999999999,
     "swingHigh": 0.0943,
     "swingLow": 0.0857,
-    "atr1h": 0.0008303598985259211,
-    "updatedAt": "2026-08-30T19:30:48.643Z"
+    "atr1h": 0.0008732170413830642,
+    "updatedAt": "2026-08-30T19:45:48.799Z"
   },
   "OP-USDT": {
     "signal": "WAITING_FOR_ZONE",
     "direction": "SELL",
-    "price": 0.0895,
+    "price": 0.0883,
     "bias1d": "BEARISH",
     "bias4h": "BEARISH",
     "bias1h": "BEARISH",
-    "bias30m": "NEUTRAL",
-    "bias15m": "NEUTRAL",
-    "updatedAt": "2026-08-30T19:30:50.839Z"
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "updatedAt": "2026-08-30T19:45:50.996Z"
   },
   "SUI-USDT": {
     "signal": "NO_AGREEMENT",
     "direction": null,
-    "price": 0.7578,
+    "price": 0.7538,
     "bias1d": "NEUTRAL",
     "bias4h": "BEARISH",
     "bias1h": "NEUTRAL",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-08-30T19:30:53.046Z"
+    "updatedAt": "2026-08-30T19:45:53.185Z"
   }
 }
