@@ -189,7 +189,23 @@ const pushSignalSideChanges = async (summary) => {
   }
 };
 
-const syncOrphanedSignals = async () => {
+// v10.29 FIX — pullSucceeded (from watcher.js's runCycle, passed down
+// through runProtectionCycle) gates the write-back below. Confirmed
+// real: open-positions.json is written by BOTH GitHub Actions
+// (strategy.js, the instant a signal fires) and this phone (here, when
+// a position closes) — a genuine cross-machine race. If THIS cycle's
+// git pull failed, the local copy this function just loaded might
+// already be missing an entry GitHub Actions committed moments ago
+// (e.g. a brand-new signal fire) that this phone simply hasn't pulled
+// yet. Deleting some OTHER, unrelated symbol from that same stale copy
+// and pushing it would silently carry the missing entry's absence back
+// up to the shared remote too — permanently erasing the "already open"
+// marker that was supposed to stop the same setup from firing (and
+// re-alerting on Telegram) again on the next scan. Confirmed live:
+// BTC-USDT re-fired the identical setup roughly a dozen times over 11+
+// hours, spanning a stretch with heavy "git pull failed" activity in
+// this exact log.
+const syncOrphanedSignals = async (pullSucceeded = true) => {
   const openPositions = loadJSON(OPEN_POSITIONS_FILE, {});
   const symbols = Object.keys(openPositions);
   if (symbols.length === 0) return;
@@ -217,6 +233,11 @@ const syncOrphanedSignals = async () => {
         parseFloat(p.size) > 0 && p.side?.toUpperCase() === entry.direction?.toUpperCase()
       );
       if (stillOpen) continue; // genuinely still open — leave it alone
+
+      if (!pullSucceeded) {
+        console.error(`[protect] ${symbol} looks closed on Bybit, but this cycle's git pull failed — skipping the open-positions.json write-back rather than risk pushing a stale local copy that could erase a signal GitHub Actions just committed. Will retry next cycle.`);
+        continue;
+      }
 
       delete openPositions[symbol];
       saveJSON(OPEN_POSITIONS_FILE, openPositions);
@@ -264,9 +285,9 @@ const checkCircuitBreaker = async () => {
 };
 
 // Single entry point called from watcher.js each cycle.
-const runProtectionCycle = async () => {
+const runProtectionCycle = async (pullSucceeded = true) => {
   await reconcileLedger();
-  await syncOrphanedSignals();
+  await syncOrphanedSignals(pullSucceeded);
   await checkCircuitBreaker();
 };
 

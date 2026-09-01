@@ -126,10 +126,32 @@ const clearStaleLock = () => {
 // then retry once.
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// v10.29 FIX — this used to return nothing; success/failure was
+// silently discarded by every caller. Confirmed real consequence:
+// open-positions.json is written by BOTH GitHub Actions (strategy.js,
+// the moment a signal fires) AND this phone (protect.js, when a
+// position closes) — a genuine cross-machine race. When a pull fails
+// here (confirmed happening repeatedly during real connectivity
+// outages — see the watcher log), the rest of the cycle used to run
+// anyway on a LOCAL copy that might already be behind what GitHub
+// Actions just committed. If protect.js's syncOrphanedSignals() then
+// wrote that stale copy back (even just to delete some unrelated,
+// genuinely-closed symbol) and pushed it, it would silently ERASE a
+// newly-fired signal's "already open" marker that GitHub Actions had
+// just added but this phone never successfully pulled — with nothing
+// left to suppress the SAME setup from firing (and re-alerting on
+// Telegram) again on the very next scan. Confirmed live: BTC-USDT
+// re-fired the identical setup roughly a dozen times over 11+ hours on
+// 2026-08-31/09-01, spanning a stretch with heavy "git pull failed"
+// activity in this exact log. Returning true/false lets callers that
+// write to cross-machine-shared files (currently: syncOrphanedSignals)
+// skip that write on a cycle where local data can't be trusted as
+// current, rather than silently regressing the shared file.
 const pullLatest = async () => {
   clearStaleLock();
   try {
     gitExec('git pull --quiet');
+    return true;
   } catch (err) {
     const msg = err.message || '';
     const isRefLockRace = msg.includes('cannot lock ref');
@@ -141,8 +163,10 @@ const pullLatest = async () => {
       try {
         gitExec('git pull --quiet');
         console.log('[watcher] Pull recovered after the ref-lock race cleared.');
+        return true;
       } catch (err2) {
         console.error(`[watcher] Pull still hitting a ref-lock race after retry: ${err2.message} — will retry next cycle.`);
+        return false;
       }
     } else if (isLocalConflict) {
       console.error('[watcher] git pull blocked by local open-positions.json/state.json — discarding and retrying (both are safely re-derivable, see comment above).');
@@ -170,11 +194,14 @@ const pullLatest = async () => {
         // neither file is ever left missing.
         gitExec('git checkout HEAD -- open-positions.json state.json');
         console.log('[watcher] Pull recovered after discarding local changes.');
+        return true;
       } catch (err2) {
         console.error(`[watcher] Pull still failing after recovery attempt: ${err2.message} — will retry next cycle.`);
+        return false;
       }
     } else {
       console.error(`[watcher] git pull failed: ${msg} — will retry next cycle.`);
+      return false;
     }
   }
 };
@@ -220,8 +247,8 @@ const runCycle = async () => {
   }
   cycleInProgress = true;
   try {
-    await pullLatest();
-    await runProtectionCycle();
+    const pullSucceeded = await pullLatest();
+    await runProtectionCycle(pullSucceeded);
     await checkForNewSignals();
     writeHeartbeat('ok');
   } catch (err) {
