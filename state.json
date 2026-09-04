@@ -170,7 +170,7 @@
     "updatedAt": "2026-09-04T17:00:38.464Z"
   },
   "POL-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "SELL",
     "entryPrice": 0.0939456,
     "slPrice": 0.09632353578380322,
@@ -199,7 +199,9 @@
     "lastSignalBar": 1788541200,
     "lastSignalDir": "SELL",
     "alertDelivered": true,
-    "updatedAt": "2026-09-04T17:00:41.078Z"
+    "updatedAt": "2026-09-04T17:01:17.526Z",
+    "exitTime": 1788541277,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "MNT-USDT": {
     "signal": "WAITING_FOR_ZONE",
