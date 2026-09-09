@@ -91,7 +91,7 @@
     "updatedAt": "2026-09-09T19:55:29.597Z"
   },
   "AVAX-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "SELL",
     "entryPrice": 8.05462,
     "slPrice": 8.21574277590613,
@@ -118,7 +118,9 @@
     "lastSignalBar": 1788980400,
     "lastSignalDir": "SELL",
     "alertDelivered": true,
-    "updatedAt": "2026-09-09T19:55:32.611Z"
+    "updatedAt": "2026-09-09T19:56:42.589Z",
+    "exitTime": 1788983802,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "LINK-USDT": {
     "signal": "WAITING_FOR_ZONE",
