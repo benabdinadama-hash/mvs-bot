@@ -48,7 +48,7 @@
     "updatedAt": "2026-09-09T15:15:17.348Z"
   },
   "BTC-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "SELL",
     "entryPrice": 79929.23,
     "slPrice": 80664.14602284129,
@@ -75,7 +75,9 @@
     "lastSignalBar": 1788966000,
     "lastSignalDir": "SELL",
     "alertDelivered": true,
-    "updatedAt": "2026-09-09T15:15:19.920Z"
+    "updatedAt": "2026-09-09T15:16:13.600Z",
+    "exitTime": 1788966973,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "XRP-USDT": {
     "signal": "NO_AGREEMENT",
