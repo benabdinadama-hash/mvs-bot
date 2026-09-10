@@ -83,6 +83,19 @@ jobs:
           BYBIT_API_SECRET:   ${{ secrets.BYBIT_API_SECRET }}
         run: node strategy.js
 
+      # v10.30 addition — see execution/check-remote-heartbeat.js header.
+      # Checks whether the Termux watcher has proven it's alive recently
+      # (via the git-tracked execution/remote-heartbeat.json it pushes
+      # periodically) and sends a Telegram alert if it's gone stale —
+      # catches a fully-down phone watcher (confirmed real: 2026-09-10,
+      # signals fired here all day with nothing executing them) instead
+      # of relying on manually running check-status.js to notice.
+      - name: Check phone watcher heartbeat
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node execution/check-remote-heartbeat.js
+
       - name: Commit and push state files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -96,7 +109,7 @@ jobs:
             echo '{"_lastRunAt":"'$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'"}' > state.json
           fi
 
-          for f in .ping.json state.json signals.log.json diag.log.json open-positions.json; do
+          for f in .ping.json state.json signals.log.json diag.log.json open-positions.json execution/remote-heartbeat-alert-state.json; do
             if [ -f "$f" ]; then
               git add -f "$f"
             fi
