@@ -97,6 +97,31 @@ const reconcileLedger = async () => {
       if (closeInfo) {
         ledger.recordClosed(entry.orderId, closeInfo);
         console.log(`[protect] Reconciled ${entry.symbol} ${entry.side} — realized PnL: ${closeInfo.realizedPnl}`);
+
+        // v10.30 FIX — the normal, most-common case (a real SL/TP close
+        // that reconciles cleanly right here) has NEVER sent a Telegram
+        // notification, ever — only the rare self-heal/circuit-breaker
+        // paths below ever called sendAlert(). Checked every use of it:
+        // an ordinary trade closing, win or lose, only ever logged to
+        // this console, which nobody is watching in real time on a
+        // phone. This is the one place in the whole cycle that has both
+        // the real Bybit-confirmed PnL and the ledger entry's original
+        // sizing — sending it here, right after recordClosed(), covers
+        // every real close exactly once (this branch can't re-fire for
+        // the same entry: recordClosed() sets status to 'closed', so
+        // getOpen() never hands it back to a future cycle).
+        const pnl = closeInfo.realizedPnl;
+        const pnlNum = typeof pnl === 'number' ? pnl : null;
+        const pnlEmoji = pnlNum > 0 ? '✅' : pnlNum < 0 ? '🔴' : '➖';
+        const pnlLine = pnlNum !== null
+          ? `\`${pnlNum > 0 ? '+' : ''}${pnlNum} USDT\``
+          : '_(exact PnL not available from the closed-PnL match — check Bybit trade history)_';
+        await sendAlert(
+          `${pnlEmoji} *${entry.symbol} ${entry.side} closed*\n\n` +
+          `Realized PnL: ${pnlLine}\n` +
+          `Margin: ${entry.margin ?? '?'} USDT @ ${entry.leverage ?? '?'}x\n` +
+          `Opened: ${entry.entryTime ? new Date(entry.entryTime).toUTCString() : 'unknown'}`
+        );
       } else {
         // Not open, but no matching closed-PnL record found yet (can lag
         // slightly behind). Mark it pending — see position-ledger.js

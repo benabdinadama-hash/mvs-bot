@@ -19,11 +19,20 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { executeSignal } = require('./execute-signal');
 const { runProtectionCycle } = require('./protect');
+const { REMOTE_HEARTBEAT_PUSH_INTERVAL_MS } = require('./heartbeat-config');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const SIGNALS_LOG = path.join(REPO_ROOT, 'signals.log.json');
 const EXECUTED_LOG = path.join(__dirname, 'executed-signals.json');
 const HEARTBEAT_FILE = path.join(__dirname, 'heartbeat.json');
+// v10.30 addition — NOT the same file as HEARTBEAT_FILE above. That one
+// is gitignored and purely local (see check-status.js) — invisible to
+// anything that isn't physically looking at this phone, which is
+// exactly what let a full-day watcher outage go undetected on
+// 2026-09-10. This one IS git-tracked and pushed periodically (see
+// maybePushRemoteHeartbeat below) so GitHub Actions can see it too —
+// see execution/check-remote-heartbeat.js and heartbeat-config.js.
+const REMOTE_HEARTBEAT_FILE = path.join(__dirname, 'remote-heartbeat.json');
 const POLL_INTERVAL_MS = 60 * 1000; // check every 60s — matches the 15m scan cadence with margin to spare
 
 // v10.24 FIX — every git exec in this file used to run with no timeout.
@@ -59,6 +68,64 @@ const writeHeartbeat = (status, extra = {}) => {
     }, null, 2));
   } catch (err) {
     console.error(`[watcher] Could not write heartbeat: ${err.message}`);
+  }
+};
+
+// v10.30 addition — pushes execution/remote-heartbeat.json to git at
+// most once per REMOTE_HEARTBEAT_PUSH_INTERVAL_MS, so GitHub Actions'
+// check-remote-heartbeat.js has something fresh to check. In-memory
+// only (resets to 0 on a watcher restart) — deliberately so: a freshly
+// (re)started watcher pushes immediately on its next due cycle instead
+// of waiting up to the full interval, which is the case you'd most want
+// fast confirmation for.
+let lastRemotePushAt = 0;
+
+const maybePushRemoteHeartbeat = async (pullSucceeded) => {
+  // Don't push on top of a repo this cycle couldn't sync — pushing from
+  // a possibly-behind local HEAD risks fighting the very pull that's
+  // supposed to happen next, for a file whose only job is a timestamp
+  // that can simply wait one more cycle.
+  if (!pullSucceeded) return;
+
+  const now = Date.now();
+  if (now - lastRemotePushAt < REMOTE_HEARTBEAT_PUSH_INTERVAL_MS) return;
+
+  try {
+    fs.writeFileSync(REMOTE_HEARTBEAT_FILE, JSON.stringify({ at: new Date().toISOString() }, null, 2));
+    gitExec('git add -f execution/remote-heartbeat.json');
+
+    try {
+      gitExec('git diff --cached --quiet');
+      lastRemotePushAt = now; // nothing staged (shouldn't happen — the timestamp always differs — but harmless either way)
+      return;
+    } catch { /* exit code 1 = there IS a staged diff — continue below */ }
+
+    gitExec('git commit -m "watcher: remote heartbeat"');
+
+    // Same fetch + merge -X ours pattern used throughout this repo for
+    // small, fully-self-contained, fully-regenerated files (see
+    // mvs-scan.yml's and protect.js's identical comments for the full
+    // reasoning) — this file has no meaning to preserve from a prior
+    // version, so on any real conflict this run's fresh timestamp
+    // should simply win rather than risk a failed/blended merge.
+    for (let i = 0; i < 3; i++) {
+      try {
+        gitExec('git push --quiet');
+        lastRemotePushAt = now;
+        console.log('[watcher] Remote heartbeat pushed.');
+        return;
+      } catch (err) {
+        if (i === 2) throw err;
+        gitExec('git fetch origin main');
+        gitExec('git merge -X ours --no-edit origin/main');
+      }
+    }
+  } catch (err) {
+    // Never let this block the real cycle — the local heartbeat.json
+    // above already proves the watcher is alive to anyone looking at
+    // the phone directly; this only affects how fast GitHub Actions
+    // finds out. Next due cycle retries.
+    console.error(`[watcher] Could not push remote heartbeat (will retry next due cycle): ${err.message}`);
   }
 };
 
@@ -250,6 +317,7 @@ const runCycle = async () => {
     const pullSucceeded = await pullLatest();
     await runProtectionCycle(pullSucceeded);
     await checkForNewSignals();
+    await maybePushRemoteHeartbeat(pullSucceeded);
     writeHeartbeat('ok');
   } catch (err) {
     // v10.24 FIX — previously an uncaught error anywhere in this chain
