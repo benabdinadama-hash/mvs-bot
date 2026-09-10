@@ -64,7 +64,9 @@ const config = require('./config');
 const MVS_VERSION = require('./package.json').version;
 const core   = require('./core');
 const { checkOpenPositions } = require('./position-tracker');
-const { executeSignal } = require('./execution/execute-signal');
+const { executeSignal, MARGIN_PER_TRADE_USDT, MAX_LEVERAGE } = require('./execution/execute-signal');
+const { computeSafeLeverage } = require('./execution/leverage');
+const { computeNetRR, MIN_NET_RR_AFTER_FEES } = require('./execution/fee-estimate');
 
 // ── Telegram send — pure axios, 10s timeout, retries on transient failure ──
 // v10.4 FIX: this used to catch a failure/timeout and just return null —
@@ -848,6 +850,23 @@ const runStrategy = async (symbol) => {
 
     const entryTime = data15m[data15m.length - 1].time;
 
+    // v10.30 addition — see execution/fee-estimate.js header for the full
+    // "the R:R is very bad for the SL" story. This is an ESTIMATE (uses
+    // the account's configured margin/leverage ceiling, not the live
+    // price execute-signal.js will actually use moments later) purely so
+    // the alert itself is honest about real-money economics at this
+    // position size — execute-signal.js computes and gates on the real
+    // number separately, right before placing the order.
+    const estLeverage = computeSafeLeverage(bestFibLevel, levels.slPrice, MAX_LEVERAGE).leverage;
+    const netRREstimate = computeNetRR({
+      entryPrice: bestFibLevel, slPrice: levels.slPrice, tpPrice: levels.tp1Price,
+      marginUsdt: MARGIN_PER_TRADE_USDT, leverage: estLeverage,
+    });
+    const netRRLine = netRREstimate
+      ? `💸 *Net R:R after fees (TP1, ~$${MARGIN_PER_TRADE_USDT} margin @ ${estLeverage}x):* ${netRREstimate.netRR.toFixed(2)}:1` +
+        (netRREstimate.netRR < MIN_NET_RR_AFTER_FEES ? ' ⚠️ thin — fees eat most of the edge at this size' : '')
+      : '';
+
     const message = `
 ${emoji} *${symbol} — MVS Signal*
 
@@ -861,6 +880,7 @@ ${voteLine}
 ━━━━━━━━━━━━━━━━━━━━
 🎯 *TP1 (exit ${Math.round(config.PARTIAL_EXIT_PCT * 100)}%, move SL to entry):* \`$${levels.tp1Price.toFixed(4)}\`  R:R ${levels.rr1.toFixed(2)}:1
 🏁 *TP2 (runner, remaining ${Math.round((1 - config.PARTIAL_EXIT_PCT) * 100)}%, ${direction === 'BUY' ? 'VAH' : 'VAL'}):* \`$${levels.tp2Price.toFixed(4)}\`  R:R ${levels.rr2.toFixed(2)}:1
+${netRRLine}
 ━━━━━━━━━━━━━━━━━━━━
 ${sizeLine}
 🕯 *15m trigger (${rejection.solo ? 'SOLO' : rejection.score + '/' + config.REJECTION_MIN_PATTERNS}):* ${patternStr}
