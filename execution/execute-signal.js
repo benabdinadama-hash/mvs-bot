@@ -14,6 +14,7 @@ const { getInstrumentInfo, roundQtyDown, roundPriceToTick } = require('./instrum
 const { computeSafeLeverage } = require('./leverage');
 const ledger = require('./position-ledger');
 const killSwitch = require('./kill-switch');
+const { computeNetRR, MIN_NET_RR_AFTER_FEES } = require('./fee-estimate');
 
 // ─── Config — the numbers agreed on in this conversation ───────────────────
 // v10.16: DRY_RUN set to false per explicit user instruction, after being
@@ -177,6 +178,34 @@ const executeSignal = async (signal) => {
     console.log(`${tag} SL distance ${slDistancePct}% is wide — leverage auto-capped to ${leverage}x (ceiling is ${MAX_LEVERAGE}x).`);
   }
 
+  // 4b. v10.30 FIX — reported live: "the R:R is very bad for the SL."
+  // Root cause found: the alert's R:R (rr1/rr2, from core.js) is a pure
+  // PRICE-DISTANCE ratio — it has never accounted for Bybit's own
+  // trading fees. On a full-size account that's a rounding error. At
+  // this account's $1.5 margin per trade, round-trip taker fees (fixed
+  // dollar cost of entering + exiting, independent of how small the
+  // position is) can consume a large share of a 1.2R TP1 target — the
+  // realistic net R:R after fees is meaningfully worse than the clean
+  // number shown in the Telegram alert, sometimes below 1:1 even when
+  // the trade is a structural "win." See fee-estimate.js for the full
+  // math (shared with strategy.js, which now shows this same estimate
+  // in the alert itself for transparency, before this gate ever runs).
+  // This refuses execution outright when fees eat too much of the edge
+  // — never silently proceeds with knowingly bad real-money economics.
+  const netRR = computeNetRR({
+    entryPrice: lastPrice, slPrice, tpPrice: tp1Price,
+    marginUsdt: MARGIN_PER_TRADE_USDT, leverage,
+  });
+  if (netRR) {
+    console.log(`${tag} Fee-adjusted TP1 R:R: gross ${netRR.grossRR}:1 → net ${netRR.netRR}:1 ` +
+      `(fees ≈$${netRR.feeUsdt} round-trip on $${netRR.notional.toFixed(2)} notional).`);
+    if (netRR.netRR < MIN_NET_RR_AFTER_FEES) {
+      console.error(`${tag} Net R:R after fees (${netRR.netRR}:1) is below the minimum (${MIN_NET_RR_AFTER_FEES}:1) — ` +
+        `fees would eat too much of the edge at this position size. Skipping rather than take a knowingly bad trade.`);
+      return { executed: false, reason: 'NET_RR_TOO_LOW_AFTER_FEES', netRR };
+    }
+  }
+
   // 5. Quantity — respecting the exchange's real lot-size rules for this
   //    symbol (this is the step that prevents "wrong decimal" mistakes).
   let instrument;
@@ -224,6 +253,7 @@ const executeSignal = async (signal) => {
     symbol: bybitSymbol, side, qty, leverage,
     marginUsdt: MARGIN_PER_TRADE_USDT, notionalUsdt: parseFloat(notional.toFixed(2)),
     theoreticalEntryPrice: entryPrice, lastPrice, slPrice: roundedSl, slDistancePct,
+    netRR: netRR || undefined,
     ...(canSplit
       ? { split: true, qty1, tp1Price: roundedTp1, qty2, tp2Price: roundedTp2 }
       : { split: false, tp1Price: roundedTp1, note: roundedTp2 ? 'position too small to split into two legal partial exits — full qty exits at TP1' : 'no tp2Price on this signal — single-TP behavior' }),
