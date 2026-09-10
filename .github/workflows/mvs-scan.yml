@@ -9,7 +9,29 @@ on:
     # is why this is a backup and not the primary trigger. strategy.js has
     # a duplicate-run guard so if this and cron-job.org ever land close
     # together, the second one exits immediately instead of double-firing.
-    - cron: '*/15 * * * *'
+    #
+    # v10.31 CHANGE — was '*/15 * * * *' (i.e. :00/:15/:30/:45). Confirmed
+    # from a live run that this collided often enough with cron-job.org's
+    # ping to trip the duplicate-run guard regularly — cron-job.org's
+    # simplest "every 15 min" preset also lands on those same four
+    # standard marks, so two independently-scheduled triggers were
+    # frequently aiming at the exact same minute. The guard did its job
+    # (no duplicate alerts/writes ever got through), but checkout/
+    # Node-setup/npm-install still ran and got thrown away every time
+    # that happened — wasted work, even though this is a public repo with
+    # unlimited free GitHub Actions minutes, so it never had a $ cost.
+    # Offsetting this trigger to :07/:22/:37/:52 — the midpoint of each
+    # 15-min window — moves it roughly as far as possible from wherever
+    # cron-job.org's mark actually is (7-8 min either direction), which
+    # comfortably clears the 5-min DUPLICATE_RUN_GUARD_MS window even
+    # accounting for GitHub's own documented scheduling jitter. As a
+    # genuine side benefit (not just avoiding collisions): this backup
+    # now also covers the MIDDLE of each 15-min window instead of only
+    # ever re-checking the same instant cron-job.org already checks — if
+    # cron-job.org's ping failed partway through a window, this used to
+    # wait until the very next mark to catch it; now it's never more than
+    # ~7-8 min from either mark.
+    - cron: '7,22,37,52 * * * *'
   push:
     branches: [main]
 

@@ -19,7 +19,19 @@ on:
     # scheduler can also lag under load, and this is a safety net, not
     # the main path) — still closes the gap from "commands never answered
     # again" down to "answered a few minutes late, worst case."
-    - cron: '*/10 * * * *'
+    #
+    # v10.31 CHANGE — was '*/10 * * * *' (i.e. :00/:10/:20/:30/:40/:50).
+    # Every one of those marks is ALSO a cron-job.org mark, since 10 is a
+    # multiple of the 5-min primary cadence — meaning this backup didn't
+    # just occasionally collide with the primary the way mvs-scan.yml's
+    # did, it was scheduled to land on top of it every single time it
+    # fired. Offsetting by 3 min — :03/:13/:23/.../:53 — means it never
+    # lands on a cron-job.org mark at all (3 is never a multiple of 5),
+    # for the same reason and the same wasted-checkout/npm-install cost
+    # explained in mvs-scan.yml's schedule comment (also: no $ cost
+    # either way, unlimited Actions minutes on a public repo — this is
+    # about not doing pointless duplicate work, not about billing).
+    - cron: '3,13,23,33,43,53 * * * *'
 
 concurrency:
   group: mvs-commands
