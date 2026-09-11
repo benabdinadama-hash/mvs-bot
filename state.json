@@ -103,7 +103,7 @@
     "updatedAt": "2026-09-11T16:31:07.514Z"
   },
   "BNB-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "entryPrice": 716.1236279999999,
     "slPrice": 702.191916119828,
@@ -131,7 +131,9 @@
     "lastSignalBar": 1789142400,
     "lastSignalDir": "BUY",
     "alertDelivered": true,
-    "updatedAt": "2026-09-11T16:31:10.058Z"
+    "updatedAt": "2026-09-11T16:32:21.434Z",
+    "exitTime": 1789144341,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "DOT-USDT": {
     "signal": "WAITING_FOR_ZONE",
