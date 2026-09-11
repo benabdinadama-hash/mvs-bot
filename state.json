@@ -45,7 +45,7 @@
     "updatedAt": "2026-09-11T14:00:19.786Z"
   },
   "ADA-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "entryPrice": 0.207341,
     "slPrice": 0.19981659129522505,
@@ -75,7 +75,9 @@
     "lastSignalBar": 1789135200,
     "lastSignalDir": "BUY",
     "alertDelivered": true,
-    "updatedAt": "2026-09-11T14:00:22.432Z"
+    "updatedAt": "2026-09-11T14:01:15.862Z",
+    "exitTime": 1789135275,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "DOGE-USDT": {
     "signal": "NO_AGREEMENT",
