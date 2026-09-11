@@ -17,6 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const axios = require('axios');
 const { executeSignal } = require('./execute-signal');
 const { runProtectionCycle } = require('./protect');
 const { REMOTE_HEARTBEAT_PUSH_INTERVAL_MS } = require('./heartbeat-config');
@@ -70,6 +71,98 @@ const writeHeartbeat = (status, extra = {}) => {
     console.error(`[watcher] Could not write heartbeat: ${err.message}`);
   }
 };
+
+// v10.33 addition — standalone Telegram alert, same pattern as
+// protect.js's sendAlert (deliberately not shared code, same reasoning:
+// this safety-critical path shouldn't depend on anything the
+// signal-generation pipeline could break).
+const sendAlert = async (text) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) {
+    console.error('[watcher] No Telegram credentials set — cannot send alert. Logging only:', text);
+    return;
+  }
+  try {
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+      chat_id: chatId, text, parse_mode: 'Markdown',
+    });
+  } catch (err) {
+    console.error('[watcher] Failed to send Telegram alert:', err.message);
+  }
+};
+
+// v10.33 addition — root-cause fix for signals that fire on Telegram
+// but never execute on Bybit. Confirmed live 2026-09-11: the watcher
+// log showed 4 straight "git pull failed: ... ETIMEDOUT" cycles (a
+// mobile-data connectivity blip, not a code bug) spanning several
+// minutes. checkForNewSignals() below has always read signals.log.json
+// straight off local disk NO MATTER what pullLatest() just returned —
+// so during that whole window it kept re-reading the same pre-blip
+// snapshot. Any signal GitHub Actions posted during those minutes was
+// invisible here until the pull finally recovered — by which point
+// execute-signal.js's live zone re-check can correctly refuse (price
+// already moved on), and the trade never happens even though the
+// Telegram alert clearly fired. This is a real gap, not the same
+// question as "why didn't a signal execute" in general (that's
+// execute-signal.js's live re-check, working as designed) — this is
+// specifically about the LOCAL COPY being stale during a pull outage.
+//
+// Fix: when a cycle's pull fails, fall back to fetching just
+// signals.log.json over plain HTTPS from raw.githubusercontent.com —
+// a single small file over a fresh short-lived connection, which
+// survives exactly the kind of flaky-mobile-socket conditions that
+// choke a full `git pull`'s longer-lived HTTP-based git-over-smart-http
+// exchange. This is read-only and kept entirely in memory — it never
+// writes signals.log.json to disk, so it can never conflict with git's
+// own state; the next successful `git pull` still owns disk truth.
+let cachedRawBaseUrl = null;
+const getRawBaseUrl = () => {
+  if (cachedRawBaseUrl !== null) return cachedRawBaseUrl;
+  try {
+    // Local read of git's own config — no network involved, so this
+    // can't itself fail for the same reason we're working around.
+    const remoteUrl = execSync('git config --get remote.origin.url', {
+      cwd: REPO_ROOT, stdio: 'pipe', timeout: 5000,
+    }).toString().trim();
+    // Handles both "https://github.com/OWNER/REPO.git" and
+    // "git@github.com:OWNER/REPO.git" remote URL forms.
+    const m = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+    if (!m) throw new Error(`could not parse owner/repo from remote URL: ${remoteUrl}`);
+    cachedRawBaseUrl = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main`;
+  } catch (err) {
+    console.error(`[watcher] Could not determine raw.githubusercontent.com base URL (HTTP fallback disabled this run): ${err.message}`);
+    cachedRawBaseUrl = ''; // falsy but not null — don't retry the git config read every cycle for a config problem that won't fix itself mid-run
+  }
+  return cachedRawBaseUrl;
+};
+
+const fetchSignalsOverHttp = async () => {
+  const base = getRawBaseUrl();
+  if (!base) return null;
+  try {
+    const res = await axios.get(`${base}/signals.log.json?nocache=${Date.now()}`, { timeout: 8000 });
+    // raw.githubusercontent.com serves .json as text/plain, so axios
+    // frequently hands back a raw string here instead of auto-parsing —
+    // handle both rather than treating a string response as "no data."
+    const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+    return Array.isArray(data) ? data : null;
+  } catch (err) {
+    console.error(`[watcher] HTTP fallback fetch of signals.log.json also failed: ${err.message} — using local disk copy this cycle.`);
+    return null;
+  }
+};
+
+// v10.33 addition — visibility fix, so a repeat of the exact outage
+// above is something you find out about from Telegram in real time,
+// not by reading a log file after the fact. Counts CONSECUTIVE
+// failures only (see pullLatest's return value); resets to 0 the
+// moment a pull succeeds. In-memory only, same as lastRemotePushAt —
+// deliberately so a watcher restart doesn't immediately re-alert on a
+// streak that was already reported before the restart.
+let consecutivePullFailures = 0;
+let alertedForCurrentStreak = false;
+const PULL_FAILURE_ALERT_THRESHOLD = 3; // 3 straight cycles ≈ 3 min — long enough to skip single-blip noise, short enough to still matter
 
 // v10.30 addition — pushes execution/remote-heartbeat.json to git at
 // most once per REMOTE_HEARTBEAT_PUSH_INTERVAL_MS, so GitHub Actions'
@@ -267,19 +360,50 @@ const pullLatest = async () => {
         return false;
       }
     } else {
-      console.error(`[watcher] git pull failed: ${msg} — will retry next cycle.`);
-      return false;
+      // v10.33 FIX — every OTHER failure mode here already gets one
+      // quick retry before giving up for the cycle (ref-lock: 3s,
+      // local-conflict: immediate). A bare network failure (ETIMEDOUT,
+      // ECONNRESET — exactly what a mobile signal drop produces) used
+      // to skip straight to "wait the full next 60s cycle," which is
+      // the single biggest contributor to the pull-outage gap described
+      // in the v10.33 comment above signals.log.json's HTTP fallback.
+      // One retry after a short pause costs a few seconds and clears
+      // most single-blip drops without waiting a full cycle.
+      console.error(`[watcher] git pull failed: ${msg} — retrying once in 5s before giving up for this cycle.`);
+      await sleep(5000);
+      try {
+        gitExec('git pull --quiet');
+        console.log('[watcher] Pull recovered on quick retry.');
+        return true;
+      } catch (err2) {
+        console.error(`[watcher] Pull still failing after quick retry: ${err2.message} — will retry next cycle.`);
+        return false;
+      }
     }
   }
 };
 
-const checkForNewSignals = async () => {
+const checkForNewSignals = async (pullSucceeded) => {
   let signals;
-  try {
-    signals = JSON.parse(fs.readFileSync(SIGNALS_LOG, 'utf8'));
-  } catch (err) {
-    console.error(`[watcher] Could not read signals.log.json: ${err.message}`);
-    return;
+  if (!pullSucceeded) {
+    // v10.33 FIX — see the HTTP-fallback comment above fetchSignalsOverHttp
+    // for the full incident this addresses. Only reached when THIS
+    // cycle's pull failed, so the local file on disk cannot be trusted
+    // as current — try the lightweight HTTP fetch first.
+    signals = await fetchSignalsOverHttp();
+    if (signals) {
+      console.log('[watcher] Pull failed this cycle — used HTTP fallback to read signals.log.json instead of a possibly-stale local copy.');
+    } else {
+      console.error('[watcher] Pull failed AND HTTP fallback failed — falling back to local disk copy, which may be stale until the next successful pull.');
+    }
+  }
+  if (!signals) {
+    try {
+      signals = JSON.parse(fs.readFileSync(SIGNALS_LOG, 'utf8'));
+    } catch (err) {
+      console.error(`[watcher] Could not read signals.log.json: ${err.message}`);
+      return;
+    }
   }
 
   const executed = loadExecuted();
@@ -321,8 +445,23 @@ const runCycle = async () => {
   cycleInProgress = true;
   try {
     const pullSucceeded = await pullLatest();
+
+    if (pullSucceeded) {
+      consecutivePullFailures = 0;
+      alertedForCurrentStreak = false;
+    } else {
+      consecutivePullFailures += 1;
+      if (consecutivePullFailures >= PULL_FAILURE_ALERT_THRESHOLD && !alertedForCurrentStreak) {
+        alertedForCurrentStreak = true; // one alert per streak, not one per cycle for as long as it lasts
+        await sendAlert(
+          `⚠️ *MVS watcher*: git pull has failed ${consecutivePullFailures} cycles in a row (connectivity issue on this phone, not a code problem). ` +
+          `Falling back to HTTP for signal detection in the meantime — execution may still lag if that also fails. Worth checking the phone's connection.`
+        );
+      }
+    }
+
     await runProtectionCycle(pullSucceeded);
-    await checkForNewSignals();
+    await checkForNewSignals(pullSucceeded);
     await maybePushRemoteHeartbeat(pullSucceeded);
     writeHeartbeat('ok');
   } catch (err) {
