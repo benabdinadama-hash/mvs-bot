@@ -629,21 +629,10 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     riskMult *= core.computeVoteStrengthMultiplier(t.agreeing.length, config);
     riskMult = Math.max(0.1, Math.min(1.0, riskMult));
 
-    // BUGFIX (this pass): must size off t.origSlPrice, not t.slPrice.
-    // core.js moves openTrade.slPrice to entryPrice (breakeven) once TP1
-    // prints (see core.js ~line 1016), so by the time a trade reaches
-    // this loop as `closed`, t.slPrice reflects the FINAL stop — not the
-    // stop that was actually in place when live sizing/leverage would
-    // have been computed at entry. Using t.slPrice here collapsed
-    // riskDist toward 0 for every trade that touched breakeven (53/56 in
-    // the run that surfaced this), while notional and fees kept applying
-    // normally — massively distorting the live-equivalent PnL. Live
-    // sizing is always computed once, at entry, off the original stop —
-    // t.origSlPrice is the correct and only correct source for that.
-    const { leverage } = computeSafeLeverage(t.entryPrice, t.origSlPrice, LIVE_MAX_LEVERAGE);
+    const { leverage } = computeSafeLeverage(t.entryPrice, t.slPrice, LIVE_MAX_LEVERAGE);
     const effectiveMargin = LIVE_MARGIN_PER_TRADE_USDT * riskMult;
     const notional = effectiveMargin * leverage;
-    const riskDist = t.entryPrice > 0 ? Math.abs(t.entryPrice - t.origSlPrice) / t.entryPrice : 0;
+    const riskDist = t.entryPrice > 0 ? Math.abs(t.entryPrice - t.slPrice) / t.entryPrice : 0;
     const oneRDollar = notional * riskDist;
     const grossPnl = oneRDollar * t.rr;
     // Same conservative round-trip-fee approximation as
