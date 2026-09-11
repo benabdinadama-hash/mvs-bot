@@ -47,8 +47,6 @@ on:
     # it only slows down noticing the one failure mode that's never
     # actually happened yet.
     - cron: '7 * * * *'
-  push:
-    branches: [main]
 
 concurrency:
   group: mvs-scan
