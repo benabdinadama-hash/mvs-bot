@@ -1,5 +1,64 @@
 [
   {
+    "symbol": "BNB-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1789144200,
+    "entryPrice": 716.1236279999999,
+    "slPrice": 702.191916119828,
+    "tp1Price": 732.8416822562064,
+    "tp2Price": 760.87649,
+    "risk": 13.931711880171974,
+    "rr1": 1.2000000000000033,
+    "rr2": 3.2123017174718957,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "PIN_BAR",
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BEARISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 6.3805294169132845,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": true,
+      "aligned1d": false,
+      "anyAligned": true,
+      "poc4h": 749.28577,
+      "poc1d": 570.110565
+    },
+    "alertDelivered": true,
+    "time": "2026-09-11T16:31:10.059Z"
+  },
+  {
     "symbol": "ADA-USDT",
     "signal": "FIRED",
     "direction": "BUY",
