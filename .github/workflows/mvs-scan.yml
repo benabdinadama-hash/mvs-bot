@@ -47,8 +47,6 @@ on:
     # it only slows down noticing the one failure mode that's never
     # actually happened yet.
     - cron: '7 * * * *'
-  push:
-    branches: [main]
 
 concurrency:
   group: mvs-scan
@@ -136,10 +134,7 @@ jobs:
       - name: Commit and push state files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name  "mvs-bot"
-          git config user.email "mvs-bot@users.noreply.github.com"
-
+        run: | git config user.name "mvs-bot" git config user.email "mvs-bot@users.noreply.github.com" 
           echo "{\"lastPing\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" > .ping.json
 
           if [ ! -f state.json ]; then
