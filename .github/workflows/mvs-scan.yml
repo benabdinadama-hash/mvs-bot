@@ -15,23 +15,38 @@ on:
     # ping to trip the duplicate-run guard regularly — cron-job.org's
     # simplest "every 15 min" preset also lands on those same four
     # standard marks, so two independently-scheduled triggers were
-    # frequently aiming at the exact same minute. The guard did its job
-    # (no duplicate alerts/writes ever got through), but checkout/
-    # Node-setup/npm-install still ran and got thrown away every time
-    # that happened — wasted work, even though this is a public repo with
-    # unlimited free GitHub Actions minutes, so it never had a $ cost.
-    # Offsetting this trigger to :07/:22/:37/:52 — the midpoint of each
-    # 15-min window — moves it roughly as far as possible from wherever
-    # cron-job.org's mark actually is (7-8 min either direction), which
-    # comfortably clears the 5-min DUPLICATE_RUN_GUARD_MS window even
-    # accounting for GitHub's own documented scheduling jitter. As a
-    # genuine side benefit (not just avoiding collisions): this backup
-    # now also covers the MIDDLE of each 15-min window instead of only
-    # ever re-checking the same instant cron-job.org already checks — if
-    # cron-job.org's ping failed partway through a window, this used to
-    # wait until the very next mark to catch it; now it's never more than
-    # ~7-8 min from either mark.
-    - cron: '7,22,37,52 * * * *'
+    # frequently aiming at the exact same minute. Offsetting to :07 (the
+    # midpoint of each 15-min window) moved the target minute away from
+    # cron-job.org's mark — but a FOLLOW-UP live run confirmed a skip
+    # still happened: a full checkout+install+20-symbol-scan+commit run
+    # typically takes ~4.5 min end to end, and DUPLICATE_RUN_GUARD_MS is
+    # 5 min — with only two triggers splitting a 15-min cycle, the most
+    # they can ever be apart is 7.5 min each way, which isn't enough
+    # margin above a ~4.5 min runtime + 5 min guard (needs ~9.5 min).
+    # That's a hard ceiling: no phase offset within a 15-min/2-trigger
+    # cycle can fully avoid this given this job's actual runtime — only
+    # shrinking the guard window (weakens real double-write protection)
+    # or making the run itself faster (real engineering effort, and
+    # touching strategy.js's live 20-symbol pipeline for a purely
+    # cosmetic gain isn't a trade worth taking) would.
+    #
+    # v10.32 CHANGE — reduced this backup's FREQUENCY instead of chasing
+    # phase alignment further: once per hour (still at :07) rather than
+    # every 15 min. Cuts exposure to the collision window by 75% (1
+    # opportunity/hour instead of 4) without touching the guard or the
+    # scan pipeline. The real trade-off, stated plainly: if cron-job.org
+    # itself ever goes down (its OWN failure, not the phone watcher's —
+    # that's a separate, already-solved problem, see the "Check phone
+    # watcher heartbeat" step below), this backup now takes up to ~1 hour
+    # to notice instead of up to ~15 min. Accepted deliberately because
+    # cron-job.org failing has never actually been this system's
+    # observed failure mode across this whole saga (the Termux watcher
+    # dying HAS been, repeatedly) — and because the phone-watcher
+    # heartbeat check still runs on EVERY trigger, from EITHER source, so
+    # watcher-outage detection is completely unaffected by this change:
+    # it only slows down noticing the one failure mode that's never
+    # actually happened yet.
+    - cron: '7 * * * *'
   push:
     branches: [main]
 
