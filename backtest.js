@@ -48,6 +48,12 @@ const path   = require('path');
 // behavior to before this change, live/production runs are unaffected.
 const config = require(process.env.MVS_CONFIG_OVERRIDE || './config');
 const core   = require('./core');
+// v10.32 — for the new LIVE-EQUIVALENT $ SIMULATION section in
+// generateReport() below. Both are pure math (no bybit-client/ledger/
+// kill-switch dependencies), so safe to import directly into this
+// read-only report generator.
+const { computeSafeLeverage } = require('./execution/leverage');
+const { TAKER_FEE_PCT } = require('./execution/fee-estimate');
 // v10.14: package.json is now the ONE place the version string lives.
 // Every report header / console log below reads MVS_VERSION instead of
 // its own hardcoded literal — this is the direct fix for a bug class
@@ -423,10 +429,15 @@ const backtestSymbol = async (symbol, data15m, data1h, data4h, data1d, data30m, 
     const slAtrMult = config.SL_ATR_MULT_MATRIX_ENABLED && config.SL_ATR_MULT_MATRIX[bestPivot.name] != null
       ? config.SL_ATR_MULT_MATRIX[bestPivot.name]
       : config.SL_ATR_MULT;
+    // v10.32 EXPERIMENTAL (off by default — see config.js
+    // TP2_MIN_EXTENSION_RR_MATRIX): identical lookup to strategy.js.
+    const tp2MinExtensionRR = config.TP2_MIN_EXTENSION_RR_MATRIX_ENABLED && config.TP2_MIN_EXTENSION_RR_MATRIX[symbol] != null
+      ? config.TP2_MIN_EXTENSION_RR_MATRIX[symbol]
+      : config.TP2_MIN_EXTENSION_RR;
     const levels = core.computeTradeLevels({
       direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
       slAtrMult, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
-      tp2MinExtensionRR: config.TP2_MIN_EXTENSION_RR,
+      tp2MinExtensionRR,
     });
     if (!levels) continue;
     funnel.tp2RangeOk++;
@@ -577,6 +588,71 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
   }
   const finalCapital = capital.toFixed(2);
   const totalReturn = ((capital - config.STARTING_CAPITAL) / config.STARTING_CAPITAL * 100).toFixed(1);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // v10.32 addition — LIVE-EQUIVALENT $ SIMULATION. Confirmed real gap:
+  // the growth simulation just above (STARTING_CAPITAL/RISK_PER_TRADE_PCT
+  // /SLIPPAGE_PCT, compounding) has never matched how this bot actually
+  // trades live — live uses a FIXED, non-compounding margin per trade
+  // (see LIVE_MARGIN_PER_TRADE_USDT below) and pays real Bybit taker
+  // fees that the flat 0.1% "slippage" line above never modeled. This
+  // section reruns the exact same closed trades — same rr, same
+  // riskMult — through the ACTUAL live sizing/leverage/fee math instead
+  // of the idealized growth model, using the same shared
+  // execution/leverage.js and execution/fee-estimate.js modules live
+  // itself calls (not a re-implementation, so this can't drift from
+  // live the way two independent copies of the same formula eventually
+  // do — see this file's own header for exactly that history).
+  //
+  // LIVE_MARGIN_PER_TRADE_USDT / LIVE_MAX_LEVERAGE deliberately
+  // duplicate execution/execute-signal.js's MARGIN_PER_TRADE_USDT /
+  // MAX_LEVERAGE as plain local constants rather than importing that
+  // file directly — same reasoning execute-signal.js itself gives for
+  // keeping its own local PARTIAL_EXIT_PCT instead of importing
+  // config.js: importing execute-signal.js here would also pull in
+  // bybit-client.js / position-ledger.js / kill-switch.js, none of
+  // which a read-only report generator has any business touching. If
+  // you change the live values, change these too.
+  const LIVE_MARGIN_PER_TRADE_USDT = 1.5;
+  const LIVE_MAX_LEVERAGE = 20;
+
+  let liveBalance = config.LIVE_STARTING_BALANCE_ILLUSTRATIVE;
+  let livePeak = liveBalance, liveMaxDD = 0, liveTotalFees = 0;
+  for (const t of closed) {
+    // Identical riskMult computation to the growth loop above — kept as
+    // a separate calculation (not shared via a captured array) so this
+    // block stays self-contained and can't be broken by future changes
+    // to the loop above touching a shared variable it didn't expect to
+    // affect this one too.
+    let riskMult = core.computeRiskMultiplier(t.pivot, t.agreeing, t.patterns, config.RISK_TIER_MATRIX, config.PATTERN_RISK_MATRIX, config.RISK_TIER_DEFAULT, t.td9Confirms, config.TD9_BOOST_MULT, t.slAtrMult, config.SL_ATR_MULT);
+    riskMult *= core.computePOCQualityMultiplier(t.pivot, t.direction, t.prominence, t.migration, t.nakedPOC, t.multiTFPOC, config);
+    riskMult *= core.computeVoteStrengthMultiplier(t.agreeing.length, config);
+    riskMult = Math.max(0.1, Math.min(1.0, riskMult));
+
+    const { leverage } = computeSafeLeverage(t.entryPrice, t.slPrice, LIVE_MAX_LEVERAGE);
+    const effectiveMargin = LIVE_MARGIN_PER_TRADE_USDT * riskMult;
+    const notional = effectiveMargin * leverage;
+    const riskDist = t.entryPrice > 0 ? Math.abs(t.entryPrice - t.slPrice) / t.entryPrice : 0;
+    const oneRDollar = notional * riskDist;
+    const grossPnl = oneRDollar * t.rr;
+    // Same conservative round-trip-fee approximation as
+    // execution/fee-estimate.js's computeNetRR: one taker fill to
+    // enter, one to exit, both on the full notional — regardless of
+    // whether this specific trade split across TP1/TP2 legs live.
+    const feeUsdt = notional * (TAKER_FEE_PCT / 100) * 2;
+    const netPnl = grossPnl - feeUsdt;
+
+    liveBalance += netPnl;
+    liveTotalFees += feeUsdt;
+    if (liveBalance > livePeak) livePeak = liveBalance;
+    const liveDd = livePeak > 0 ? (livePeak - liveBalance) / livePeak * 100 : 0;
+    if (liveDd > liveMaxDD) liveMaxDD = liveDd;
+  }
+  const liveFinalBalance = liveBalance.toFixed(2);
+  const liveTotalFeesStr = liveTotalFees.toFixed(2);
+  const liveTotalReturn = config.LIVE_STARTING_BALANCE_ILLUSTRATIVE > 0
+    ? ((liveBalance - config.LIVE_STARTING_BALANCE_ILLUSTRATIVE) / config.LIVE_STARTING_BALANCE_ILLUSTRATIVE * 100).toFixed(1)
+    : 'N/A';
 
   const patternCount = {};
   allTrades.forEach(t => (t.patterns || []).forEach(p => { patternCount[p] = (patternCount[p] || 0) + 1; }));
@@ -737,6 +813,17 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     '',
     `── $ P&L SIMULATION (${config.RISK_PER_TRADE_PCT}% risk/trade + ${(config.SLIPPAGE_PCT*100).toFixed(1)}% slippage, $${config.STARTING_CAPITAL} start) ──`,
     `  Final capital : $${finalCapital}  (${totalReturn}% return)  |  Max drawdown: ${maxDD.toFixed(1)}%`,
+    `  ⚠️  GROWTH-ORIENTED MODEL — compounds at ${config.RISK_PER_TRADE_PCT}% of a growing $${config.STARTING_CAPITAL} balance,`,
+    `      no exchange fees. NOT what this account's real trades did/will do —`,
+    `      see the live-equivalent section directly below for that.`,
+    '',
+    `── LIVE-EQUIVALENT $ SIMULATION (v10.32 — fixed $${LIVE_MARGIN_PER_TRADE_USDT} margin/trade,`,
+    `   real ${TAKER_FEE_PCT}% taker fee ×2/trade, NON-compounding, illustrative $${config.LIVE_STARTING_BALANCE_ILLUSTRATIVE} start) ──`,
+    `  Same ${closed.length} closed trades, same rr/riskMult — actual live sizing & Bybit fees applied instead.`,
+    `  Final balance : $${liveFinalBalance}  (${liveTotalReturn}% return)  |  Max drawdown: ${liveMaxDD.toFixed(1)}%  |  Total fees paid: $${liveTotalFeesStr}`,
+    `  ⚠️  Does NOT model the KuCoin(signal)-vs-Bybit(execution) price basis — see execute-signal.js's`,
+    `      per-trade basis logging for that. Set config.js LIVE_STARTING_BALANCE_ILLUSTRATIVE to your`,
+    `      real balance for an accurate return % (the $ P&L per trade itself doesn't depend on it).`,
     '',
     '── TIMEFRAME VOTE BREAKDOWN ────────────────────────────────────────',
     ...Object.entries(voteTallyCount).sort().map(([k, v]) => `  ${k} agreement: ${v} signals`),
@@ -807,7 +894,7 @@ const generateReport = (allTrades, requestedDays, funnelsBySymbol) => {
     '═══════════════════════════════════════════════════════════════════',
   ];
 
-  return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount } };
+  return { lines, stats: { winRate, profitFactor, totalRR, finalCapital, totalReturn, maxDD, bySymbol, patternCount, liveFinalBalance, liveTotalReturn, liveMaxDD, liveTotalFeesStr } };
 };
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -624,6 +624,32 @@ module.exports = {
     POC: 0.4,   // vs baseline 0.25 — first guess to test, not a tuned value
   },
 
+  // ── EXPERIMENTAL (v10.32) — per-symbol TP2 extension floor, OFF by
+  // default. Confirmed from a fresh 360-day/56-trade backtest: DOT-USDT
+  // and TRX-USDT both show real trigger activity (10 and 4 triggers in
+  // the funnel diagnostics respectively) but ZERO opened trades — every
+  // single one dies at the tp2RangeOk gate, i.e. TP2_MIN_EXTENSION_RR
+  // (0.25 globally). That's a specific, testable hypothesis — this
+  // threshold may be miscalibrated for these two symbols' typical
+  // volatility/range profile specifically, not evidence they lack
+  // tradeable structure — NOT a claim that it definitely is, and NOT
+  // backtested on this box (no network access to api.kucoin.com here).
+  // 0.15 below is a first guess to test, exactly like SL_ATR_MULT_MATRIX
+  // above — not a tuned value.
+  //
+  // HOW TO TEST WITHOUT TOUCHING LIVE BEHAVIOR:
+  //   TP2_MIN_EXTENSION_RR_MATRIX_ENABLED=true node backtest.js DOT-USDT,TRX-USDT 360
+  // Compare opened-trade count AND win rate/R for these two symbols
+  // against a normal run (env var unset, same command). A lower floor
+  // that unlocks trades but tanks their win rate is not an improvement —
+  // check both numbers, not just whether trades start opening. Only
+  // flip the line below to `true` if the backtest actually supports it.
+  TP2_MIN_EXTENSION_RR_MATRIX_ENABLED: process.env.TP2_MIN_EXTENSION_RR_MATRIX_ENABLED === 'true' ? true : false,
+  TP2_MIN_EXTENSION_RR_MATRIX: {
+    'DOT-USDT': 0.15,
+    'TRX-USDT': 0.15,
+  },
+
   // ── POC QUALITY FACTORS (v10.8, applied LIVE as of v10.9) ──────────────
   // Three independent, testable hypotheses about why POC underperforms
   // VAH/VAL — every SL across two fresh backtests (9/9 in a 360-day
@@ -882,6 +908,16 @@ module.exports = {
   // ── Backtest-only settings ──────────────────────────────────────────────
   BACKTEST_DAYS: 360,
   STARTING_CAPITAL: 1000,
+  // v10.32 — starting balance for the NEW "LIVE-EQUIVALENT $ SIMULATION"
+  // section (see backtest.js generateReport()), separate from
+  // STARTING_CAPITAL above. That $1000/1.5%-risk/compounding simulation
+  // has never matched how this bot actually trades — live uses a FIXED,
+  // non-compounding margin per trade regardless of balance, so unlike
+  // STARTING_CAPITAL, this number only affects the reported return % and
+  // whether cumulative drawdown would have ever wiped the account out —
+  // it does NOT change the $ P&L of any individual simulated trade.
+  // Update this to match your real account balance for an accurate %.
+  LIVE_STARTING_BALANCE_ILLUSTRATIVE: 5,
   EARLY_TIMEOUT_BARS: 70,     // close sim trades early if TP1 not hit by then (v10.5: was "TP2" under the old 3-target system)
   // v10.14: named constant replacing a bare "200" that was hardcoded
   // identically in two places in backtest.js's trade-management loop
