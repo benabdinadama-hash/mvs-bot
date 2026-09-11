@@ -293,6 +293,12 @@ const checkForNewSignals = async () => {
     const result = await executeSignal({
       symbol: s.symbol, direction: s.direction,
       entryPrice: s.entryPrice, slPrice: s.slPrice, tp1Price: s.tp1Price, tp2Price: s.tp2Price,
+      // v10.32 FIX — s.riskMult has been recorded on every signal since
+      // v10.15 (strategy.js's logSignal() call) but was never actually
+      // read here — every trade executed at identical full size
+      // regardless of the signal's own computed confidence. See
+      // execute-signal.js's v10.32 comment for the full story.
+      riskMult: s.riskMult,
     });
     console.log(`[watcher] Result:`, JSON.stringify(result));
 

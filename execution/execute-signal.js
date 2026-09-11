@@ -47,9 +47,32 @@ const PARTIAL_EXIT_PCT = 0.5;
 const toBybitSymbol = (mvsSymbol) => mvsSymbol.replace('/', '').replace('-', ''); // e.g. BTC/USDT -> BTCUSDT — adjust if your symbol format differs
 
 const executeSignal = async (signal) => {
-  const { symbol, direction, entryPrice, slPrice, tp1Price, tp2Price } = signal;
+  const { symbol, direction, entryPrice, slPrice, tp1Price, tp2Price, riskMult } = signal;
   const bybitSymbol = toBybitSymbol(symbol);
   const tag = `[execute-signal ${symbol}]`;
+
+  // v10.32 FIX — confirmed real gap: strategy.js has computed a
+  // confidence-weighted riskMult per signal since early in this
+  // strategy's confidence-weighting work (core.js computeRiskMultiplier
+  // /computePOCQualityMultiplier, v10.3 onward) and shown it in the
+  // Telegram alert as "Suggested size: X% of normal." It was NEVER
+  // actually applied here — every signal executed at the identical,
+  // full $1.5 margin regardless of how weak or strong its own analysis
+  // said it was. backtest.js's $ P&L simulation DOES apply this
+  // multiplier (see its riskAmt calc) — so this was also a
+  // live/backtest fidelity gap, not just a missed optimization. Clamped
+  // defensively to [0.1, 1.0] here independently of core.js's own clamp
+  // (belt-and-suspenders — a malformed or missing value on an
+  // older-format signals.log.json entry must never silently become a
+  // >1.0x size-UP or a near-zero/negative size).
+  const safeRiskMult = (typeof riskMult === 'number' && riskMult >= 0.1 && riskMult <= 1)
+    ? riskMult
+    : 1.0;
+  const effectiveMarginUsdt = parseFloat((MARGIN_PER_TRADE_USDT * safeRiskMult).toFixed(4));
+  if (safeRiskMult < 1.0) {
+    console.log(`${tag} Confidence-weighted sizing: riskMult ${safeRiskMult} → ` +
+      `$${effectiveMarginUsdt} margin (full size would be $${MARGIN_PER_TRADE_USDT}).`);
+  }
 
   // 1. Kill switch — checked first, before any other work.
   if (killSwitch.isPaused()) {
@@ -141,6 +164,27 @@ const executeSignal = async (signal) => {
     return { executed: false, reason: 'TICKER_FETCH_FAILED', error: err.message };
   }
 
+  // v10.32 addition — this repo's signals and every SL/TP price level are
+  // computed entirely from KuCoin SPOT candles (config.js BASE_URL), but
+  // execution happens on Bybit USDT-margined LINEAR PERPETUAL FUTURES
+  // (see bybit-client.js: category:'linear') — a different exchange AND
+  // a different instrument type, each with its own price. The staleness
+  // checks just above/below (pastSl, SIGNAL_STALE_PRICE_MOVED) already
+  // catch the case where this divergence is severe enough to invalidate
+  // the trade — but until now nothing measured HOW BIG that divergence
+  // typically runs, for a symbol whose setups never even trip those
+  // safety checks. This doesn't gate anything (no threshold, no
+  // behavior change) — it just makes the KuCoin-vs-Bybit basis a real,
+  // recorded number instead of an untracked theoretical risk, so it can
+  // actually be reviewed later (per-symbol, over time, e.g. via
+  // executed-signals.json) instead of guessed at.
+  const basisPct = entryPrice > 0
+    ? parseFloat((((lastPrice - entryPrice) / entryPrice) * 100).toFixed(3))
+    : null;
+  if (basisPct !== null) {
+    console.log(`${tag} KuCoin→Bybit basis at execution: theoretical entry $${entryPrice} (KuCoin) vs live $${lastPrice} (Bybit) = ${basisPct > 0 ? '+' : ''}${basisPct}%.`);
+  }
+
   // Reject if price has already blown through the stop-loss level —
   // entering now would mean starting the trade already invalidated
   // relative to its own risk boundary.
@@ -194,7 +238,7 @@ const executeSignal = async (signal) => {
   // — never silently proceeds with knowingly bad real-money economics.
   const netRR = computeNetRR({
     entryPrice: lastPrice, slPrice, tpPrice: tp1Price,
-    marginUsdt: MARGIN_PER_TRADE_USDT, leverage,
+    marginUsdt: effectiveMarginUsdt, leverage,
   });
   if (netRR) {
     console.log(`${tag} Fee-adjusted TP1 R:R: gross ${netRR.grossRR}:1 → net ${netRR.netRR}:1 ` +
@@ -216,13 +260,14 @@ const executeSignal = async (signal) => {
     return { executed: false, reason: 'INSTRUMENT_INFO_FAILED', error: err.message };
   }
 
-  const notional = MARGIN_PER_TRADE_USDT * leverage;
+  const notional = effectiveMarginUsdt * leverage;
   const rawQty = notional / lastPrice;
   const qty = roundQtyDown(rawQty, instrument.qtyStep);
 
   if (qty < instrument.minOrderQty) {
     console.error(`${tag} Computed qty ${qty} is below ${bybitSymbol}'s minimum order qty (${instrument.minOrderQty}). ` +
-      `$${MARGIN_PER_TRADE_USDT} margin at ${leverage}x isn't enough for this symbol right now. Skipping.`);
+      `$${effectiveMarginUsdt} margin at ${leverage}x isn't enough for this symbol right now` +
+      `${safeRiskMult < 1.0 ? ` (reduced from $${MARGIN_PER_TRADE_USDT} by this signal's ${safeRiskMult} confidence multiplier)` : ''}. Skipping.`);
     return { executed: false, reason: 'BELOW_MIN_ORDER_QTY' };
   }
 
@@ -251,8 +296,9 @@ const executeSignal = async (signal) => {
 
   const plan = {
     symbol: bybitSymbol, side, qty, leverage,
-    marginUsdt: MARGIN_PER_TRADE_USDT, notionalUsdt: parseFloat(notional.toFixed(2)),
-    theoreticalEntryPrice: entryPrice, lastPrice, slPrice: roundedSl, slDistancePct,
+    marginUsdt: effectiveMarginUsdt, fullMarginUsdt: MARGIN_PER_TRADE_USDT, riskMult: safeRiskMult,
+    notionalUsdt: parseFloat(notional.toFixed(2)),
+    theoreticalEntryPrice: entryPrice, lastPrice, basisPct, slPrice: roundedSl, slDistancePct,
     netRR: netRR || undefined,
     ...(canSplit
       ? { split: true, qty1, tp1Price: roundedTp1, qty2, tp2Price: roundedTp2 }
@@ -315,11 +361,11 @@ const executeSignal = async (signal) => {
 
     ledger.recordOpened({
       symbol: bybitSymbol, side, orderId,
-      entryTime: Date.now(), margin: MARGIN_PER_TRADE_USDT, leverage,
+      entryTime: Date.now(), margin: effectiveMarginUsdt, riskMult: safeRiskMult, leverage,
       ...(canSplit ? { split: true, qty1, tp1OrderId, qty2, tp2OrderId } : { split: false }),
     });
 
-    console.log(`${tag} ✅ LIVE order placed. orderId=${orderId} qty=${qty} leverage=${leverage}x` +
+    console.log(`${tag} ✅ LIVE order placed. orderId=${orderId} qty=${qty} leverage=${leverage}x margin=$${effectiveMarginUsdt}` +
       (canSplit ? ` [split: ${qty1}@TP1 $${roundedTp1}, ${qty2}@TP2 $${roundedTp2}]` : ` [single TP $${roundedTp1 ?? 'none'}]`));
     return { executed: true, orderId, tp1OrderId, tp2OrderId, tpLegWarnings: tpLegWarnings.length ? tpLegWarnings : undefined, plan };
   } catch (err) {
