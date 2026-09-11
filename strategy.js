@@ -707,10 +707,16 @@ const runStrategy = async (symbol) => {
     const slAtrMult = config.SL_ATR_MULT_MATRIX_ENABLED && config.SL_ATR_MULT_MATRIX[bestPivot.name] != null
       ? config.SL_ATR_MULT_MATRIX[bestPivot.name]
       : config.SL_ATR_MULT;
+    // v10.32 EXPERIMENTAL (off by default — see config.js
+    // TP2_MIN_EXTENSION_RR_MATRIX): identical lookup pattern to
+    // slAtrMult above, same reasoning — no live/backtest drift.
+    const tp2MinExtensionRR = config.TP2_MIN_EXTENSION_RR_MATRIX_ENABLED && config.TP2_MIN_EXTENSION_RR_MATRIX[symbol] != null
+      ? config.TP2_MIN_EXTENSION_RR_MATRIX[symbol]
+      : config.TP2_MIN_EXTENSION_RR;
     const levels = core.computeTradeLevels({
       direction, entryPrice: bestFibLevel, swing: swing1h, atr: atr1h, vp: vp1h,
       slAtrMult, tp1RrFloor: config.TP1_RR_FLOOR, fibLevel500: fib.level500,
-      tp2MinExtensionRR: config.TP2_MIN_EXTENSION_RR,
+      tp2MinExtensionRR,
     });
     if (!levels) {
       // v10.15.3 FIX: every other gate in this pipeline calls logDiag()
@@ -723,7 +729,7 @@ const runStrategy = async (symbol) => {
       // confirm live behavior matches backtest behavior for this specific
       // check. Reason string mirrors the D-signal taxonomy naming
       // convention used everywhere else (see README's Signal Taxonomy).
-      console.log(`  ⏭️ Invalid TP structure (TP2 doesn't extend ≥${config.TP2_MIN_EXTENSION_RR}R beyond TP1). Suppressed.`);
+      console.log(`  ⏭️ Invalid TP structure (TP2 doesn't extend ≥${tp2MinExtensionRR}R beyond TP1). Suppressed.`);
       logDiag({ symbol, barTime, price, fired: false, reason: 'TP2_EXTENSION_TOO_SHORT' });
       return;
     }
@@ -975,6 +981,7 @@ risk capital you can't afford to lose on a single position.
         const execResult = await executeSignal({
           symbol, direction, entryPrice: bestFibLevel,
           slPrice: levels.slPrice, tp1Price: levels.tp1Price, tp2Price: levels.tp2Price,
+          riskMult, // v10.32 — see execute-signal.js/watcher.js for why this matters now
         });
         console.log(`  ↳ execution result:`, JSON.stringify(execResult));
       } catch (err) {
