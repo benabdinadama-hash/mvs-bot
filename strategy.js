@@ -856,6 +856,28 @@ const runStrategy = async (symbol) => {
 
     const entryTime = data15m[data15m.length - 1].time;
 
+    // v10.34 addition — direct answer to "signals always arrive on
+    // Telegram late, price already halfway to TP2 by the time I see
+    // it." entryTime above is the CLOSE of the 15m candle this signal
+    // is based on (KuCoin candle timestamps are unix SECONDS — same
+    // convention already relied on by the entryTime*1000 log a few
+    // lines up for POSITION_ALREADY_OPEN). Comparing that against
+    // wall-clock "now," right here where the alert is about to be
+    // built and sent, gives the REAL measured delay for this specific
+    // alert — instead of guessing whether it's cron-job.org's trigger
+    // phase, a GitHub Actions runner queue delay, or something else.
+    // Purely informational: no threshold, no gating, nothing
+    // downstream changes behavior based on this number — same
+    // "measure it, don't guess" pattern as v10.32's KuCoin→Bybit basis
+    // logging above. Once a few of these land in signals.log.json,
+    // the actual size and consistency of the delay becomes visible
+    // instead of felt.
+    const scanLagSec = Math.max(0, Math.round(Date.now() / 1000 - entryTime));
+    const scanLagLabel = scanLagSec >= 60
+      ? `${Math.floor(scanLagSec / 60)}m ${scanLagSec % 60}s`
+      : `${scanLagSec}s`;
+    const SCAN_LAG_WARN_SEC = 300; // 5 min — informational flag only, not a gate
+
     // v10.30 addition — see execution/fee-estimate.js header for the full
     // "the R:R is very bad for the SL" story. This is an ESTIMATE (uses
     // the account's configured margin/leverage ceiling, not the live
@@ -897,6 +919,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
+🕐 *Candle→alert lag:* ${scanLagLabel}${scanLagSec > SCAN_LAG_WARN_SEC ? ' ⚠️ unusually slow this time' : ''}
 ⚡ *MVS v${MVS_VERSION}*
     `.trim();
 
@@ -936,6 +959,10 @@ risk capital you can't afford to lose on a single position.
       td9Confirms, slAtrMult, prominence, migration, nakedPOC, multiTFPOC,
       // v10.10 — honest delivery flag (see sendSafe/flushPendingAlerts above).
       alertDelivered,
+      // v10.34 — see scanLagSec comment above. Recorded here (not just
+      // in the Telegram message) so it's still reviewable after the
+      // fact across many signals, not just felt on the one that just fired.
+      scanLagSec,
     });
 
     // v10.14: hand this off to position-tracker.js, which will replay
