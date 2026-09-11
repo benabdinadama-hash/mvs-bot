@@ -3,6 +3,66 @@
     "symbol": "ADA-USDT",
     "signal": "FIRED",
     "direction": "BUY",
+    "entryTime": 1789136100,
+    "entryPrice": 0.207341,
+    "slPrice": 0.1997576627237965,
+    "tp1Price": 0.2164410047314442,
+    "tp2Price": 0.2218625,
+    "risk": 0.0075833372762035,
+    "rr1": 1.2000000000000006,
+    "rr2": 1.9149220812805512,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "ENGULFING",
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 3.747815676142495,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.21361249999999998,
+      "poc1d": 0.1665705
+    },
+    "alertDelivered": true,
+    "time": "2026-09-11T14:15:21.456Z"
+  },
+  {
+    "symbol": "ADA-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
     "entryTime": 1789135200,
     "entryPrice": 0.207341,
     "slPrice": 0.19981659129522505,
