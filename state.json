@@ -47,7 +47,7 @@
     "updatedAt": "2026-09-14T05:30:12.725Z"
   },
   "BTC-USDT": {
-    "signal": "SCANNED",
+    "signal": "CLOSED_EXCHANGE",
     "price": 77524.3,
     "direction": "BUY",
     "voteTally": "3/5",
@@ -67,7 +67,9 @@
     "swingHigh": 79884.7,
     "swingLow": 76043.9,
     "atr1h": 277.6421784040356,
-    "updatedAt": "2026-09-14T05:30:14.916Z"
+    "updatedAt": "2026-09-14T05:44:18.422Z",
+    "exitTime": 1789364658,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "XRP-USDT": {
     "signal": "SCANNED",
@@ -93,7 +95,7 @@
     "updatedAt": "2026-09-14T05:30:17.108Z"
   },
   "ADA-USDT": {
-    "signal": "NO_AGREEMENT",
+    "signal": "CLOSED_EXCHANGE",
     "direction": null,
     "price": 0.2068,
     "bias1d": "BULLISH",
@@ -101,7 +103,9 @@
     "bias1h": "NEUTRAL",
     "bias30m": "BEARISH",
     "bias15m": "NEUTRAL",
-    "updatedAt": "2026-09-14T05:30:19.614Z"
+    "updatedAt": "2026-09-14T05:44:18.013Z",
+    "exitTime": 1789364658,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "DOGE-USDT": {
     "signal": "NO_AGREEMENT",
@@ -115,7 +119,7 @@
     "updatedAt": "2026-09-14T05:30:21.815Z"
   },
   "AVAX-USDT": {
-    "signal": "NO_AGREEMENT",
+    "signal": "CLOSED_EXCHANGE",
     "direction": null,
     "price": 7.403,
     "bias1d": "BULLISH",
@@ -123,7 +127,9 @@
     "bias1h": "BEARISH",
     "bias30m": "NEUTRAL",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-09-14T05:30:24.075Z"
+    "updatedAt": "2026-09-14T05:44:17.525Z",
+    "exitTime": 1789364657,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "LINK-USDT": {
     "signal": "WAITING_FOR_ZONE",
