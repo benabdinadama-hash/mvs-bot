@@ -213,7 +213,7 @@
     "updatedAt": "2026-09-15T15:30:47.505Z"
   },
   "ARB-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "entryPrice": 0.1357656,
     "slPrice": 0.1305704268663656,
@@ -241,7 +241,9 @@
     "lastSignalBar": 1789484400,
     "lastSignalDir": "BUY",
     "alertDelivered": true,
-    "updatedAt": "2026-09-15T15:30:50.074Z"
+    "updatedAt": "2026-09-15T15:31:38.665Z",
+    "exitTime": 1789486298,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "OP-USDT": {
     "signal": "SCANNED",
