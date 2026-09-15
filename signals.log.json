@@ -1,5 +1,65 @@
 [
   {
+    "symbol": "ARB-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1789486200,
+    "entryPrice": 0.1357656,
+    "slPrice": 0.1305704268663656,
+    "tp1Price": 0.14199980776036125,
+    "tp2Price": 0.151698,
+    "risk": 0.005195173133634379,
+    "rr1": 1.2000000000000022,
+    "rr2": 3.0667697861407386,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "POC_RECLAIM",
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 0.65,
+    "bias1d": "NEUTRAL",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BULLISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 6.299413825142286,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.110875,
+      "poc1d": 0.1919515
+    },
+    "alertDelivered": true,
+    "scanLagSec": 50,
+    "time": "2026-09-15T15:30:50.075Z"
+  },
+  {
     "symbol": "ADA-USDT",
     "signal": "FIRED",
     "direction": "BUY",
