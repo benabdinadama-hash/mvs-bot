@@ -102,7 +102,7 @@
     "updatedAt": "2026-09-17T14:00:26.614Z"
   },
   "LINK-USDT": {
-    "signal": "FIRED",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "entryPrice": 10.908415999999999,
     "slPrice": 10.592436739255739,
@@ -130,7 +130,9 @@
     "lastSignalBar": 1789653600,
     "lastSignalDir": "BUY",
     "alertDelivered": true,
-    "updatedAt": "2026-09-17T14:00:29.164Z"
+    "updatedAt": "2026-09-17T14:01:26.495Z",
+    "exitTime": 1789653686,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "BNB-USDT": {
     "signal": "WAITING_FOR_ZONE",
