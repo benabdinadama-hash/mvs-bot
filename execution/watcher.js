@@ -34,7 +34,7 @@ const HEARTBEAT_FILE = path.join(__dirname, 'heartbeat.json');
 // maybePushRemoteHeartbeat below) so GitHub Actions can see it too —
 // see execution/check-remote-heartbeat.js and heartbeat-config.js.
 const REMOTE_HEARTBEAT_FILE = path.join(__dirname, 'remote-heartbeat.json');
-const POLL_INTERVAL_MS = 60 * 1000; // check every 60s — matches the 15m scan cadence with margin to spare
+const POLL_INTERVAL_MS = 30 * 1000; // v10.35: was 60s — halved to shrink the window between a signal firing and this watcher attempting execution. Safe with protect.js's v10.35 grace-period fix (wall-clock based, not cycle-count based), which no longer races position-tracker.js regardless of how often this fires.
 
 // v10.24 FIX — every git exec in this file used to run with no timeout.
 // On a phone's mobile connection, `git pull`/`git push` over HTTPS can
@@ -48,7 +48,7 @@ const gitExec = (cmd, opts = {}) =>
   execSync(cmd, { cwd: REPO_ROOT, stdio: 'pipe', timeout: GIT_TIMEOUT_MS, killSignal: 'SIGKILL', ...opts });
 
 // v10.24 FIX — the actual mechanism behind "watcher needs 2x pkill
-// before it comes clear." setInterval fires every 60s NO MATTER WHAT,
+// before it comes clear." setInterval fires every cycle NO MATTER WHAT,
 // even if the previous cycle (pullLatest + protect + checkForNewSignals)
 // hasn't finished. Combine that with any hang (a slow git pull, a slow
 // Bybit call) and cycles start stacking: two, three, four overlapping
@@ -364,7 +364,7 @@ const pullLatest = async () => {
       // quick retry before giving up for the cycle (ref-lock: 3s,
       // local-conflict: immediate). A bare network failure (ETIMEDOUT,
       // ECONNRESET — exactly what a mobile signal drop produces) used
-      // to skip straight to "wait the full next 60s cycle," which is
+      // to skip straight to "wait the full next cycle," which was
       // the single biggest contributor to the pull-outage gap described
       // in the v10.33 comment above signals.log.json's HTTP fallback.
       // One retry after a short pause costs a few seconds and clears

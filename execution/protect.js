@@ -259,6 +259,32 @@ const syncOrphanedSignals = async (pullSucceeded = true) => {
       );
       if (stillOpen) continue; // genuinely still open — leave it alone
 
+      // v10.35 FIX — root cause of "signal fired, then nothing again,
+      // never" (confirmed live, 2026-09-17): this used to force-close a
+      // signal-side entry the instant Bybit showed 0 real position, which
+      // is true for EVERY signal that never got real execution (fee- or
+      // staleness-filtered — see execute-signal.js). Since this runs every
+      // 30-60s on the phone while position-tracker.js (the only code that
+      // replays real candles, determines the actual SL/TP outcome, and
+      // sends the close notification) only runs once per 15-min GitHub
+      // Actions scan, protect.js was winning that race almost every
+      // time — deleting the entry before position-tracker.js's next scan
+      // ever got a chance to close it correctly. Net effect: most fired
+      // signals got their entry alert, then were silently wiped with no
+      // close notification and no SL/TP/rr ever recorded.
+      //
+      // Fix: give position-tracker.js real room to close it first. Only
+      // force-close here once the entry has survived at least 3 full scan
+      // cycles with Bybit showing no real position — long enough that the
+      // normal case is almost always already closed correctly by then.
+      // This restores what the CLOSED_EXCHANGE note below always claimed:
+      // a true last-resort safety net, not the primary closure path.
+      const ORPHAN_GRACE_PERIOD_SEC = 45 * 60; // 45 min — ~3 scan cycles' headroom
+      const ageSec = Math.floor(Date.now() / 1000) - (entry.entryTime || 0);
+      if (ageSec < ORPHAN_GRACE_PERIOD_SEC) {
+        continue; // too young — let position-tracker.js's real candle replay get first crack at this
+      }
+
       if (!pullSucceeded) {
         console.error(`[protect] ${symbol} looks closed on Bybit, but this cycle's git pull failed — skipping the open-positions.json write-back rather than risk pushing a stale local copy that could erase a signal GitHub Actions just committed. Will retry next cycle.`);
         continue;
