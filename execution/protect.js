@@ -279,7 +279,27 @@ const syncOrphanedSignals = async (pullSucceeded = true) => {
       // normal case is almost always already closed correctly by then.
       // This restores what the CLOSED_EXCHANGE note below always claimed:
       // a true last-resort safety net, not the primary closure path.
-      const ORPHAN_GRACE_PERIOD_SEC = 45 * 60; // 45 min — ~3 scan cycles' headroom
+      //
+      // v10.36 CORRECTION — 45 min was wrong, proven wrong live
+      // (2026-09-20): DOGE-USDT fired at 03:00 while the phone watcher
+      // was down for several hours. position-tracker.js kept running
+      // independently on GitHub Actions every 15 min that whole time —
+      // it's not tied to phone uptime — and legitimately never closed
+      // DOGE, because price simply hadn't hit SL or TP1 yet. The
+      // instant the phone came back, this code saw an entry far past
+      // 45 min old, Bybit confirming no real position (expected — it
+      // was never executed), and force-closed it anyway — deleting a
+      // paper trade position-tracker.js was still correctly tracking,
+      // with no SL/TP outcome ever recorded or notified. 45 min assumed
+      // signals resolve fast; MVS is a swing strategy (up to 1D macro
+      // bias) where a real trade can legitimately take hours to a day
+      // or more to reach SL/TP1. There is no safety cost to waiting
+      // longer here — the only cost of a longer grace period is that
+      // symbol can't re-fire a NEW signal until this one resolves,
+      // which is far cheaper than silently losing the outcome. 24h
+      // still leaves this as a real safety net for entries that are
+      // genuinely stuck (a bug, corrupted data) rather than just slow.
+      const ORPHAN_GRACE_PERIOD_SEC = 24 * 60 * 60; // 24h — was 45 min; see v10.36 correction above
       const ageSec = Math.floor(Date.now() / 1000) - (entry.entryTime || 0);
       if (ageSec < ORPHAN_GRACE_PERIOD_SEC) {
         continue; // too young — let position-tracker.js's real candle replay get first crack at this
