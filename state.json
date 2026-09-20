@@ -56,7 +56,7 @@
     "updatedAt": "2026-09-20T08:45:18.929Z"
   },
   "DOGE-USDT": {
-    "signal": "SCANNED",
+    "signal": "CLOSED_EXCHANGE",
     "price": 0.08472,
     "direction": "SELL",
     "voteTally": "3/5",
@@ -76,7 +76,9 @@
     "swingHigh": 0.09126,
     "swingLow": 0.07833,
     "atr1h": 0.000915215231322423,
-    "updatedAt": "2026-09-20T08:45:21.113Z"
+    "updatedAt": "2026-09-20T08:50:20.608Z",
+    "exitTime": 1789894220,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "AVAX-USDT": {
     "signal": "WAITING_FOR_ZONE",
