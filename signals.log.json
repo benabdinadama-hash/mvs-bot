@@ -1,5 +1,64 @@
 [
   {
+    "symbol": "DOGE-USDT",
+    "signal": "FIRED",
+    "direction": "SELL",
+    "entryTime": 1789873200,
+    "entryPrice": 0.08849298,
+    "slPrice": 0.0915154174116556,
+    "tp1Price": 0.084795,
+    "tp2Price": 0.08136855,
+    "risk": 0.0030224374116556013,
+    "rr1": 1.2235092067545446,
+    "rr2": 2.357180324901236,
+    "confluencePivot": "VAH",
+    "fibPct": "78.6%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "4H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "NEUTRAL",
+    "bias4h": "BEARISH",
+    "bias1h": "BULLISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 2.8399272005350094,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.08984485,
+      "poc1d": 0.092092
+    },
+    "alertDelivered": true,
+    "scanLagSec": 25,
+    "time": "2026-09-20T03:00:25.349Z"
+  },
+  {
     "symbol": "LINK-USDT",
     "signal": "FIRED",
     "direction": "BUY",
