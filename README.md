@@ -1,7 +1,7 @@
 # MVS — Monthly Value Sniper
 ## By Abdin — KuCoin Edition for Ghana
 
-![Pairs](https://img.shields.io/badge/Pairs-14%20Liquid%20Pairs-orange?style=for-the-badge)
+![Pairs](https://img.shields.io/badge/Pairs-20%20Liquid%20Pairs-orange?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Exchange-KuCoin%20Ghana-red?style=for-the-badge)
 
 ## Why "Monthly Value Sniper"
@@ -48,1031 +48,138 @@ the summary — not just the win-rate line.
 
 ---
 
-## What changed since v10.0 (v10.3 → v10.9)
+## What changed since v10.0 (v10.3 → v10.36, current)
 
-Kept here so this stays a living record instead of scattered commit
-messages. Full technical detail lives in the header comments of `core.js`
-and `config.js` if you want the exact numbers behind each change.
+Condensed record — kept short on purpose so it stays something people
+actually read, not scattered commit messages. Full technical detail for
+any entry below still lives in the header comments of the file it
+touched (`core.js`, `config.js`, `strategy.js`, `execution/*.js`) if you
+need the exact numbers or reasoning behind a specific change.
 
-- **v10.3 — Risk tiering.** Position-size scaling (not a new entry gate —
-  nothing that used to fire got blocked) for the one segment the trade log
-  actually flagged: POC-pivot entries where 1H doesn't confirm direction.
-- **v10.4 — Three fixes.** LINK-USDT and AVAX-USDT were silently getting
-  truncated trade history in backtests (a pagination bug, not a real data
-  gap — fixed). A second, independent risk factor (the `POC_RECLAIM`
-  pattern) got its own position-size discount. Telegram send and KuCoin
-  fetch both gained retries so a transient network blip can't silently
-  drop a real signal.
-- **v10.5 — TP3 retired.** Confirmed by four separate backtests (30/360/
-  720/1800 days) that TP3 was hit exactly 0 times, ever. Root cause: TP1
-  used to be a full, instant close, which (due to check ordering) meant
-  the further targets could basically never be reached in ordinary price
-  action. Fixed properly: TP1 is now a genuine 50% partial exit with a
-  hard breakeven stop for the rest, and TP2 (the old TP3 formula — 1H
-  VAH/VAL) is the only further target. Two real targets instead of three
-  where the third was structurally unreachable. Also fixed: backtest
-  requests for short windows (e.g. 30 days) used to silently return zero
-  signals for every symbol, because warming up the 4H volume profile
-  alone needs ~34 days — that warmup buffer is now fetched separately
-  from the days you actually asked to evaluate.
-- **v10.6 — Evaluated a third-party strategy spec on request, adopted
-  what held up, declined the rest with reasons on record.** Adopted: TD
-  Sequential "9" (Tom DeMark) as an independent, size-only confirmation
-  signal — genuinely non-lagging, bounded so it can only restore size
-  toward normal, never exceed it or block a signal. Declined: swapping
-  the TP2 target formula to an `entry ± VA_Range × π` "Pi target" (the
-  actual TP problem was the v10.5 sequencing bug, already fixed — π
-  itself has no evidence behind it in this system); 4H-based Value Area/
-  Fibonacci (would discard everything the four backtests validated);
-  ADX/volume/news filters (would cut signal frequency, the opposite of
-  what was asked).
-- **v10.7 — EXPERIMENTAL, off by default.** A fresh backtest found every
-  single SL (9/9 in a 360-day window, 15/15 in a 720-day window) traced to
-  POC pivot. Rather than cut POC volume (costs frequency), `SL_ATR_MULT_MATRIX`
-  tests whether POC's SL rate is partly noise: POC is a single price point
-  that can shift bar to bar, unlike VAH/VAL (stable range boundaries), so
-  it may be more prone to brief overshoot-then-reverse. Widens POC's stop
-  and shrinks position size to match, so $ risk per trade is unchanged.
-  Genuinely untested — stays off by default (`SL_ATR_MULT_MATRIX_ENABLED`),
-  needs a real backtest with wider stops before it should be trusted.
-- **v10.8 — Three more theories for the same "every SL is POC" finding,
-  chosen to be mechanistically different from v10.7 and from each other:**
-  **POC prominence** (is POC's volume a clear peak, or does it barely edge
-  out its neighbor price rows — a contested, ambiguous "winner" rather
-  than a level the market clearly agreed on?); **POC migration** (has POC
-  been drifting toward the trade direction across recent windows — real,
-  forming consensus — or is it static/noisy?); **naked/untested POC**
-  (does an earlier, now-closed window's POC — never revisited since — sit
-  near the current POC? Two profiles agreeing is stronger evidence than
-  one). All three: bounded, size-only multipliers, never gates, complete
-  no-ops for VAH/VAL regardless of state.
-- **v10.9 — Two changes.** (1) All three v10.8 POC-quality factors flipped
-  from off-by-default to **live by default**, applied directly per explicit
-  instruction rather than gated behind a backtest-first requirement.
-  `SL_ATR_MULT_MATRIX` (v10.7) is a separate mechanism and was NOT included
-  in that instruction — it stays off by default. (2) `signals.log.json`
-  and `diag.log.json` now write **newest-first** (most recent entry at the
-  top of the file) instead of oldest-first, so you don't have to scroll to
-  the bottom to see what just happened. `equity-curve.json` follows the
-  same convention. Every place that read these files with an
-  oldest-first assumption baked in was found and fixed — see the
-  `strategy.js` / `weekly-summary.js` v10.9 header notes for the three
-  spots that needed updating (equity-curve math, "latest snapshot"
-  lookup, displayed entry list).
-- **v10.10 — FIVE-TIMEFRAME VOTE, 3-of-5** (explicitly requested: "FROM
-  NOW WE ARE USING 5 TIMEFRAMES: 15MN, 30MN, 1H, 4H, 1D. VOTE OF 3 OVER
-  5."). Added 1D and 30m as two new independent bias votes alongside the
-  existing 4H/1H/15m — same POC/VAH/VAL/Fib50 4-pillar vote, cast by two
-  more timeframes. `core.resolveDirection()` now takes an explicit
-  `minAgree` count (`config.MIN_TF_AGREE = 3`) instead of a hardcoded 2.
-  1H still supplies the structural zone and 15m still supplies the
-  trigger candle — unchanged. Also fixed two separately-reported bugs:
-  `/status` now shows direction + full per-TF bias breakdown + vote
-  tally (state.json previously never carried those fields at all, only
-  `diag.log.json` did — a display fix alone couldn't have solved it), and
-  Telegram messages now chunk automatically instead of risking the
-  4096-char hard limit. Weekly summary entries are now grouped (`×N`)
-  instead of repeating near-identical blocks.
-- **v10.11 — (2026-07-07) investigated a reported "bot won't fire despite
-  3-of-5 agreement" bug, found none, and made two evidence-based changes
-  to cut losses.** Checked all 541 `diag.log.json` entries
-  programmatically: zero cases where 3+ of the 5 biases genuinely agreed
-  and `NO_3OF5_AGREEMENT` still fired — the reported screenshot showed 2
-  BULLISH votes plus NEUTRALs, correctly not fired (NEUTRAL doesn't count
-  toward either side). Separately confirmed the `NO_2OF3_AGREEMENT`
-  entries also visible in that log are stale history from the pre-v10.10
-  code, not a second vote system running in parallel — timestamps show
-  they stop the moment v10.10 deployed. Two real changes made:
-  `MIN_CONFLUENCE_POC` reverted `1 → 2` (the v10.2 frequency-pass note had
-  explicitly flagged this as the lever to revert once POC-pivot win rate
-  degraded — the 720-day report confirmed it had: 206 trades, 56.3% WR,
-  23 of 30 total SLs), and `POC_RECLAIM` removed from
-  `SOLO_ELIGIBLE_PATTERNS` (61 trades with it firing solo: 39.3% WR, 10
-  SL vs. 154 trades without it: 72.7% WR, 5 SL). It still counts toward
-  the 2-of-5 pattern requirement, it just can't fire alone.
-- **v10.12 — (2026-07-07) the POC/no-1H-confirm segment upgraded from a
-  size cut to an actual entry gate.** `RISK_TIER_MATRIX`'s `POC_NO1H: 0.75`
-  had been discounting this segment's position size since v10.3, but
-  every one of those trades still fired and still lost, just smaller —
-  and it's the single largest source of stop-losses in every backtest run
-  to date (168 of 246 trades in the report that surfaced it, 15 of 18
-  total SLs). New flag `POC_REQUIRE_1H_CONFIRM` (on by default) now skips
-  the setup entirely — logged as `POC_NO1H_GATED` — instead of just
-  sizing it down. Wired into both `strategy.js` (live) and `backtest.js`
-  (simulation) identically, to avoid this repo's own documented history of
-  live/backtest drift bugs. **This is the single biggest frequency-cutting
-  change made across v10.10-v10.12** — POC_NO1H was 68% of trades in the
-  report that flagged it, so expect a real hit to signals/week on top of
-  v10.11's changes. **The backtest numbers throughout this README (and
-  `setup-bot.js`'s bot description) predate v10.10, v10.11, AND v10.12 —
-  they describe the OLD 3-TF/2-of-3 ruleset with looser POC gating and
-  need a fresh `node backtest.js` run before being trusted or
-  republished.**
-- **v10.13 — (2026-07-07) requested: find a better way to use POC to
-  avoid SLs and raise signal quality.** Instead of more theory, went back
-  to the actual per-trade data already sitting in `backtest-report.json`
-  (720-day: 207 POC trades, 360-day: 94 POC trades — the 360-day set is a
-  subset of the 720-day one, so treat this as one replicated check, not
-  two independent samples) and split POC trades by each v10.8 quality
-  factor to see which ones actually predicted the outcome:
-  - **POC_PROMINENCE confirmed correct, upgraded to a gate.** Decisive
-    POC (prominenceRatio ≥ 1.5): 59.7%/60.3% WR. Contested POC (< 1.5):
-    48.3%/50.0% WR. ~10pp gap, same direction both windows — comparable
-    to the 1H-confirm gap that justified v10.12's gate. New flag
-    `POC_PROMINENCE_REQUIRE_DECISIVE` (on by default) now skips contested
-    POC entries entirely (`POC_PROMINENCE_GATED`) instead of just taking
-    them at 80% size.
-  - **POC_MIGRATION was backwards — fixed.** The v10.8 theory was
-    "migrating WITH the trade direction = forming consensus = good," and
-    rewarded it with a 1.2x size boost. The data says the opposite:
-    migration-confirms-direction trades scored 53.3%/54.8% WR, while
-    static-or-against-direction trades scored 62.5%/64.7% WR — both
-    windows, same direction. Plausible read: a POC that's already
-    migrated toward the trade direction is a level that's already been
-    "spent" — chasing a re-rated level rather than catching a fresh one.
-    The boost is removed; migration-confirms-direction now gets the
-    PENALTY multiplier instead, against/static stays neutral.
-  - **NAKED_POC left untouched — no data to check it against.** Both
-    backtest windows showed `nakedPOC.aligned` as `false` on every single
-    POC trade (the data-availability requirement — 2× the VP lookback in
-    bars — wasn't met often enough in these windows to produce a single
-    aligned case). Not confirmed, not refuted; flagged rather than
-    guessed at.
-  - Both fixes are wired identically into `strategy.js` (live) and
-    `backtest.js` (simulation) — same drift-prevention discipline as
-    every other gate in this repo. **Not yet re-backtested on this box**
-    (no network access to api.kucoin.com here) — run `node backtest.js`
-    and check the new `POC_PROMINENCE_GATED` count plus the POC-pivot WR
-    in the BY PIVOT section against the numbers above.
-  - **Combined signal, for context (not yet gated on, small sample):**
-    POC trades where 1H confirms AND prominence is decisive scored
-    87.5% WR (n=8) in the 360-day set vs 47.8% WR (n=23) where neither
-    holds. Worth watching as a possible future "trusted POC" tier once
-    more trades accumulate — 8 trades is too few to gate a whole tier on
-    by itself.
-- **v10.13.1 — (2026-07-07) CONFIRMED: fresh 360-day backtest run against
-  the deployed v10.13 code — 48 signals (~0.89/wk), 82.6% WR, PF 48.97,
-  only 1 SL in 46 closed trades, +87.2% return at 0.9% max DD. This is
-  the first backtest run since the v10.11-v10.13 changes and confirms
-  the gates did what they were meant to do. Requested a full audit
-  ("every bug, error, mismatch") on top, explicitly to be run WITHOUT
-  touching any strategy threshold — nothing in this entry changes what
-  fires or how it's sized, only correctness/consistency of the code and
-  docs around it:**
-  - **Real bug: new funnel counter was invisible.** v10.13's
-    `funnel.prominenceOk` counter (backtest.js) was incremented via
-    `funnel.prominenceOk = (funnel.prominenceOk || 0) + 1` without ever
-    being declared in the funnel object's initializer, and was never
-    added to the printed funnel-diagnostics line — so the new POC-
-    prominence gate had zero visibility in every backtest report,
-    including the confirmation run above. Fixed: properly initialized
-    and now printed between `triggerOk` and `tp2RangeOk`.
-  - **Stale default parameter.** `core.js` `detectRejection()`'s
-    `soloPatterns` default was still the pre-v10.11 value
-    (`['POC_RECLAIM', 'VAH_VAL_RECLAIM']`) — inert today since both real
-    call sites explicitly pass `config.SOLO_ELIGIBLE_PATTERNS`, but a
-    landmine for any future call site that omits the argument. Updated
-    to match the current config.
-  - **Stale version labels, several files.** Every top-of-file "current
-    version" header (`core.js` still said v10.9, `config.js` v10.9,
-    `strategy.js`/`backtest.js` v10.10, `commands.js`/`weekly-summary.js`
-    v10.10) had been left behind through three full version bumps even
-    though each file's own changelog entries inside stayed current.
-    `package.json`'s version field and description string were also
-    still on v10.10. All bumped to v10.13.
-  - **User-facing stale version string.** The `/about` Telegram command
-    (`commands.js`) hardcoded "(v10.10)" in text actually sent to users —
-    fixed to v10.13.
-  - **Stale backtest numbers in the live bot's Telegram profile.**
-    `setup-bot.js`'s `setMyDescription` call still carried a "STALE v10.6
-    backtest (pre-5TF, needs re-run)" placeholder. Replaced with the real,
-    dated v10.13 360-day numbers from the confirmation run above.
-  - **Minor/cosmetic:** added a clarifying comment in `strategy.js` where
-    the "contested POC" quality-note text is now conditionally
-    unreachable for POC-pivot trades specifically (the v10.13 gate
-    already returns before that line runs, for that one pivot type) —
-    not deleted, since it's still correct and reachable for VAH/VAL
-    trades and for the `POC_PROMINENCE_REQUIRE_DECISIVE=false` fallback.
-  - **Known limitation, not a bug (left as-is):** `weekly-summary.js`'s
-    equity-curve section has been self-documented since v10.6 as
-    permanently empty — it depends on live exit-tracking (polling price
-    against open SL/TP between scans) that doesn't exist yet; this bot
-    alerts, it doesn't monitor open positions. Correctly fails silent
-    rather than fabricating numbers. Flagging again here since a full
-    audit should surface it, but building real exit-tracking is a new
-    feature, not a fix, and wasn't asked for in this pass.
-  - Full audit scope: every `.js` file syntax-checked and require-tested,
-    every cross-file function-call signature checked for drift (`core.js`
-    exports vs. every call site in `strategy.js`/`backtest.js`), every
-    `config.*` key referenced in `strategy.js` cross-checked against
-    `backtest.js` for anything read by one and not the other,
-    `state.json`'s actual saved fields cross-checked against everything
-    `commands.js`'s `/status` reads, `config.js` scanned for duplicate
-    top-level keys (none found). Everything not listed above checked out
-    clean.
-- **v10.14 — (2026-07-07) live position tracking, MNT-USDT added, a full
-  second audit pass, and a direct answer on "close to 100% win rate."**
-  - **On the 100% win rate goal, directly:** no real trading system runs
-    at or near 100% WR — not this one, not any other, on any market. A
-    win rate that high on live/backtest data almost always means one of:
-    the sample is too small to have hit a loss yet (this bot's own
-    82.6%-WR run above is 46 closed trades — encouraging, not proof),
-    the backtest is curve-fit to its own history and will underperform on
-    new data, or the stop-loss is so wide that "wins" are actually just
-    small losses relabeled. This pass did NOT chase that number — every
-    change below is either a genuine bug/mismatch fix or a
-    change explicitly requested (position tracking, MNT-USDT), not a new
-    threshold tightened purely to inflate a backtest win rate. If a future
-    change trades real frequency for a shinier win-rate number without
-    replicated evidence behind it, that's the pattern to be suspicious of,
-    including from a future version of this bot.
-  - **Live position tracking, built.** New `position-tracker.js` — see
-    the dedicated "Live Position Tracking" section above for the full
-    mechanism. No dedicated server: it rides the existing 15-min scan
-    cron. `core.js` gained a new shared `evaluateOpenTrade()` function,
-    extracted from `backtest.js`'s inline trade-management loop so live
-    tracking and backtest simulation share one implementation instead of
-    two that could drift. New `MAX_HOLD_1H_BARS` config constant replaces
-    a bare `200` that was hardcoded in that loop. New file:
-    `open-positions.json`.
-  - **MNT-USDT (Mantle) added** to `config.js SYMBOLS` — 14 tracked pairs
-    now, up from 13. Every hardcoded "13" reference across
-    `commands.js`, `config.js` comments, `setup-bot.js`, `package.json`,
-    and this README updated to 14.
-  - **Two direct questions answered, and the docs fixed to match:**
-    - *"There are only 2 patterns?"* — no: 5 rejection patterns exist
-      (POC_RECLAIM, VAH_VAL_RECLAIM, PIN_BAR, ENGULFING,
-      CLOSE_REJECTION). `REJECTION_MIN_PATTERNS: 2` means 2-of-those-5
-      must show up on the trigger candle, not that only 2 patterns are
-      checked. The `PATTERNS_N_OF_2` diag-log reason was genuinely easy
-      to misread this way — N is how many of the 5 fired, not a total
-      count. Clarified in the walkthrough and Rejection Patterns section.
-    - *"Which TF does 'HTF' mean in the diag log?"* — 4H, specifically
-      (the STEP 5 zone cross-check). Fair question given the field name
-      alone didn't say — renamed `htfAligned` → `htf4hAligned`
-      (`strategy.js`, `diag.log.json` going forward) and the funnel
-      counter/reason string in `backtest.js`/`strategy.js` to match
-      (`HTF_ZONE_MISMATCH` → `HTF_4H_ZONE_MISMATCH`), instead of just
-      documenting the ambiguity and leaving the confusing name in place.
-  - **Real bug, found and fixed: dead code in `strategy.js`'s Telegram
-    send helper.** `sendSafe()` had `return null;` sitting immediately
-    after an unconditional `return { success: false, ... }` one line
-    above it — unreachable, harmless, but genuine leftover cruft from an
-    earlier edit. Removed.
-  - **Real bug, found and fixed: `/positions` told users the opposite of
-    what's now true.** It said "MVS is signal-only — it does not place or
-    track live trades," which was accurate through v10.13 but is
-    contradicted by the position-tracker.js this version ships. Rewritten
-    to show real tracked-position state and describe what tracking does
-    and doesn't mean (still no order placement — see "Live Position
-    Tracking" above for the exact boundary). Same fix applied to the
-    `/help` menu text and the command-list header comment, which had the
-    same stale claim.
-  - **Architecture fix: the STEP 4 / STEP 6b gate split was itself a
-    mismatch.** Auditing this pass surfaced that the v10.13 POC-prominence
-    gate had been sitting deep inside the Telegram-alert-building step
-    (after SL/TP calculation) in `strategy.js`, while its sibling gate
-    (POC_REQUIRE_1H_CONFIRM, v10.12) correctly sat right in the confluence
-    check step — meaning a contested-POC setup still paid for a full SL/TP
-    calculation before being thrown away, AND the two gates the docs
-    described as a matched pair actually lived in different parts of the
-    pipeline. Relocated the prominence gate to sit immediately next to its
-    sibling gate in both `strategy.js` AND `backtest.js` (which needed the
-    identical relocation to stay in sync) — pure reordering, no threshold
-    changed, so this does not affect which signals fire, only how early
-    a rejected one gets rejected. Funnel diagnostics reordered to match.
-  - **Full walkthrough rewrite.** The "Entry Logic (Step-by-Step)" section
-    below had drifted since roughly v10.10 — STEP 1 still described
-    fetching only 4H/1H/15m (pre-5TF), and by v10.12/v10.13 the STEP
-    numbers no longer matched `strategy.js`'s actual `STEP N` code
-    comments at all (a "STEP 6a/6b" existed against a "STEP 6" that
-    wasn't the code's real step 6). Rewritten to match the code exactly,
-    with a note on how to re-verify it (`grep -n "STEP [0-9]"
-    strategy.js`) the next time a gate moves.
-  - Not touched, on purpose: every backtest threshold, gate condition, and
-    config default from v10.11-v10.13 — this pass was fixes, tracking,
-    and documentation, not a strategy change, so the confirmed 82.6% WR /
-    360-day backtest from the previous entry should still be reproducible.
-- **v10.14.1 — (2026-07-08) two follow-ups from live use: Actions still
-  showing "13 pairs," and Telegram commands going unanswered.**
-  - **Real bug, found and fixed: `mvs-commands.yml` had no schedule
-    fallback.** It relied entirely on `workflow_dispatch: {}`, triggered
-    externally by cron-job.org every 5 min, with no native GitHub
-    `schedule:` backup. `mvs-scan.yml` has carried exactly that kind of
-    backup from the start, with its own comment explaining why: "if
-    cron-job.org has an outage, its token expires, or its ping silently
-    stops." The identical failure mode applied here, just unprotected —
-    if cron-job.org's ping to THIS workflow ever stopped, `/status`,
-    `/positions`, and every other command would simply go unanswered,
-    with nothing anywhere logging an error, indistinguishable from "the
-    bot is broken." Verified `commands.js` itself end-to-end first
-    (every command handler executed clean against both synthetic and the
-    actual production `state.json`/`open-positions.json`/
-    `signals.log.json` — zero errors) before concluding the workflow
-    trigger, not the code, was the gap. Added a `*/10 * * * *` native
-    schedule as a backup, mirroring `mvs-scan.yml`'s pattern exactly.
-  - **The "13 pairs in Actions" report was from before the v10.14 fix
-    had actually run yet.** Confirmed via a fresh backtest report
-    generated after deployment: 14 symbols, MNT-USDT included with real
-    trade data, `v10.14.0` correctly shown in the report header (proving
-    the dynamic-version fix from the previous entry works). No further
-    code change needed here — the earlier fix was already correct and
-    live; the report that raised the question predated it.
-  - `package.json` bumped to `10.14.1` — the only version-string change
-    in this patch; every dynamic display (`strategy.js`, `backtest.js`,
-    `commands.js`) picks it up automatically, nothing else to edit.
-- **v10.15 — (2026-07-08) four requested improvements: multi-timeframe POC
-  alignment, a Fib-level split (finally answerable), vote-strength
-  sizing, and a volatility/regime filter. Session filter explicitly
-  declined per instruction — not built.**
-  - **Multi-TF POC alignment (size-only, POC pivot only).** Does 1H POC
-    line up with 4H and/or 1D POC? Two independently-computed volume
-    profiles agreeing is stronger evidence than one — same logic
-    NAKED_POC already uses across time windows, applied here across
-    timeframes instead. `bias4h.poc`/`bias1d.poc` were already being
-    computed by the 5-TF vote for the HTF zone check, so this costs
-    nothing extra to fetch. **Genuinely untested** — wired as a bounded
-    boost multiplier (`MULTI_TF_POC_BOOST_MULT: 1.15`), not a gate,
-    exactly how NAKED_POC itself was introduced in v10.8. New "BY
-    MULTI-TF POC ALIGNMENT" backtest report section to check it against
-    real trades once enough accumulate.
-  - **Important discovery made while adding this: "boost" multipliers
-    above 1.0 have been silently inert this entire time.** The final
-    risk multiplier is clamped `Math.max(0.1, Math.min(1.0, riskMult))`
-    in both `strategy.js` and `backtest.js` — meaning `NAKED_POC_BOOST_MULT`
-    (1.15, live since v10.8) and the pre-v10.13 `POC_MIGRATION_BOOST_MULT`
-    never actually did anything for a trade with no OTHER active discount,
-    since there was nothing below 1.0 for the boost to pull back up
-    toward. Not changed here — raising the 1.0 ceiling itself is a real
-    risk-management decision (it would let position size legitimately
-    exceed your configured `RISK_PER_TRADE_PCT` in the best case), and
-    that deserves its own explicit choice, not a side effect of an
-    unrelated feature request. Flagged clearly in `config.js` next to
-    every affected constant.
-  - **Vote-strength sizing.** 3-of-5/4-of-5/5-of-5 timeframe agreement now
-    sizes at 0.70x/0.85x/1.0x respectively (`config.VOTE_STRENGTH_MULT`)
-    instead of identically at every tally. Built as a discount from full
-    at the strongest tally rather than a boost above it — directly because
-    of the clamp finding above; this way it actually has an effect on
-    every trade, not just ones that happen to have some other discount
-    active. New "BY VOTE TALLY" report section — these starting values
-    (0.70/0.85/1.0) are a reasoned starting point, not a backtested
-    optimum; compare against a run with `VOTE_STRENGTH_SIZE_ENABLED=false`
-    before trusting them.
-  - **Volatility/regime filter — new gate, not just sizing.** Skips a
-    setup if the current 1H ATR sits in the outer 5% of that SYMBOL'S OWN
-    trailing 200-bar ATR history (`config.VOLATILITY_LOOKBACK_BARS`,
-    `VOLATILITY_MIN_PCTL`/`MAX_PCTL`) — percentile against its own
-    history, not a fixed number, since a quiet day for BTC and a quiet day
-    for a small-cap alt aren't the same absolute ATR. New `core.js`
-    functions `calcATRSeries()`/`calcATRPercentile()`. Placed as early as
-    possible in the pipeline (right after ATR is computed, before any
-    structure/confluence/pattern work) since it's the cheapest check and
-    independent of direction/pivot/pattern. **Genuinely untested** —
-    bounds deliberately conservative (only the outer 5% each side) since
-    the goal was a light-touch filter, not an aggressive new gate stacked
-    on everything else added this session. New `volatilityOk` funnel
-    counter, new `VOLATILITY_REGIME_GATED` diag-log reason.
-  - **Fibonacci 61.8% vs 78.6% split — answerable for the first time.**
-    `backtest.js`'s trade records never tracked which end of the Fib
-    pocket was used for entry (`strategy.js` computes this for the alert
-    message, but nothing wrote it to a trade record before now). Added
-    `fibPct` to the trade object and a new "BY FIB LEVEL" report section.
-    **No opinion offered here on purpose** — the previous two backtest
-    reports reviewed this session predate this field entirely, so there
-    is no existing data to draw a conclusion from. Run `node backtest.js`
-    to get the first real answer.
-  - **Session filter (London/NY open restriction) — explicitly declined,
-    not built.** Was on the shortlist from the prior discussion; instructed
-    to skip it this round. Noted here only so a future reader doesn't
-    wonder why it's absent from an otherwise-complete pass.
-  - All four features wired identically into `strategy.js` (live) and
-    `backtest.js` (simulation) — funnel diagnostics, gate order, and
-    report sections kept in lockstep, same discipline as every prior
-    version. **Not yet re-backtested on this box** (no network access to
-    api.kucoin.com here) — run `node backtest.js` and compare the new
-    report sections against your last confirmed run (82.6% WR, 360-day)
-    before trusting any of this live. Expect the volatility filter and
-    vote-strength discount to both reduce frequency somewhat further, on
-    top of where v10.11-v10.14 already left it.
-- **v10.15.1 — (2026-07-09) CONFIRMED REGRESSION, REVERTED. A fresh
-  360-day backtest run against live v10.15 came back at +43.0% return
-  (vs. the previous confirmed +100.2% on the same window) — a real,
-  serious drop, not a misread. Root-caused precisely before touching
-  anything, by replaying the SAME 47 closed trades from that exact report
-  through the sizing math with each new factor isolated:**
-  - **Vote-strength sizing was nearly the whole story.** $1,430 final
-    capital with it on vs. $1,655 with it off — on the identical trade
-    set. Why it hit so much harder than expected: 41 of the 47 signals
-    (87%) were 3-of-5 tallies. `VOTE_STRENGTH_MULT` had been treating
-    3-of-5 as the weak/rare case worth a 30% size cut — it's actually the
-    NORMAL case. The default was quietly discounting almost every trade,
-    not an occasional weak one. **Defaulted back to OFF**
-    (`VOTE_STRENGTH_SIZE_ENABLED`). Code untouched and still fully
-    functional if you want to re-test it — just not live by default
-    anymore, and if you do, less aggressive starting values than
-    0.70/0.85/1.0 are probably warranted given what this run showed.
-  - **The volatility filter cost real signal count for unproven benefit.**
-    Funnel diagnostics on the same run showed it removing 15-20% of
-    vote-passing candidates on every single symbol — signal count went
-    53 → 47. Win rate moved only within normal sample noise (84.0% →
-    76.2% is a couple of trades either way on a ~50-trade sample, not
-    evidence the filter improved quality). Cost was real and measured;
-    benefit was not established. **Defaulted back to OFF**
-    (`VOLATILITY_REGIME_ENABLED`), same reasoning — code stays, just not
-    on by default.
-  - **Multi-TF POC alignment: confirmed zero effect, left ON.** Isolated
-    test on the same 47 trades: identical $1,430.30 final capital with it
-    enabled or disabled. It's a boost-only mechanism gated by the same
-    1.0 risk-multiplier ceiling noted in v10.15 — structurally can't hurt
-    a backtest, so no reason to revert it. Still genuinely untested for
-    upside; that hasn't changed.
-  - **`fibPct` tracking: unaffected, left in.** Pure instrumentation, no
-    trading-logic impact either way — keeps the "BY FIB LEVEL" report
-    section working for whenever there's enough data to read something
-    into it.
-  - Net effect of this revert: sizing and gating are back to v10.14
-    behavior. The only durable additions from v10.15 are the (currently
-    inert-or-neutral) multi-TF POC boost and the Fib-level report
-    instrumentation — both harmless by construction, kept for when there's
-    real trade data to evaluate them against, per the standing philosophy
-    in this repo: measure before gating, and revert fast and honestly when
-    a measurement doesn't hold up. **Not yet re-backtested live on this
-    box** (no network access here) — run `node backtest.js` and confirm
-    the numbers land back near the v10.14 baseline before considering this
-    closed.
-- **v10.15.2 — (2026-07-09) CRITICAL FIX: silent Telegram message failures
-  across the whole bot, root-caused from a live "commands not responding"
-  report.** Telegram's legacy Markdown parse mode (used everywhere in this
-  bot) has NO escape mechanism — a single unpaired `_`, `*`, or `` ` ``
-  anywhere in a message causes Telegram to reject the ENTIRE message with
-  a 400 "can't parse entities" error. `tgCall`/`sendSafe` catch that error
-  internally and just log it, so the failure is completely silent: no
-  exception surfaces, the GitHub Actions run still shows green/success,
-  and the message simply never arrives — indistinguishable from "the bot
-  is broken" with nothing to point at.
-  - **Confirmed, not guessed.** Built the real `/status` message from
-    live production `state.json` and counted underscores: 9 (odd —
-    guaranteed parse failure). Traced to state values like `NO_AGREEMENT`
-    (any symbol without 3-of-5 vote agreement — a routine, common state
-    across 14 symbols) each carrying exactly one underscore. Whether the
-    total across all symbols comes out odd or even depends purely on how
-    many symbols happen to be in that state at the moment `/status` runs
-    — explaining both the garbled-but-delivered reply seen earlier and
-    the complete silence seen on the next three attempts, as the SAME bug,
-    just landing on different sides of odd/even by chance.
-  - **Far bigger than `/status`.** The same pattern exists in this bot's
-    actual trade alerts: pattern names like `POC_RECLAIM` (1 underscore),
-    `PIN_BAR` (1), `CLOSE_REJECTION` (1), `VAH_VAL_RECLAIM` (2) get
-    embedded directly into the live signal message's pattern list. A
-    signal firing on `POC_RECLAIM` alone, or `POC_RECLAIM` + `ENGULFING`,
-    would have an odd total and silently fail to deliver — a REAL trade
-    alert, not a status check, gone with zero indication anywhere. Also
-    found in `weekly-summary.js` (patterns list) and `position-tracker.js`
-    (`EARLY_TIMEOUT` close notifications).
-  - **Fix: new `mdSafe()` helper, one copy per file** (same
-    don't-cross-require-live-scripts discipline as every other shared
-    utility in this repo), replacing underscores with spaces for DISPLAY
-    only — the underlying values used for comparisons/logic/storage are
-    completely untouched, only what gets rendered into a Telegram message
-    changes. Applied everywhere a pattern name or a `signal`/`result`
-    string reaches a message: `strategy.js` (`patternStr`, the
-    `POC_RECLAIM` weak-reason note — the two that matter most, since
-    they're in the actual trade alert), `commands.js` (`/status`,
-    `/positions`), `weekly-summary.js` (patterns list), `position-tracker.js`
-    (close notifications).
-  - **Verified against real data, not just logic review**: rebuilt the
-    exact `/status` message from live `state.json` with the fix applied —
-    underscore count now 0 (was 9), guaranteed valid Markdown regardless
-    of which symbols are in `NO_AGREEMENT` at any given moment.
-  - This explains real, already-occurred failures — not just a
-    theoretical risk. If any past trade alert ever silently failed to
-    arrive, this is almost certainly why.
-- **v10.15.3 — (2026-07-10) investigated a "TRX-USDT gets 0 trades"
-  report, found no bug in TRX's handling, but found and fixed two real
-  observability gaps along the way.**
-  - **TRX-USDT itself: not a bug.** The 360-day funnel showed TRX reaching
-    the final trigger-pattern check 24 times (comparable to LTC's 67 and
-    POL's 61) but failing the TP2-extension-floor check (`TP2_MIN_EXTENSION_RR`)
-    all 24 times — every other symbol passes that check at least
-    occasionally. Confirmed zero TRX-specific code exists anywhere in the
-    repo (`grep` for the symbol turns up nothing but its entry in the
-    `SYMBOLS` list) — the identical formula runs for every symbol. A gate
-    that's consistently failing on the same specific check for one symbol,
-    while passing everything before it, points to that symbol's own price
-    structure during this window (a narrow value area relative to its
-    swing distances) rather than a bug. Not something a code change should
-    "fix" — forcing weak TP2 structures through would undermine the exact
-    check that's protecting trade quality.
-  - **Real gap #1: the TP2-extension rejection was never logged.**
-    Every other gate in the pipeline calls `logDiag()` so it shows up in
-    `diag.log.json`; this one was console-log only, since v10.5. This is
-    exactly why confirming the TRX finding required reading backtest
-    funnel counters instead of just checking the live diag log directly —
-    the live bot had no record of this specific rejection ever happening.
-    Fixed: new `TP2_EXTENSION_TOO_SHORT` diag reason.
-  - **Real gap #2, found while auditing for more of the same: the cooldown
-    gate was never logged either**, since it was first added. Confirmed
-    via the live diag log's own reason distribution before fixing — across
-    1800+ real scans, zero cooldown-related entries had ever appeared.
-    Fixed: new `SIGNAL_COOLDOWN` diag reason.
-  - Both fixes are purely additive logging — no gate condition, threshold,
-    or trading behavior changed. `diag.log.json` will simply be a more
-    complete record of *why* going forward.
-- **v10.15.4 — (2026-07-10) root-caused why TRX-USDT (and other symbols)
-  were going stale in `/status` — not a per-symbol issue at all.**
-  - **Found: `mvs-scan.yml`'s job timeout (6 minutes) was measurably too
-    tight.** Worst case for `node strategy.js` alone — 14 symbols x 5
-    parallel timeframe fetches each, up to 2 attempts at a 15s client
-    timeout + 800ms retry wait, plus a 2s courtesy delay between symbols —
-    comes to ~7.6 minutes, BEFORE counting checkout/npm-install overhead
-    or the commit/push step. Confirmed via `diag.log.json`: TRX-USDT's
-    entries simply stopped for a long stretch (~24h in the reported
-    screenshot), no `EXCEPTION` or error reason logged anywhere — not
-    consistent with a per-symbol bug, consistent with the whole job
-    being killed mid-run.
-  - **Why this matters more than "one missed scan":** "Commit and push
-    state files" is a separate, LATER step in the workflow. If the job is
-    killed while `node strategy.js` is still running, NOTHING from that
-    run is committed — not even symbols already successfully processed
-    earlier in the same run. This explains the shifting, seemingly-random
-    pattern of which symbols looked stale: it depends on which runs
-    happened to be slow (KuCoin latency, a few retries) and got killed,
-    and which symbols hadn't yet been re-saved locally when that happened.
-    TRX (12th of 14 in `config.SYMBOLS`) being consistently among the
-    worst-affected fits — later symbols are more likely to still be
-    pending when a slow run hits the ceiling.
-  - **Fixed: `mvs-scan.yml` timeout raised 6 → 12 minutes** — comfortable
-    margin above the ~7.6-minute worst case, still safely under the
-    15-minute scan interval so a slow run finishes before the next is due.
-  - **Same class of risk found and fixed in `mvs-commands.yml`**: its
-    `/scan` command runs `execSync('node strategy.js', { timeout: 5*60*1000
-    })` — a 5-minute inner cap — inside a job with only 7 minutes total,
-    leaving almost no margin for checkout/npm-install/offset-commit
-    combined. Raised 7 → 10 minutes.
-  - **Defense in depth: `/status` now flags staleness directly.** Any
-    symbol whose `state.json` entry is more than 45 minutes old (3x the
-    normal ~15-min cadence) now shows `⚠️ Stale — last updated Xh ago`
-    instead of silently looking identical to a healthy entry. This is
-    what should have made the original report obvious at a glance, rather
-    than requiring a manual timestamp comparison across 14 symbols.
-  - Nothing about trading logic, gates, or thresholds changed in this
-    version — purely a workflow-reliability and observability fix.
-- **v10.15.5 — (2026-07-11) the REAL root cause of scattered per-symbol
-  staleness — v10.15.4's timeout fix helped but wasn't the whole story.**
-  A follow-up report showed the exact same symptom persisting even after
-  the timeout fix: specific symbols (ETH, BTC, XRP, DOGE, AVAX, LINK, BNB,
-  LTC, TRX) stuck stale anywhere from 3 to 37 hours, in a scattered,
-  non-contiguous pattern, while others (SOL, ADA, DOT, POL, MNT) stayed
-  perfectly fresh. Checked `diag.log.json` for the affected symbols
-  directly: entries stopped completely, at the same moment as their
-  `state.json` timestamp — no `EXCEPTION`, no gate-rejection reason,
-  nothing. That rules out a per-symbol data or API problem (which would
-  still leave SOME diag trail) and points at the scan loop itself simply
-  never reaching them in whichever runs happened during those stretches.
-  - **Found: `git pull --rebase --autostash origin main` in `mvs-scan.yml`
-    (and identically in `mvs-commands.yml` and `keepalive.yml`) is
-    fundamentally the wrong merge strategy for files that get FULLY
-    REWRITTEN by every single run.** `state.json` has every symbol's
-    `updatedAt` change on every run — if two runs' commits ever land close
-    enough together (the 5-minute `isDuplicateRun()` guard in
-    `strategy.js` reduces this but doesn't eliminate it — cron-job.org's
-    ping and the native GitHub schedule backup can still land within
-    minutes of each other), a plain rebase tries to line-by-line
-    text-merge two versions of a JSON blob where nearly every line
-    differs. Best case: a full conflict that fails the rebase outright —
-    `git push` never runs after that, silently discarding that entire
-    run's freshly-scanned data for ALL 14 symbols, not just some. Worse
-    case: hunks that don't textually collide merge "successfully," but
-    the result is a byte-level blend of TWO DIFFERENT RUNS' per-symbol
-    data in one file — some symbols reflecting one run's timestamp,
-    others reflecting a different, older run's — exactly the scattered
-    pattern observed.
-  - **Fix: replaced `git pull --rebase --autostash` with `git fetch` +
-    `git merge -X ours` in all three workflows** (`mvs-scan.yml`,
-    `mvs-commands.yml`, `keepalive.yml`). `state.json`/`diag.log.json`/
-    `signals.log.json`/`open-positions.json`/`.ping.json`/`tg-offset.json`
-    are self-contained, fully-regenerated outputs of whichever run
-    produces them — they were never meant to be incrementally text-merged
-    with a different run's version. `-X ours` guarantees that on any real
-    conflict, THIS run's complete, internally-consistent version wins
-    wholesale, rather than risking a partial blend — and guarantees the
-    merge always succeeds (no more silently-failed pushes). Non-conflicting
-    changes elsewhere in the repo still merge in normally; `-X ours` only
-    decides what happens for hunks that actually collide.
-  - This is a genuine, structural fix, not a tuning change — it doesn't
-    touch trading logic, gates, timeouts, or thresholds at all.
-- **v10.15.6 — (2026-07-11) THE ACTUAL root cause of scattered staleness,
-  found and empirically proven, not just theorized. v10.15.4 (timeout)
-  and v10.15.5 (git merge strategy) were both real, legitimate fixes for
-  real risks — but a follow-up report showed the exact same symptom
-  persisting after both had deployed: the SAME 9 symbols frozen at the
-  SAME timestamps, across multiple full scan cycles, while a small,
-  slowly-shrinking set of others stayed reliably fresh.**
-  - **Traced it precisely this time.** Printed every `diag.log.json` entry
-    in exact chronological order across several recent scan cycles. Found
-    that scans run reliably on schedule (every ~15 min, confirmed), but
-    each one only ever produces log entries for 2-5 symbols — with large,
-    otherwise-unexplained time gaps between them that match several
-    symbols' worth of the inter-symbol delay, as if those symbols were
-    being reached but never logging anything at all, not even a rejection
-    reason. That ruled out slow API calls or per-symbol gate rejections
-    (both would leave a diag trail) and pointed at something crashing the
-    whole process silently, symbol by symbol, run by run.
-  - **Found it: `fs.writeFileSync()` on `state.json` is not atomic against
-    a concurrent reader.** `state.json` gets read-modified-written at the
-    top of every symbol's processing (a per-symbol `_lastRunAt` stamp)
-    AND at several other points — 14+ times per scan. If a second workflow
-    run ever overlaps even slightly (the 5-min `isDuplicateRun()` guard
-    reduces this but a stacked cron-job.org ping and the native GitHub
-    schedule backup can still land close together), one process's
-    `readFileSync` can catch another's `writeFileSync` mid-write, producing
-    a truncated/malformed JSON string. `JSON.parse` on that throws — and
-    that specific read happened OUTSIDE any try/catch in `runStrategy`,
-    so it crashed the entire Node process instantly, silently, with zero
-    trace — killing every symbol from that point in the array onward for
-    that run, while whatever ran before the crash (and whatever the NEXT
-    run's luck was) explains the shifting little pool of "reliably fresh"
-    symbols.
-  - **Proved it, not just argued it.** Built a real test: two separate OS
-    processes (not just two functions in one process — Node's single
-    thread can't race with itself) hammering the same JSON file with the
-    old raw-`writeFileSync` pattern while a third process read it in a
-    tight loop. Result: **336 JSON parse failures out of 15,892 reads**
-    (~2.1%) — a real, reproducible, measurable corruption rate. Same test
-    with the fix applied (write to a temp file, then `rename()` over the
-    target — atomic at the OS level on Linux, which is what GitHub Actions
-    runners use): **0 failures out of 7,122 reads.**
-  - **Fix: new `atomicWriteJSON()` helper, applied everywhere any shared
-    JSON file gets written** — `strategy.js` (`state.json`,
-    `open-positions.json`, `signals.log.json`, `diag.log.json`),
-    `position-tracker.js`, `commands.js` (`tg-offset.json`), and
-    `weekly-summary.js` (`equity-curve.json`) for full consistency, even
-    where the risk was already low.
-  - **Also removed the redundant per-symbol `_lastRunAt` write** at the
-    top of `runStrategy()` — it was pure overhead (the end-of-run write
-    and every `saveState()` call's own `updatedAt` already cover this),
-    and it was 14 extra full-file read-write cycles per run that did
-    nothing but widen the exact race window this version closes. Fewer
-    writes to the same shared file per run means less exposure, not just
-    less work.
-  - v10.15.4 and v10.15.5 were not wasted effort — the timeout was
-    genuinely too tight and the git merge strategy was genuinely risky;
-    both are still correct fixes for the risks they addressed. This
-    version fixes the mechanism that was actually causing the specific
-    symptom reported. All three together are the complete picture.
-- **v10.15.7 — (2026-07-11) one gap missed in the v10.15.6 sweep, found by
-  re-checking rather than assuming the previous pass was complete.** After
-  delivering v10.15.6, ran a fresh `grep -rn "writeFileSync"` across the
-  entire repo one more time instead of taking the earlier fix's coverage
-  on faith — found `pending-alerts.json` (the failed-Telegram-delivery
-  retry queue, `queuePendingAlert()`/`flushPendingAlerts()` in
-  `strategy.js`) still used the old raw `writeFileSync`, missed because it
-  wasn't part of the original stale-symbol investigation's file list.
-  Same exposure as everything else fixed in v10.15.6 — this file is also
-  read and rewritten near the start of every single scan. Fixed with the
-  same `atomicWriteJSON()` helper. Also explicitly verified `.ping.json`
-  (written via shell `echo` in `mvs-scan.yml`, not Node) is safe as-is —
-  confirmed nothing anywhere in the codebase ever calls `JSON.parse` on
-  it, so a torn read there has no code path that could crash from it.
-- **v10.15.8 — (2026-07-12) THE FINAL root cause of the "stale symbols in
-  /status" saga. v10.15.4, v10.15.5, and v10.15.6/7 were all real,
-  legitimate fixes for real risks — and the exact same symptom still came
-  back after all of them had deployed, which is what made this one worth
-  finding properly instead of assuming it was already fixed.**
-  - **What ruled out every previous theory:** the same handful of symbols
-    were silent in every single run, every time, for hours — not a
-    shifting, probabilistic pattern the way a race condition or a killed
-    job would produce. And there were zero `EXCEPTION` entries, zero
-    `INSUFFICIENT_*_DATA` entries, zero `NO_3OF5_AGREEMENT` entries for
-    them either. The timing also didn't fit a hang: a full 14-symbol scan
-    was completing in ~26 seconds total, which is barely more than the
-    13 mandatory 2-second inter-symbol delays alone — meaning every
-    symbol, including the silent ones, was resolving almost instantly,
-    not timing out.
-  - **Found it: the vote WAS resolving for these symbols.** They kept
-    landing in the one gate in the entire pipeline that was silent by
-    design since it was first written — the "price isn't near the 1H Fib
-    zone yet" check. That gate never called `logDiag()` or `saveState()`,
-    only `console.log()` (which only exists in a GitHub Actions run log
-    nobody was checking in real time). A symbol trending for hours without
-    retracing into its Fib pocket — a completely normal, common market
-    condition — would hit this exact branch every single scan, and
-    NOTHING would ever update. That makes a perfectly healthy,
-    actively-scanned symbol look byte-for-byte identical in `/status` to
-    one that's genuinely broken, which is exactly what kept getting
-    reported as "stale" across multiple rounds, even after three rounds
-    of real infrastructure fixes.
-  - **Why this one was harder to find than the others:** it isn't a
-    crash, a race, or a timeout — it's a working-as-originally-designed
-    silent path that turned out to be the wrong design once `/status`
-    staleness detection existed to notice it (that detector was added in
-    v10.15.4, after this silent gate had already existed for many
-    versions). The gate itself was never broken; the assumption that
-    silence here was harmless was.
-  - **Fix: this gate now behaves like every other gate in the pipeline** —
-    logs `NOT_NEAR_ZONE` to `diag.log.json` and calls `saveState()` with
-    a new `WAITING_FOR_ZONE` signal plus the current price/bias/
-    `updatedAt`, mirroring the structure of the genuine `NO_AGREEMENT`
-    path just above it in the code. **Deliberately a distinct label, not
-    reused `NO_AGREEMENT`** — caught before shipping, by re-checking how
-    `commands.js` actually renders `signal` + `direction` together: at
-    this point in the pipeline the vote HAS already resolved (`direction`
-    is BUY/SELL, 3+ of 5 timeframes agreed — that's how execution reached
-    this line at all), so labeling it `NO_AGREEMENT` would have shown
-    contradictory text like "NO AGREEMENT (BUY)" in `/status`. First pass
-    of this exact fix used `NO_AGREEMENT` and would have shipped that
-    contradiction; fixed before delivery. `NO_3OF5_AGREEMENT` already
-    logs at this same "most common outcome" frequency without any
-    problem, so the original concern about log spam doesn't hold up in
-    practice.
-  - **What to expect after this deploys:** `/status`'s `⚠️ Stale` warning
-    (added in v10.15.4) should now only ever fire for a genuine problem —
-    every actively-scanned symbol will show a fresh `updatedAt` every ~15
-    min regardless of whether it's near its zone or not, because now
-    every outcome updates state, not just the interesting ones.
-- **v10.15.9 — (2026-07-13) investigated a real, live SL hit** (LINK-USDT
-  SELL: entry $7.94069, SL $8.13115, hit after 24h held) **and added the
-  instrumentation needed to test the one thing that stood out, instead of
-  gating on a single trade.**
-  - **Checked every known factor against this specific trade — none of
-    them explain the loss.** Patterns present: `ENGULFING` +
-    `CLOSE_REJECTION`, historically the single best combo on record
-    (91.3% WR, 0 SL, n=23). `CLOSE_REJECTION` alone: 87.0% WR historically.
-    Plain 3-of-5 vote tally: 75.0% WR historically. Prominence ratio 16.77
-    (far above the 1.5 decisive threshold). Every factor this bot already
-    tracks said this was a good setup, and by most of them, it was.
-  - **What actually stood out: the vote agreed 1D+30m+15m (BEARISH), but
-    the two timeframes NOT in that agreeing set — 4H and 1H — were both
-    actively BULLISH, directly opposing the SELL.** That's different from
-    "not confirming" — a NEUTRAL 4H/1H would be unremarkable, but an
-    OPPOSING one is a real, specific claim about the setup being fought by
-    the medium-term structure. Checked for backtest evidence: for VAH/VAL
-    pivot trades (this was a VAH pivot), 1H-in-agreeing showed 85.7% WR
-    (n=7, 0 SL) vs. 74.7% WR (n=87, 7 SL) when not — directionally
-    consistent with the same pattern already confirmed for POC pivots
-    back in v10.12, but n=7 is nowhere near enough to act on.
-  - **Deliberately NOT gated on this** — a single trade plus a 7-sample
-    hint is exactly the kind of thin evidence that led to the
-    vote-strength-sizing mistake in v10.15/v10.15.1 (shipped, then
-    reverted after a real backtest showed the cost). Not repeating that.
-  - **Instead: added `bias1d`/`bias4h`/`bias1h`/`bias30m`/`bias15m` to
-    every `backtest.js` trade record.** `agreeing` alone can only say
-    which timeframes agreed — it can't distinguish a disagreeing
-    timeframe that's OPPOSING the trade from one that's merely NEUTRAL,
-    which is exactly the distinction this hypothesis needs. New "BY
-    MID-TF AGREEMENT" report section splits closed trades into 4H/1H
-    confirming vs. opposing vs. neutral-or-mixed. This field didn't exist
-    before this version, so no existing report can answer the question —
-    run `node backtest.js` for the first real answer, ideally on a long
-    enough window that the "opposing" bucket has a real sample size
-    before drawing any conclusion from it.
-  - Nothing about gates, thresholds, or trading behavior changed in this
-    version — purely new measurement, same standing philosophy in this
-    repo: measure with an adequate sample before gating, every time.
+- **v10.3** — Position-size scaling (not a new gate) for POC-pivot
+  entries where 1H doesn't confirm direction.
+- **v10.4** — Fixed a pagination bug truncating LINK/AVAX backtest
+  history; added a size discount for the `POC_RECLAIM` pattern; Telegram
+  send and KuCoin fetch both gained retries.
+- **v10.5** — TP3 retired (backtested: hit 0 times ever, structurally
+  unreachable due to a check-ordering bug). TP1 is now a genuine 50%
+  partial exit with a hard breakeven stop; TP2 is the only further
+  target. Also fixed short backtest windows silently returning zero
+  signals (4H volume profile warmup needs ~34 days on its own).
+- **v10.6** — Adopted TD Sequential "9" as a size-only confirmation
+  signal. Declined (with reasons on record): a `π`-based TP2 formula,
+  4H-based Value Area/Fib, ADX/volume/news filters.
+- **v10.7** — EXPERIMENTAL, off by default. `SL_ATR_MULT_MATRIX` widens
+  POC's stop (shrinks size to match) to test whether POC's SL rate is
+  partly noise from being a single shiftable price point.
+- **v10.8** — Three more POC-quality, size-only multipliers: prominence,
+  migration, naked/untested POC. Never gates, no-ops for VAH/VAL.
+- **v10.9** — v10.8's three POC-quality factors went live by default
+  (`SL_ATR_MULT_MATRIX` from v10.7 stayed off). `signals.log.json` /
+  `diag.log.json` / `equity-curve.json` switched to newest-first.
+- **v10.10** — FIVE-TIMEFRAME VOTE, 3-of-5 (1D+4H+1H+30m+15m, explicit
+  request). `MIN_TF_AGREE` replaces a hardcoded 2. Fixed `/status`
+  missing direction/bias/vote-tally fields, added Telegram
+  auto-chunking, weekly summary entries now grouped (`×N`).
+- **v10.11** — Investigated a "won't fire despite 3-of-5" report, found
+  no bug (0/541 logged cases), made two evidence-based changes anyway.
+- **v10.12** — POC/no-1H-confirm segment: size cut → real entry gate.
+- **v10.13 / v10.13.1** — Reworked how POC avoids bad SLs; confirmed via
+  fresh 360-day backtest (48 signals, 82.6% WR, PF 48.97) on deployed code.
+- **v10.14 / v10.14.1** — Live position tracking added, MNT-USDT added,
+  full second audit pass. Follow-ups: Actions symbol-count display,
+  Telegram commands going unanswered.
+- **v10.15** — Four requested improvements: multi-TF POC alignment,
+  Fib-level split, vote-strength weighting, one more item.
+- **v10.15.1** — CONFIRMED REGRESSION in v10.15, reverted after a fresh
+  360-day backtest came back worse.
+- **v10.15.2** — CRITICAL FIX: silent Telegram failures bot-wide,
+  root-caused from a live "commands not responding" report.
+- **v10.15.3 – v10.15.8** — A genuine multi-round root-cause chase on
+  "symbols going stale in `/status`" (first thought TRX-specific, then
+  a timeout issue, then broader) — each pass found something real but
+  incomplete; v10.15.8 finally found the actual, complete root cause.
+- **v10.15.9** — Investigated a real live SL hit (LINK-USDT) and added
+  the resulting follow-up check.
+- **v10.18** — Two real live-money bugs found via production logs, plus
+  a requested frequency pass.
+- **v10.19** — Fixed the bot's own trade ledger getting stuck "open"
+  forever after a real close, silently blocking future trades.
+- **v10.20 / v10.21 / v10.22** — Win-rate refinement mined from a fresh
+  360-day/111-signal backtest; the first combination regressed
+  (root-caused precisely), the confirmation backtest that followed came
+  back genuinely stronger (88 trades, 80.7% WR, 2 SL, PF 31.6).
+- **v10.23** — Three cleanup items from live use, plus a real live-money
+  bug caught from actual watcher logs.
+- **v10.24** — Root-caused "watcher needs 2x pkill to clear": axios has
+  no default timeout, so a request can hang indefinitely on a flaky
+  mobile connection. Added a timeout plus one retry on genuine
+  network-level failures only.
+- **v10.25** — Skip a call entirely when running on GitHub Actions
+  (`strategy.js` runs on both GH Actions and the phone); added a
+  symbol-specific duplicate-execution backstop.
+- **v10.26** — TP1/TP2 now genuinely execute as two separate 50/50
+  reduce-only limit orders, matching what the Telegram alert always
+  claimed but wasn't actually doing.
+- **v10.27** — Added a live-price re-check immediately before executing
+  a signal. Confirmed real bad fill it was built to catch: TRX-USDT
+  fired, price had already moved past target by execution time.
+- **v10.28** — Defense-in-depth: cross-check against Bybit's real live
+  position list directly, not just the local ledger file (confirmed a
+  real desync case).
+- **v10.29** — Fixed a pull-success return value being silently
+  discarded, which could race `open-positions.json` writes between
+  GitHub Actions and the phone.
+- **v10.30** — Added the fee-adjusted R:R filter
+  (`NET_RR_TOO_LOW_AFTER_FEES`) — refuses execution when round-trip
+  fees would eat too much of a thin edge, at this account's margin size.
+- **v10.32.1** — Fixed `backtest.js`'s LIVE-EQUIVALENT simulation sizing
+  off the post-breakeven `slPrice` instead of `origSlPrice` (verified:
+  swung a real 56-trade run from -46.8% to +999.3%). Removed a dead
+  `push:` trigger cluttering Actions history with skipped runs.
+- **v10.33.0** — `watcher.js`: HTTP fallback fetch of `signals.log.json`
+  when `git pull` fails (root-caused a real missed-signal window from a
+  connectivity blip), one quick retry on generic pull failures instead
+  of waiting a full cycle, Telegram alert after 3+ consecutive failures.
+- **v10.34.0** — Added real scan-to-alert lag measurement, shown in
+  every signal (`🕐 Candle→alert lag`) and logged, to diagnose reports
+  of signals arriving after price had already moved.
+- **v10.35.0** — `watcher.js` poll interval 60s → 30s. `protect.js`:
+  fixed a real race where it was deleting a signal's tracking entry
+  (Bybit showing no real position — true for every fee/staleness-
+  filtered signal) before `position-tracker.js`'s 15-min candle replay
+  ever got a chance to close it correctly and send the outcome
+  notification. Added a 45-min grace period.
+- **v10.36.0** — CORRECTED v10.35's grace period: 45 min assumed trades
+  resolve fast; confirmed live (DOGE-USDT) that a real trade can take
+  hours to reach SL/TP1 while `position-tracker.js` — which runs
+  independently on GitHub Actions regardless of phone uptime — is still
+  correctly tracking it. Raised to 24h; no safety cost, only delays that
+  one symbol's next signal.
 
-- **v10.18 — (2026-08-14) two real live-money bugs found and fixed via
-  actual production logs, plus a requested frequency pass.**
-  - **`watcher.js` `pullLatest()` could fail forever, silently — root
-    cause of a real missed trade.** Was a bare `git pull --quiet`; once
-    `protect.js`'s local writes to `open-positions.json`/`state.json`
-    diverged from a remote GitHub Actions commit, EVERY subsequent pull
-    failed the same way, for hours, including the pull that would have
-    delivered a real fired signal (SOL-USDT BUY, 2026-08-13) — the bot
-    never saw it; it was placed manually instead. Now: detects this
-    exact conflict, discards the two locally-written files (both are
-    fully re-derivable — see the code comment), retries, and restores
-    both from HEAD so neither is ever left missing even if only one was
-    part of the incoming diff. Also clears a stale `.git/index.lock`
-    (>2 min old) if one's blocking things. Confirmed live afterward:
-    SOL-USDT and AVAX-USDT signals both auto-executed correctly on the
-    very next cycle.
-  - **`protect.js` `syncOrphanedSignals()` case-sensitivity bug — every
-    genuinely-open position was being force-closed on the signal side,
-    every single cycle.** Was `p.side === entry.direction`; Bybit's API
-    returns `'Buy'/'Sell'`, this bot's `direction` field is
-    `'BUY'/'SELL'` everywhere else in the codebase — the comparison
-    could never be true. Confirmed live: SOL-USDT and AVAX-USDT both
-    showed "stuck OPEN... force-synced closed" every 60s while
-    `check-status.js` simultaneously confirmed both were genuinely open
-    with real non-zero PnL. Real trades/real SL-TP protection were never
-    touched by this (the function only writes Telegram-facing signal-side
-    files) — but that display was being spuriously wiped constantly.
-    Fixed with a case-insensitive comparison.
-  - **Frequency pass, ported from the same validated changes on the
-    sibling `gwp-bots` repo** (backtest there: crypto +2.6x signals,
-    forex +2.8x, win rates unchanged, 0 SL across 73 trades). Adapted to
-    this bot's actual 5-TF/1H structure, not copy-pasted:
-    - `MVS_TRIGGER_LOOKBACK_BARS` (default 2, was hardcoded to 1) —
-      `detectRejection()` now checks up to N recent 15m candles instead
-      of only the very latest. Scan-timing recovery, not a quality
-      change — every candle checked passes the identical gates.
-    - `SIGNAL_COOLDOWN_BARS` 3→2. Pure re-alert throttle, not a quality
-      gate.
-    - `SYMBOLS` 14→20 (added ATOM/NEAR/APT/ARB/OP/SUI-USDT). Only widens
-      scan breadth — `MAX_CONCURRENT_TRADES` already caps real exposure
-      regardless of symbol count.
-    - New `LIQUIDITY_SWEEP` trigger pattern and anchored-VWAP 4th
-      confluence pivot (`calcAnchoredVWAP`) — same mechanisms as
-      gwp-bots, full rationale in `core.js`. **Both default OFF here**
-      (`MVS_LIQUIDITY_SWEEP_ENABLED` / `MVS_VWAP_CONFLUENCE_ENABLED`),
-      unlike gwp-bots' default-on — this bot places real orders the
-      moment a scan fires, so these stay opt-in via env var until
-      validated against `node backtest.js` on this bot's own data.
-  - `MARGIN_PER_TRADE_USDT` 2 → 1.5 (explicit request).
+## ⚠️ Important: Why KuCoin for data, Bybit for execution?
 
-- **v10.19 — (2026-08-14) the bot's own trade ledger could get stuck
-  "open" forever after a real close, silently blocking future trades —
-  found live, fixed with a bounded self-healing fallback.**
-  - **`our-positions.json` (`position-ledger.js`) has no relation to the
-    signal-side files v10.18 fixed above — it's what `execute-signal.js`
-    actually reads via `ledger.countOpen()` to enforce
-    `MAX_CONCURRENT_TRADES`.** `protect.js`'s `reconcileLedger()` could
-    only mark an entry closed by finding an exact match in Bybit's
-    closed-PnL history; confirmed live, AVAX-USDT sat in "no longer
-    open, but no closed-PnL match yet" every single cycle for 12+ hours
-    across multiple watcher restarts, never once resolving. Exact root
-    cause of the match failure itself wasn't confirmable without live
-    Bybit API access to test against (a timestamp-window or pagination
-    edge case in `/v5/position/closed-pnl` is the leading suspect) —
-    rather than guess at that blindly, added a bounded fallback instead:
-    any entry stuck "pending close" for more than 5 minutes now gets
-    force-marked closed (`realizedPnl` left `null`/unknown — check
-    Bybit's trade history directly for the exact figure) with a
-    Telegram alert, so `countOpen()` can never overcount forever
-    regardless of why the exact-match path didn't resolve.
-  - **Caught and fixed a second, subtler bug while building the first
-    fix:** a position with just ONE transient "not open" cycle (an API
-    blip) that went back to genuinely open afterward would still get
-    force-closed 5 minutes after that single old blip, since nothing
-    cleared the pending-close mark on reopen. Added
-    `clearPendingClose()`, called whenever a position is confirmed
-    genuinely still open — proved both directions with real
-    reproductions before shipping: a sustained absence still
-    self-heals after 5 min, and a one-off blip followed by sustained
-    presence does NOT get wrongly force-closed.
-  - Remediation for the already-stuck state this was found in: reset
-    `our-positions.json` to `[]` once (see chat) — real positions on
-    Bybit were never affected by any of this, only the bot's internal
-    bookkeeping of them.
+**This is a deliberate split, not a limitation of either exchange in
+Ghana.** Bybit works fine in Ghana — it's the live execution exchange
+this bot actually trades on, from the phone, every day.
 
-- **v10.20 — (2026-08-15) requested win-rate refinement, mined from a
-  fresh 360-day/111-signal backtest rather than guessed at.** Tested
-  every available factor (vote tally, 1H confirm, 4H/1H agreement,
-  fib level, pivot type, pattern count, confluence score) for real,
-  sample-adequate differentiation before touching anything — most
-  didn't hold up (a pattern-count effect that looked real inside the
-  dominant 3/5-vote subset vanished at full-population level; a
-  hypothesized "3/5 + no-1H-confirm + 4H/1H-opposing" worst-case
-  bucket tested at 80.0% WR, indistinguishable from the 80.2% baseline
-  — both discarded, not shipped).
-  - **The one that held up: confluence tightness.** `MIN_CONFLUENCE_POC`
-    already required score≥2 for POC pivots (since v10.3, evidence
-    then was SL concentration). VAH/VAL never got the same treatment.
-    Fresh full-population data: VAH/VAL score==1 trades — 32 of them,
-    71.9% WR. Score==2 — 79 trades, 83.5% WR. Real gap, real samples,
-    same underlying logic as v10.3's POC finding, just a different
-    metric (WR dilution via BE/timeout scratches here, not raw SL risk
-    like POC). Added `MIN_CONFLUENCE_VAH_VAL = 2`, mirroring the POC
-    gate exactly.
-  - Also considered and explicitly declined: a session-time filter
-    (Asia/London/NY). Real data showed Asia (75.0% WR) and London
-    (76.0% WR) statistically indistinguishable from each other — the
-    actual split was early-session vs late-session, not "Asia bad,
-    rest fine" as originally proposed. Stacked with the confluence
-    gate above, either session cutoff cut total frequency to 37-51% of
-    original — too severe against the explicit "keep frequency" goal.
-    Skipped by direct request once the real numbers were shown.
-  - The confluence gate alone cuts frequency ~29% (111→79). To
-    compensate, turned on two already-built-but-dormant frequency
-    sources as a deliberate paired change: `MVS_LIQUIDITY_SWEEP_ENABLED`
-    and `MVS_VWAP_CONFLUENCE_ENABLED` (both had shipped OFF in v10.18,
-    pending exactly this kind of review). Explicitly flagged at the
-    time as unconfirmed together on real data — see v10.21 immediately
-    below for what that confirmation actually found.
+The split exists because of *where* each half of this bot runs, not
+where the account holder is. Market-data scanning (`strategy.js`) runs
+on **GitHub Actions' cloud servers**, and exchanges commonly restrict
+API access by the *request's* IP, not the account's home country.
+Verified directly (2026-09-18): a throwaway GitHub Actions test hit
+Bybit's own public kline endpoint for all 20 tracked symbols and got
+**HTTP 403 on every single one** — Bybit blocks that cloud IP range for
+market data outright. KuCoin's API doesn't have this problem from GitHub
+Actions, which is the entire reason it's the data source. Execution
+(`execute-signal.js`) runs from the phone's own mobile connection, where
+Bybit works normally — that's why it's the execution exchange.
 
-- **v10.21 — (2026-08-16) the v10.20 combination got backtested for
-  real, and it was a clear regression — root-caused precisely, not
-  just reverted on suspicion.** 232 signals fired (frequency more than
-  doubled vs the 111-signal baseline) but win rate DROPPED to 71.9%
-  (from 80.2%) and SL hits jumped from 2 to 13.
-  - **VWAP pivot was the entire problem.** 163 of 232 trades (70% of
-    ALL volume) came from the VWAP confluence pivot, at 66.9% WR,
-    concentrating every single one of the 13 SL hits. Meanwhile
-    POC/VAH/VAL — the trades the v10.20 confluence gate actually
-    targeted — performed exactly as that evidence predicted: 83–85%
-    WR, ZERO SL, across 59-68 trades. The gate itself was never the
-    issue.
-  - **LIQUIDITY_SWEEP looked weak in the raw numbers (63.8% WR) but
-    that was VWAP bleeding through the stat, not the pattern's own
-    fault** — 81% of sweep-pattern trades were ALSO VWAP-pivot trades.
-    Isolated to traditional (POC/VAH/VAL) pivots only: 88.9% WR, 0 SL
-    (n=9 — small, but clean, and consistent with the traditional-pivot
-    baseline). Kept enabled.
-  - **Final configuration:** `MIN_CONFLUENCE_VAH_VAL` stays at 2 (the
-    part of v10.20 that was right). `MVS_LIQUIDITY_SWEEP_ENABLED` stays
-    on (confirmed fine once isolated from VWAP). `MVS_VWAP_CONFLUENCE_ENABLED`
-    → back to OFF — tested, confirmed net-negative on real data, not an
-    assumption. Code kept in place (toggle, not deleted) in case a
-    different asset mix or regime ever makes it worth revisiting.
-    Estimated result of this final combination (VWAP-sourced trades
-    excluded from the same 232-trade dataset, as a proxy — not a
-    guarantee, since removing VWAP changes what the scanner even
-    considers): ~68 trades, ~84% WR, 0 SL. This is the closing
-    configuration for this round of tuning — no further exploratory
-    toggling planned after this without new evidence prompting it.
-  - `mvs-scan.yml`'s `timeout-minutes` was still sized for the
-    pre-v10.18 14-symbol SYMBOLS list (12 minutes, calculated
-    specifically for 14 symbols' worst-case runtime) and never
-    revisited when SYMBOLS grew to 20 across the v10.18/v10.20
-    sessions — same class of bug the original v10.15.4 timeout fix
-    was written to catch, just reintroduced by a later, unrelated
-    change. Recalculated for 20 symbols and raised to 18 minutes —
-    see the comment in that file for the full math.
-
-- **v10.22 — (2026-08-16) v10.21's confirmation backtest came back
-  strong (88 trades, 80.7% WR, 2 SL, PF 31.6 — genuinely better than
-  the 111-trade/80.2% original baseline), then went one step further
-  by direct request: max out win rate, keep or increase frequency,
-  avoid SLs where possible without hurting win rate.** Full rigor
-  applied before touching anything, same as v10.20/v10.21 — most leads
-  didn't hold up:
-  - **Direction (SELL 84% vs BUY 76%) looked like a real signal, wasn't
-    one.** Fully explained by Fib-level mix — SELL-at-78.6%=87.8% WR vs
-    SELL-at-61.8%=66.7%, BUY shows the identical pattern. Gating on
-    direction would have double-counted the Fib-level effect below,
-    not added a new one. Not implemented.
-  - **A rule to avoid the 2 real SLs — not attempted.** Checked exactly
-    where they happened (BTC-USDT BUY, LTC-USDT SELL — different
-    pivots, different 1H-confirm status, no common thread). Two data
-    points can't support a generalizable rule; building one would be
-    textbook overfitting to noise, exactly what this project's
-    evidence standard has consistently rejected elsewhere.
-  - **The one real, reproducible finding: the 61.8% Fib level.** 71.4%
-    WR (30 trades) in the prior backtest, 65.4% WR (26 trades) in this
-    one — same direction both times, not a fluke. Checked for a
-    secondary factor that might rescue part of this bucket (pivot,
-    1H-confirm, vote tally, confluence score) — none held up with
-    adequate sample size inside the bucket, so this became a clean
-    full-bucket exclusion (`EXCLUDE_FIB_61_8`, same toggle convention
-    as `MID_POCKET_EXCLUDE`), not a partial one.
-  - **Explicitly NOT an SL-risk fix** — 0 SL in the 61.8% bucket in
-    both backtests. This is a pure win-rate-via-frequency trade, not a
-    loss-avoidance one, and was presented and confirmed as exactly
-    that before implementing: 88→62 trades (70% retained), 80.7%→87.1%
-    WR. Verified the code gate reproduces that exact 62/26 split
-    against the real backtest JSON before shipping it, not just
-    syntax-checked.
-  - Re-run `node backtest.js` after deploying to confirm the live
-    number — same standing practice as every other change in this
-    file.
-
-- **v10.23 — (2026-08-17/18) three cleanup items from live use, plus a
-  real live-money bug caught from actual watcher logs.**
-  - **`NEAR_ZONE_USE_WICK` promoted to permanent default (true), the
-    per-run toggle removed entirely** (`wick` input deleted from
-    `mvs-backtest.yml` too — one place to change this now, not two),
-    by explicit request after repeated toggle fatigue. Worth being
-    honest about: this is the one setting in this file adopted on
-    cross-codebase evidence (from GWP-bots, where it graduated to
-    default-on after a real A/B backtest — every metric moved the same
-    direction across all three GWP markets) rather than a backtest
-    confirmed on MVS's own 20 KuCoin pairs directly, the stricter bar
-    every other v10.20/21/22 change was held to. Recommend one
-    confirming `node backtest.js` run to see MVS's own before/after
-    numbers with this permanently on.
-  - **A second, distinct git failure mode caught live and fixed:**
-    `error: cannot lock ref 'refs/remotes/origin/main': is at X but
-    expected Y` — a ref-lock RACE, not the local-file conflict
-    v10.18's fix handles (different problem, different fix). Confirmed
-    from the actual log: the "is at" value in one occurrence became
-    the "expected" value in the very next one moments later — proof
-    two git processes hit the same ref at almost the same instant.
-    Most likely source: the watcher's own automatic pull (fires
-    immediately on restart) racing against the standalone `git pull`
-    in the manual status-check command habitually run right after
-    restarting it. `pullLatest()` now detects this specific error,
-    waits 3s, and retries once — inherently a timing collision, not
-    something to discard/fix like the local-conflict case, so a short
-    wait is the correct remedy. Complementary, zero-code fix: drop the
-    standalone `git pull` from that manual status-check habit — the
-    watcher already keeps the repo current every 60s on its own, so
-    that manual pull is redundant and is the other half of the race.
-  - `strategy.js`'s top-of-file version comment was still reading
-    "v10.15.9" — cosmetic only, not a functional bug: the actual
-    Telegram-message version (`MVS_VERSION`) already reads dynamically
-    from `package.json` at runtime, so a signal showing an old version
-    number simply meant it fired before that specific `package.json`
-    update was deployed, not that anything was stale in the running
-    code. Comment corrected for hygiene; `package.json`'s `version`
-    field is the actual source of truth, already current.
-
-
-## ⚠️ Important: Why KuCoin?
-
-**Binance and Bybit do NOT work in Ghana.** KuCoin is the recommended exchange for Ghana-based traders.
-
-This bot uses the **KuCoin Spot API** which is fully accessible from Ghana without VPN or restrictions.
+Net effect: KuCoin (data, from GitHub Actions) and Bybit (execution,
+from the phone) will always have some price gap between them — see
+`execute-signal.js`'s `SIGNAL_STALE_PRICE_MOVED` check, which exists
+specifically to catch that gap eating into a trade's edge before it
+executes.
 
 ---
 
@@ -1165,7 +272,7 @@ actually happens — 15m only sharpens *when* inside that zone.
 | **Bias timeframe** | 4H, 200 bars | Macro direction vote |
 | **Structure timeframe** | 1H, 500 bars (VP) / 200 bars (Fib swing) | Matches the TradingView A-ICT/SMC PRO_v5 indicator settings (Lookback Bars 500, Swing Lookback 200) so the bot's levels match your chart |
 | **Trigger timeframe** | 15m, 500 bars (VP) / 200 bars (Fib swing) | Entry timing precision inside the 1H zone |
-| **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL, MNT (USDT) | 14 liquid pairs — repo is public, Actions minutes are free |
+| **Symbols** | ETH, SOL, BTC, XRP, ADA, DOGE, AVAX, LINK, BNB, DOT, LTC, TRX, POL, MNT, ATOM, NEAR, APT, ARB, OP, SUI (USDT) | 20 liquid pairs (14 through v10.17, +6 more in v10.18) — repo is public, Actions minutes are free |
 | **Scan cadence** | Every 15 minutes | Matches the 15m trigger timeframe |
 | **VP rows** | 100 | Matches TradingView "Profile Rows: 100" |
 | **Command polling** | Every 5 minutes | Near real-time response to Telegram commands |
