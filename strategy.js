@@ -272,6 +272,31 @@ const getKlines = async (symbol, interval, limit, maxRetries = 2) => {
   return [];
 };
 
+// v10.38 addition — the "opening" half of what v10.37's deciding-bar
+// logging covers for closes. bestFibLevel (the alert's "Entry:") is a
+// THEORETICAL price computed from the just-closed candle's structure —
+// not a live re-quote. execute-signal.js already checks this gap at
+// EXECUTION time (SIGNAL_STALE_PRICE_MOVED), using a live Bybit price,
+// minutes later. Nothing checked it at ALERT time, using a live KuCoin
+// price, seconds later — so an alert could already be most of the way
+// to TP1 the moment it's sent, with no visibility into that until
+// position-tracker.js's later close looks suspiciously fast and there's
+// nothing recorded to explain why. Single lightweight ticker call
+// (KuCoin's level1 orderbook endpoint) — not a full candle fetch — and
+// failure here is non-fatal: the alert still sends without this line
+// rather than being blocked by an extra network call.
+const getLivePrice = async (symbol) => {
+  try {
+    const url = `${config.BASE_URL}/market/orderbook/level1?symbol=${symbol}`;
+    const res = await axios.get(url, { timeout: 8000, headers: { 'Content-Type': 'application/json' } });
+    const price = parseFloat(res.data?.data?.price);
+    return Number.isFinite(price) ? price : null;
+  } catch (e) {
+    console.error(`  ⚠️ getLivePrice failed for ${symbol} (non-fatal, alert still sends): ${e.message}`);
+    return null;
+  }
+};
+
 // ── Signal cooldown ──────────────────────────────────────────────────────────
 const isCoolingDown = (symbol, direction, currentBarTime) => {
   const state = loadJSON(STATE_FILE, {});
@@ -878,6 +903,32 @@ const runStrategy = async (symbol) => {
       : `${scanLagSec}s`;
     const SCAN_LAG_WARN_SEC = 300; // 5 min — informational flag only, not a gate
 
+    // v10.38 addition — the OPENING-side counterpart to v10.37's
+    // deciding-bar close logging, and to execute-signal.js's
+    // SIGNAL_STALE_PRICE_MOVED check. bestFibLevel below (the alert's
+    // "Entry:") is a theoretical price from the just-closed candle's
+    // structure, not a live re-quote — nothing previously checked how far
+    // real price had already moved from it by the moment the ALERT itself
+    // goes out (as opposed to execution time, minutes later, which
+    // execute-signal.js already checks against Bybit). Same formula as
+    // execute-signal.js's pctOfMoveRemaining, applied here against a live
+    // KuCoin price instead, so a signal that's already mostly "used up"
+    // the moment it's announced is visible immediately — instead of only
+    // showing up later as a suspiciously fast close with nothing recorded
+    // to explain why. Purely informational: this NEVER blocks the alert
+    // from sending, even if the fetch fails or comes back null.
+    const openingLivePrice = await getLivePrice(symbol);
+    let openingPctToTp1Remaining = null;
+    if (openingLivePrice != null) {
+      const originalToTp1 = direction === 'BUY' ? (levels.tp1Price - bestFibLevel) : (bestFibLevel - levels.tp1Price);
+      const remainingToTp1 = direction === 'BUY' ? (levels.tp1Price - openingLivePrice) : (openingLivePrice - levels.tp1Price);
+      if (originalToTp1 > 0) openingPctToTp1Remaining = Math.round((remainingToTp1 / originalToTp1) * 100);
+    }
+    const openingFreshnessLine = openingPctToTp1Remaining != null
+      ? `\n📍 *Live price at alert:* \`$${openingLivePrice.toFixed(4)}\` — ~${openingPctToTp1Remaining}% of the move to TP1 remains` +
+        (openingPctToTp1Remaining < 50 ? ' ⚠️ already well underway' : '')
+      : '';
+
     // v10.30 addition — see execution/fee-estimate.js header for the full
     // "the R:R is very bad for the SL" story. This is an ESTIMATE (uses
     // the account's configured margin/leverage ceiling, not the live
@@ -919,7 +970,7 @@ losses (normal variance) don't meaningfully hurt your account. Never
 risk capital you can't afford to lose on a single position.
 
 ⏰ *Time:* ${new Date().toUTCString()}
-🕐 *Candle→alert lag:* ${scanLagLabel}${scanLagSec > SCAN_LAG_WARN_SEC ? ' ⚠️ unusually slow this time' : ''}
+🕐 *Candle→alert lag:* ${scanLagLabel}${scanLagSec > SCAN_LAG_WARN_SEC ? ' ⚠️ unusually slow this time' : ''}${openingFreshnessLine}
 ⚡ *MVS v${MVS_VERSION}*
     `.trim();
 
@@ -963,6 +1014,11 @@ risk capital you can't afford to lose on a single position.
       // in the Telegram message) so it's still reviewable after the
       // fact across many signals, not just felt on the one that just fired.
       scanLagSec,
+      // v10.38 — see openingLivePrice/openingPctToTp1Remaining comment
+      // above. Same reasoning: recorded permanently, not just shown once
+      // in the alert, so "why did this close so fast" can be answered
+      // from data instead of guessed at.
+      openingLivePrice, openingPctToTp1Remaining,
     });
 
     // v10.14: hand this off to position-tracker.js, which will replay
