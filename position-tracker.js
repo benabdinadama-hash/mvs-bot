@@ -190,10 +190,11 @@ const checkOpenPositions = async () => {
 
       let trade = { ...original }; // fresh clone — see file header on why this is stateless
       let closedOutcome = null;
+      let decidingBar = null;
       for (const bar of bars) {
         const { closed, trade: updatedTrade, outcome } = core.evaluateOpenTrade(trade, bar, config);
         trade = updatedTrade;
-        if (closed) { closedOutcome = outcome; break; }
+        if (closed) { closedOutcome = outcome; decidingBar = bar; break; }
       }
 
       if (!closedOutcome) {
@@ -204,15 +205,28 @@ const checkOpenPositions = async () => {
       const emoji = RESULT_EMOJI[closedOutcome.result] || 'ℹ️';
       console.log(`  ${emoji} [tracker] ${symbol}: CLOSED — ${closedOutcome.result} @ $${closedOutcome.exitPrice} (${closedOutcome.rr > 0 ? '+' : ''}${closedOutcome.rr}R, held ${closedOutcome.hoursHeld}h)`);
 
-      const logged = closeLogEntry(symbol, original.entryTime, closedOutcome);
-      closeStateEntry(symbol, closedOutcome);
+      // v10.37 addition — direct answer to "how did this close so fast /
+      // hit two targets at once, is that real or a bug." A single 15m bar
+      // only gives high/low, not the true order price moved within it —
+      // if one bar's range spans multiple levels (e.g. TP1 AND TP2), that
+      // is a genuine, inherent limit of any OHLC-bar replay (not unique to
+      // this bot), not something fixable without tick data. What IS fixable
+      // is not having to guess afterward: record the exact deciding bar so
+      // the real range is right there in the data forever, not reconstructed
+      // from speculation days later.
+      const closedOutcomeWithBar = { ...closedOutcome, decidingBar };
+      const logged = closeLogEntry(symbol, original.entryTime, closedOutcomeWithBar);
+      closeStateEntry(symbol, closedOutcomeWithBar);
 
       const rrStr = `${closedOutcome.rr > 0 ? '+' : ''}${closedOutcome.rr}R`;
+      const barStr = decidingBar
+        ? `\n🕯️ Deciding 15m candle: O ${decidingBar.open} / H ${decidingBar.high} / L ${decidingBar.low} / C ${decidingBar.close}`
+        : '';
       await sendTelegram(
         `${emoji} *${symbol} — Position Closed*\n\n` +
         `Result: *${mdSafe(closedOutcome.result)}* (${rrStr})\n` +
         `Exit: \`$${closedOutcome.exitPrice}\`\n` +
-        `Held: ${closedOutcome.hoursHeld}h\n` +
+        `Held: ${closedOutcome.hoursHeld}h` + barStr + '\n' +
         (logged ? '' : '\n⚠️ Could not match this to its original alert in signals.log.json — logged here for visibility, but it won\'t appear in the weekly equity curve.')
       );
 
