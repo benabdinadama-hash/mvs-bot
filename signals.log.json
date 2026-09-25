@@ -1,5 +1,67 @@
 [
   {
+    "symbol": "ARB-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1790345700,
+    "entryPrice": 0.2201872,
+    "slPrice": 0.2094195067556976,
+    "tp1Price": 0.23310843189316288,
+    "tp2Price": 0.255176,
+    "risk": 0.010767693244302406,
+    "rr1": 1.1999999999999995,
+    "rr2": 3.2494239208118145,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "VAH_VAL_RECLAIM",
+      "ENGULFING"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": null,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.14814,
+      "poc1d": 0.14353549999999998
+    },
+    "alertDelivered": true,
+    "scanLagSec": 49,
+    "openingLivePrice": 0.2214,
+    "openingPctToTp1Remaining": 91,
+    "time": "2026-09-25T14:15:49.805Z"
+  },
+  {
     "symbol": "AVAX-USDT",
     "signal": "FIRED",
     "direction": "BUY",
@@ -195,7 +257,20 @@
     },
     "alertDelivered": true,
     "scanLagSec": 52,
-    "time": "2026-09-24T21:00:51.992Z"
+    "time": "2026-09-24T21:00:51.992Z",
+    "result": "BE",
+    "exitPrice": 0.21798640000000002,
+    "rr": 0,
+    "exitTime": 1790344800,
+    "hoursHeld": 17,
+    "decidingBar": {
+      "time": 1790344800,
+      "open": 0.2223,
+      "close": 0.2206,
+      "high": 0.2226,
+      "low": 0.2169,
+      "volume": 1112358.0576
+    }
   },
   {
     "symbol": "ATOM-USDT",
