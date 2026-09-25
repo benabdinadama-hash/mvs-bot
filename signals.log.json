@@ -1,5 +1,130 @@
 [
   {
+    "symbol": "AVAX-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1790326800,
+    "entryPrice": 10.312695999999999,
+    "slPrice": 9.936176350174307,
+    "tp1Price": 10.764519579790829,
+    "tp2Price": 11.53418,
+    "risk": 0.37651964982569197,
+    "rr1": 1.1999999999999982,
+    "rr2": 3.2441440986293295,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "VAH_VAL_RECLAIM",
+      "ENGULFING"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 3.8675877502203924,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 7.52335,
+      "poc1d": 6.570095
+    },
+    "alertDelivered": true,
+    "scanLagSec": 29,
+    "openingLivePrice": 10.372,
+    "openingPctToTp1Remaining": 87,
+    "time": "2026-09-25T09:00:29.620Z"
+  },
+  {
+    "symbol": "ETH-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1790326800,
+    "entryPrice": 2666.72122,
+    "slPrice": 2624.3304864358893,
+    "tp1Price": 2717.6949999999997,
+    "tp2Price": 2748.88525,
+    "risk": 42.39073356411063,
+    "rr1": 1.202474590889266,
+    "rr2": 1.9382544979019338,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "POC_RECLAIM",
+      "ENGULFING"
+    ],
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 0.65,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 8.496774285311345,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 2401.3609500000002,
+      "poc1d": 1596.546
+    },
+    "alertDelivered": true,
+    "scanLagSec": 15,
+    "openingLivePrice": 2691.04,
+    "openingPctToTp1Remaining": 52,
+    "time": "2026-09-25T09:00:15.542Z"
+  },
+  {
     "symbol": "ARB-USDT",
     "signal": "FIRED",
     "direction": "BUY",
