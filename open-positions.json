@@ -49,5 +49,21 @@
       "ENGULFING",
       "LIQUIDITY_SWEEP"
     ]
+  },
+  "ARB-USDT": {
+    "symbol": "ARB-USDT",
+    "direction": "BUY",
+    "entryTime": 1790417700,
+    "entryPrice": 0.2201872,
+    "slPrice": 0.20966145322401641,
+    "tp1Price": 0.233,
+    "tp2Price": 0.255176,
+    "origSlPrice": 0.20966145322401641,
+    "rr1": 1.22,
+    "rr2": 3.32,
+    "pivot": "VAL",
+    "patterns": [
+      "VAH_VAL_RECLAIM"
+    ]
   }
 }
