@@ -3,6 +3,68 @@
     "symbol": "ARB-USDT",
     "signal": "FIRED",
     "direction": "BUY",
+    "entryTime": 1790458200,
+    "entryPrice": 0.2201872,
+    "slPrice": 0.20962957478208374,
+    "tp1Price": 0.233,
+    "tp2Price": 0.24890400000000001,
+    "risk": 0.010557625217916256,
+    "rr1": 1.2136062547718338,
+    "rr2": 2.7200056269536543,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "POC_RECLAIM",
+      "VAH_VAL_RECLAIM"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "30m"
+    ],
+    "riskMult": 0.65,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BULLISH",
+    "bias15m": "NEUTRAL",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 2.977270476177187,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.14814,
+      "poc1d": 0.14353549999999998
+    },
+    "alertDelivered": true,
+    "scanLagSec": 48,
+    "openingLivePrice": 0.2238,
+    "openingPctToTp1Remaining": 72,
+    "time": "2026-09-26T21:30:48.359Z"
+  },
+  {
+    "symbol": "ARB-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
     "entryTime": 1790417700,
     "entryPrice": 0.2201872,
     "slPrice": 0.20966145322401641,
