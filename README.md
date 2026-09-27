@@ -48,7 +48,7 @@ the summary — not just the win-rate line.
 
 ---
 
-## What changed since v10.0 (v10.3 → v10.36, current)
+## What changed since v10.0 (v10.3 → v10.39, current)
 
 Condensed record — kept short on purpose so it stays something people
 actually read, not scattered commit messages. Full technical detail for
@@ -156,6 +156,28 @@ need the exact numbers or reasoning behind a specific change.
   independently on GitHub Actions regardless of phone uptime — is still
   correctly tracking it. Raised to 24h; no safety cost, only delays that
   one symbol's next signal.
+- **v10.37.0** — `position-tracker.js`: a same-bar TP1+TP2 close
+  (OP-USDT, within ~15 min) raised the question of whether an OHLC-bar
+  replay can be trusted. It's an inherent limitation shared by any
+  system without tick data, not a bug — but nothing recorded the actual
+  bar to check. Every close now logs and shows its exact deciding 15m
+  candle (O/H/L/C), so "was that real" is answerable from data instead
+  of reconstructed after the fact.
+- **v10.38.0** — `strategy.js`: the opening-side counterpart to v10.37.
+  The alert's "Entry:" price is theoretical (from the just-closed
+  candle's structure), and execute-signal.js already checks the live
+  price gap at *execution* time — nothing checked it at *alert* time.
+  Added a live KuCoin price fetch right before sending, showing how much
+  of the move to TP1 is already gone the moment the alert fires.
+- **v10.39.0** — `execution/leverage.js`: CORRECTED the maintenance-
+  margin+fee safety buffer after a real trade (ARB-USDT, 2026-09-24)
+  proved it insufficient — SL landed past Bybit's actual liquidation
+  price, confirmed by Bybit's own on-screen warning. The assumed 0.6
+  percentage-point buffer was too small; the real one this trade implied
+  was ~0.95pp. Raised to 2.0pp for real margin, not just barely enough.
+  Also: the computed safety margin is now always logged for every trade,
+  not just when leverage gets capped — exactly the visibility gap that
+  let this go unnoticed the first time.
 
 ## ⚠️ Important: Why KuCoin for data, Bybit for execution?
 
@@ -186,7 +208,7 @@ executes.
 ## Table of Contents
 
 1. [What is MVS?](#what-is-mvs)
-2. [What changed since v10.0](#what-changed-since-v100-v103--v109)
+2. [What changed since v10.0](#what-changed-since-v100-v103--v1039-current)
 3. [Core Pillars](#core-pillars)
 4. [Setup Parameters](#setup-parameters)
 5. [Fibonacci Roles](#fibonacci-roles-the-6-levels)
