@@ -217,9 +217,20 @@ const executeSignal = async (signal) => {
   //    Uses the LIVE price, not the signal's stale theoretical entryPrice
   //    — this is what the real entry (a Market order) will actually fill
   //    near, so sizing math should be based on it too.
-  const { leverage, slDistancePct, capped } = computeSafeLeverage(lastPrice, slPrice, MAX_LEVERAGE);
+  const { leverage, slDistancePct, capped, estimatedLiqMovePct, safetyMarginPct } = computeSafeLeverage(lastPrice, slPrice, MAX_LEVERAGE);
   if (capped) {
     console.log(`${tag} SL distance ${slDistancePct}% is wide — leverage auto-capped to ${leverage}x (ceiling is ${MAX_LEVERAGE}x).`);
+  }
+  // v10.39 addition — always visible, not just when capped: exactly the
+  // gap that let ARB-USDT's SL land past its real Bybit liquidation
+  // price. safetyMarginPct is how much real room this trade has between
+  // its SL and the estimated liquidation move — should be comfortably
+  // positive every time now; a thin or negative value here means the
+  // v10.39 buffer still isn't enough for this specific symbol/leverage
+  // and needs a second look, not silent trust.
+  console.log(`${tag} Estimated liquidation move ~${estimatedLiqMovePct}% vs SL distance ${slDistancePct}% — safety margin ${safetyMarginPct > 0 ? '+' : ''}${safetyMarginPct}pp.`);
+  if (safetyMarginPct <= 0) {
+    console.error(`${tag} ⚠️⚠️ SAFETY MARGIN IS NOT POSITIVE — SL may land past the real liquidation price, same failure mode as ARB-USDT. Proceeding (leverage is already floored at ${leverage}x), but this needs investigating.`);
   }
 
   // 4b. v10.30 FIX — reported live: "the R:R is very bad for the SL."
@@ -299,6 +310,7 @@ const executeSignal = async (signal) => {
     marginUsdt: effectiveMarginUsdt, fullMarginUsdt: MARGIN_PER_TRADE_USDT, riskMult: safeRiskMult,
     notionalUsdt: parseFloat(notional.toFixed(2)),
     theoreticalEntryPrice: entryPrice, lastPrice, basisPct, slPrice: roundedSl, slDistancePct,
+    estimatedLiqMovePct, safetyMarginPct,
     netRR: netRR || undefined,
     ...(canSplit
       ? { split: true, qty1, tp1Price: roundedTp1, qty2, tp2Price: roundedTp2 }
