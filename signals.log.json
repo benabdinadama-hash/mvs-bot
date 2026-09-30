@@ -1,5 +1,66 @@
 [
   {
+    "symbol": "ATOM-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1790800200,
+    "entryPrice": 1.735302,
+    "slPrice": 1.676969940498146,
+    "tp1Price": 1.8053004714022247,
+    "tp2Price": 1.925085,
+    "risk": 0.05833205950185394,
+    "rr1": 1.2000000000000015,
+    "rr2": 3.2534939040506234,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "VAH_VAL_RECLAIM"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BEARISH",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 35.716880496510875,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": true,
+      "aligned1d": false,
+      "anyAligned": true,
+      "poc4h": 1.8736644999999998,
+      "poc1d": 1.5847639999999998
+    },
+    "alertDelivered": true,
+    "scanLagSec": 43,
+    "openingLivePrice": 1.7496,
+    "openingPctToTp1Remaining": 80,
+    "time": "2026-09-30T20:30:43.164Z"
+  },
+  {
     "symbol": "SOL-USDT",
     "signal": "FIRED",
     "direction": "BUY",
