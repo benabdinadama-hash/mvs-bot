@@ -203,7 +203,36 @@ const pushSignalSideChanges = async (summary) => {
       } catch (err) {
         if (i === 2) throw err;
         console.error('[protect] Push rejected (GitHub Actions likely committed in between) — pulling and retrying...');
-        gitExec('git pull --quiet');
+        // v10.40 FIX — confirmed live (2026-09-28): this pull can itself
+        // land in an unmerged-conflict state (two writers touching the
+        // same JSON lines — see the comment above this loop), which a
+        // plain retry can never clear on its own. Same recovery as
+        // watcher.js's pullLatest(): abort the stuck merge (or hard
+        // reset if git doesn't consider one "in progress") and rebuild
+        // both files fresh — they're fully re-derivable, never treated
+        // as originals. Deliberately independent of watcher.js's copy of
+        // this same logic, not shared — see this file's own header on
+        // why safety-critical paths here don't depend on code the
+        // signal-generation pipeline could break.
+        try {
+          gitExec('git pull --quiet');
+        } catch (pullErr) {
+          const pullMsg = pullErr.message || '';
+          if (pullMsg.includes('you have unmerged files') || pullMsg.includes('unresolved conflict')) {
+            console.error('[protect] Pull hit an unresolved merge conflict — aborting the stuck merge and forcing local to match origin/main exactly.');
+            // v10.41 CORRECTION — see watcher.js's matching comment.
+            // Resetting to local HEAD (v10.40) proved insufficient live:
+            // local can hold its own unpushed commits that conflict with
+            // origin's newer ones, and HEAD itself is the divergent
+            // side — only discarding local history in favor of origin
+            // actually clears it.
+            try { gitExec('git merge --abort'); } catch { /* fine if none was in progress */ }
+            gitExec('git fetch origin --quiet');
+            gitExec('git reset --hard origin/main');
+          } else {
+            throw pullErr;
+          }
+        }
       }
     }
   } catch (err) {

@@ -317,6 +317,30 @@ const pullLatest = async () => {
     const isRefLockRace = msg.includes('cannot lock ref');
     const isLocalConflict = msg.includes('untracked working tree files would be overwritten')
       || msg.includes('Your local changes to the following files would be overwritten');
+    // v10.40 FIX — confirmed live (2026-09-28): a genuinely different,
+    // more severe failure than isLocalConflict above. That branch covers
+    // a DIRTY working tree blocking a NEW pull from starting. This is a
+    // pull that already partially ran and left the index with actual
+    // unmerged (conflicted) entries — git refuses to even attempt
+    // another pull until that's resolved by hand: "Pulling is not
+    // possible because you have unmerged files... Exiting because of an
+    // unresolved conflict." The generic retry branch below (built for
+    // transient network failures) can never fix this — retrying a pull
+    // does nothing to clear an already-unmerged index, so every single
+    // pull kept failing identically for hours until a human ran git
+    // commands manually. Root cause: two independent writers commit to
+    // open-positions.json/state.json (GitHub Actions and this phone's
+    // own protect.js) — see pullSignalSideChanges's comment in
+    // protect.js — and a merge between genuinely overlapping edits to
+    // the same lines of a JSON file can produce a real, non-auto-
+    // mergeable conflict, not just diverged history. Since both files
+    // are fully re-derivable (GitHub Actions and protect.js both
+    // regenerate them from live truth, never from what's on disk), the
+    // safe recovery is the same principle as isLocalConflict: abort
+    // whatever's stuck and let the next pull rebuild them fresh, rather
+    // than trying to actually resolve a JSON merge conflict in code.
+    const isUnmergedConflict = msg.includes('you have unmerged files')
+      || msg.includes('unresolved conflict');
     if (isRefLockRace) {
       console.error('[watcher] git pull hit a ref-lock race (another git process updated the same ref at the same instant) — waiting 3s and retrying once.');
       await sleep(3000);
@@ -357,6 +381,30 @@ const pullLatest = async () => {
         return true;
       } catch (err2) {
         console.error(`[watcher] Pull still failing after recovery attempt: ${err2.message} — will retry next cycle.`);
+        return false;
+      }
+    } else if (isUnmergedConflict) {
+      console.error('[watcher] git pull blocked by an unresolved merge conflict — aborting the stuck merge and forcing local to match origin/main exactly (both files are safely re-derivable, see comment above).');
+      try {
+        // v10.41 CORRECTION — confirmed live (2026-09-29): resetting to
+        // local HEAD (the v10.40 version of this fix) was NOT enough.
+        // The real scenario: this phone has its own committed-but-never-
+        // successfully-pushed changes (from an earlier failed push
+        // attempt) sitting in local HEAD, and origin has since gained
+        // newer commits touching the same JSON lines. `git reset --hard
+        // HEAD` does nothing to fix this, because HEAD itself IS the
+        // divergent side — the very next pull immediately re-conflicts
+        // the exact same way, which is exactly what happened. The only
+        // recovery that actually clears it is discarding local's commit
+        // history entirely in favor of origin's — safe here because
+        // neither file is ever treated as an original.
+        try { gitExec('git merge --abort'); } catch { /* fine if none was in progress */ }
+        gitExec('git fetch origin --quiet');
+        gitExec('git reset --hard origin/main');
+        console.log('[watcher] Pull recovered — local reset to match origin/main exactly.');
+        return true;
+      } catch (err2) {
+        console.error(`[watcher] Pull still failing after reset-to-origin recovery: ${err2.message} — will retry next cycle.`);
         return false;
       }
     } else {
