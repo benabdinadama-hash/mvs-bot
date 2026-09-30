@@ -48,7 +48,7 @@ the summary — not just the win-rate line.
 
 ---
 
-## What changed since v10.0 (v10.3 → v10.39, current)
+## What changed since v10.0 (v10.3 → v10.41, current)
 
 Condensed record — kept short on purpose so it stays something people
 actually read, not scattered commit messages. Full technical detail for
@@ -178,6 +178,23 @@ need the exact numbers or reasoning behind a specific change.
   Also: the computed safety margin is now always logged for every trade,
   not just when leverage gets capped — exactly the visibility gap that
   let this go unnoticed the first time.
+- **v10.40.0** — `watcher.js` / `protect.js`: confirmed live
+  (2026-09-28) — a real git merge conflict (two writers, GitHub Actions
+  and this phone, touching the same JSON lines in `open-positions.json`/
+  `state.json`) left the local repo in an unmerged state that blocked
+  every subsequent `git pull` system-wide for hours, needing manual
+  commands to clear. Both files now detect that specific failure and
+  self-heal automatically — abort the stuck merge, then reset to
+  recover, since neither file is ever treated as an original.
+- **v10.41.0** — CORRECTED v10.40: resetting to local `HEAD` (the
+  v10.40 recovery) was proven insufficient live (2026-09-29) — the very
+  next pull re-conflicted immediately. Root cause: this phone can hold
+  its own committed-but-never-pushed changes from an earlier failed
+  push, and origin gains newer commits touching the same lines — `reset
+  --hard HEAD` does nothing here because HEAD itself is the divergent
+  side. Corrected to `git fetch origin` + `git reset --hard
+  origin/main`, which actually discards the local divergence instead of
+  resetting to a copy of the same problem.
 
 ## ⚠️ Important: Why KuCoin for data, Bybit for execution?
 
@@ -208,7 +225,7 @@ executes.
 ## Table of Contents
 
 1. [What is MVS?](#what-is-mvs)
-2. [What changed since v10.0](#what-changed-since-v100-v103--v1039-current)
+2. [What changed since v10.0](#what-changed-since-v100-v103--v1041-current)
 3. [Core Pillars](#core-pillars)
 4. [Setup Parameters](#setup-parameters)
 5. [Fibonacci Roles](#fibonacci-roles-the-6-levels)
