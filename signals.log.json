@@ -1,5 +1,67 @@
 [
   {
+    "symbol": "SOL-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1790875800,
+    "entryPrice": 117.8901,
+    "slPrice": 116.08848735798638,
+    "tp1Price": 120.05203517041635,
+    "tp2Price": 120.75725,
+    "risk": 1.8016126420136231,
+    "rr1": 1.1999999999999968,
+    "rr2": 1.5914353247407524,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "POC_RECLAIM",
+      "PIN_BAR"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 0.65,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BEARISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 4.719655063943939,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": true,
+      "aligned1d": false,
+      "anyAligned": true,
+      "poc4h": 117.80315,
+      "poc1d": 73.47105
+    },
+    "alertDelivered": true,
+    "scanLagSec": 17,
+    "openingLivePrice": 118.7,
+    "openingPctToTp1Remaining": 63,
+    "time": "2026-10-01T17:30:17.861Z"
+  },
+  {
     "symbol": "ARB-USDT",
     "signal": "FIRED",
     "direction": "BUY",
