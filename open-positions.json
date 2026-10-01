@@ -30,5 +30,22 @@
     "patterns": [
       "VAH_VAL_RECLAIM"
     ]
+  },
+  "ARB-USDT": {
+    "symbol": "ARB-USDT",
+    "direction": "BUY",
+    "entryTime": 1790826300,
+    "entryPrice": 0.2014444,
+    "slPrice": 0.1911008743003377,
+    "tp1Price": 0.2142,
+    "tp2Price": 0.225127,
+    "origSlPrice": 0.1911008743003377,
+    "rr1": 1.23,
+    "rr2": 2.29,
+    "pivot": "VAL",
+    "patterns": [
+      "POC_RECLAIM",
+      "ENGULFING"
+    ]
   }
 }
