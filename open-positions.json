@@ -16,5 +16,40 @@
       "VAH_VAL_RECLAIM",
       "ENGULFING"
     ]
+  },
+  "DOT-USDT": {
+    "symbol": "DOT-USDT",
+    "direction": "BUY",
+    "entryTime": 1790915400,
+    "entryPrice": 1.170632,
+    "slPrice": 1.1365637470163286,
+    "tp1Price": 1.2115139035804054,
+    "tp2Price": 1.2287299999999999,
+    "origSlPrice": 1.1365637470163286,
+    "rr1": 1.2,
+    "rr2": 1.71,
+    "pivot": "POC",
+    "patterns": [
+      "ENGULFING",
+      "CLOSE_REJECTION"
+    ]
+  },
+  "ARB-USDT": {
+    "symbol": "ARB-USDT",
+    "direction": "BUY",
+    "entryTime": 1790915400,
+    "entryPrice": 0.199283,
+    "slPrice": 0.191141680952094,
+    "tp1Price": 0.20915,
+    "tp2Price": 0.2262275,
+    "origSlPrice": 0.191141680952094,
+    "rr1": 1.21,
+    "rr2": 3.31,
+    "pivot": "VAL",
+    "patterns": [
+      "POC_RECLAIM",
+      "ENGULFING",
+      "CLOSE_REJECTION"
+    ]
   }
 }

@@ -1,5 +1,130 @@
 [
   {
+    "symbol": "ARB-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1790915400,
+    "entryPrice": 0.199283,
+    "slPrice": 0.191141680952094,
+    "tp1Price": 0.20915,
+    "tp2Price": 0.2262275,
+    "risk": 0.008141319047905993,
+    "rr1": 1.2119657689300212,
+    "rr2": 3.3095988305396697,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "POC_RECLAIM",
+      "ENGULFING",
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 0.65,
+    "bias1d": "BULLISH",
+    "bias4h": "BEARISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 9.51625139370797,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.216607,
+      "poc1d": 0.14353549999999998
+    },
+    "alertDelivered": true,
+    "scanLagSec": 50,
+    "openingLivePrice": 0.2074,
+    "openingPctToTp1Remaining": 18,
+    "time": "2026-10-02T04:30:50.269Z"
+  },
+  {
+    "symbol": "DOT-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1790915400,
+    "entryPrice": 1.170632,
+    "slPrice": 1.1365637470163286,
+    "tp1Price": 1.2115139035804054,
+    "tp2Price": 1.2287299999999999,
+    "risk": 0.03406825298367133,
+    "rr1": 1.1999999999999986,
+    "rr2": 1.705341334286966,
+    "confluencePivot": "POC",
+    "fibPct": "78.6%",
+    "patterns": [
+      "ENGULFING",
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "1H"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BULLISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "NEUTRAL",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 6.623079093246077,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": true,
+      "aligned1d": true,
+      "anyAligned": true,
+      "poc4h": 1.1776255,
+      "poc1d": 1.1749825
+    },
+    "alertDelivered": true,
+    "scanLagSec": 32,
+    "openingLivePrice": 1.2322,
+    "openingPctToTp1Remaining": -51,
+    "time": "2026-10-02T04:30:32.040Z"
+  },
+  {
     "symbol": "XRP-USDT",
     "signal": "FIRED",
     "direction": "BUY",
