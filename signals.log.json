@@ -3,6 +3,69 @@
     "symbol": "XRP-USDT",
     "signal": "FIRED",
     "direction": "BUY",
+    "entryTime": 1790906400,
+    "entryPrice": 1.48642502,
+    "slPrice": 1.4633381539911505,
+    "tp1Price": 1.5141292592106192,
+    "tp2Price": 1.53398495,
+    "risk": 0.02308686600884946,
+    "rr1": 1.1999999999999962,
+    "rr2": 2.0600427092083335,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "POC_RECLAIM",
+      "VAH_VAL_RECLAIM",
+      "ENGULFING"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 0.65,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 1.9815345115343967,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": true,
+      "aligned1d": false,
+      "anyAligned": true,
+      "poc4h": 1.49594865,
+      "poc1d": 1.075855
+    },
+    "alertDelivered": true,
+    "scanLagSec": 25,
+    "openingLivePrice": 1.49676,
+    "openingPctToTp1Remaining": 63,
+    "time": "2026-10-02T02:00:25.469Z"
+  },
+  {
+    "symbol": "XRP-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
     "entryTime": 1790878500,
     "entryPrice": 1.48642502,
     "slPrice": 1.4627246176857258,
