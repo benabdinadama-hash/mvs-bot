@@ -1,5 +1,67 @@
 [
   {
+    "symbol": "BTC-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1791063000,
+    "entryPrice": 83875.57,
+    "slPrice": 82914.55569148615,
+    "tp1Price": 85092.5,
+    "tp2Price": 87198.725,
+    "risk": 961.0143085138552,
+    "rr1": 1.2662974830019902,
+    "rr2": 3.4579662035823766,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "ENGULFING",
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 6.469309225119543,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 83476.11,
+      "poc1d": 76596.526
+    },
+    "alertDelivered": true,
+    "scanLagSec": 17,
+    "openingLivePrice": 84704.9,
+    "openingPctToTp1Remaining": 32,
+    "time": "2026-10-03T21:30:17.176Z"
+  },
+  {
     "symbol": "TRX-USDT",
     "signal": "FIRED",
     "direction": "BUY",
