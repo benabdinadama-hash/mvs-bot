@@ -1,5 +1,67 @@
 [
   {
+    "symbol": "NEAR-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1791139500,
+    "entryPrice": 4.7975982,
+    "slPrice": 4.579129500720269,
+    "tp1Price": 5.06395,
+    "tp2Price": 5.4876915,
+    "risk": 0.21846869927973156,
+    "rr1": 1.219176023284497,
+    "rr2": 3.1587742421461997,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "4/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 6.137441880458506,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 4.4844165,
+      "poc1d": 1.6387225
+    },
+    "alertDelivered": true,
+    "scanLagSec": 44,
+    "openingLivePrice": 5.0251,
+    "openingPctToTp1Remaining": 15,
+    "time": "2026-10-04T18:45:44.679Z"
+  },
+  {
     "symbol": "BTC-USDT",
     "signal": "FIRED",
     "direction": "BUY",
