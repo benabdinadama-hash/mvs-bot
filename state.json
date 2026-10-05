@@ -23,7 +23,7 @@
     "updatedAt": "2026-10-05T08:15:13.800Z"
   },
   "BTC-USDT": {
-    "signal": "WAITING_FOR_ZONE",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "price": 86395.3,
     "bias1d": "BULLISH",
@@ -31,7 +31,9 @@
     "bias1h": "BULLISH",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-10-05T08:15:16.001Z"
+    "updatedAt": "2026-10-05T08:18:56.627Z",
+    "exitTime": 1791188336,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "XRP-USDT": {
     "signal": "WAITING_FOR_ZONE",
@@ -122,7 +124,7 @@
     "updatedAt": "2026-10-05T08:15:33.811Z"
   },
   "TRX-USDT": {
-    "signal": "NO_AGREEMENT",
+    "signal": "CLOSED_EXCHANGE",
     "direction": null,
     "price": 0.3358,
     "bias1d": "NEUTRAL",
@@ -130,7 +132,9 @@
     "bias1h": "BULLISH",
     "bias30m": "NEUTRAL",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-10-05T08:15:36.018Z"
+    "updatedAt": "2026-10-05T08:18:56.220Z",
+    "exitTime": 1791188336,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "POL-USDT": {
     "signal": "WAITING_FOR_ZONE",
