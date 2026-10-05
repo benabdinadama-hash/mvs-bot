@@ -203,7 +203,7 @@
     "updatedAt": "2026-10-05T18:30:42.458Z"
   },
   "NEAR-USDT": {
-    "signal": "WAITING_FOR_ZONE",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "price": 5.1098,
     "bias1d": "BULLISH",
@@ -211,7 +211,9 @@
     "bias1h": "BULLISH",
     "bias30m": "BULLISH",
     "bias15m": "BULLISH",
-    "updatedAt": "2026-10-05T18:30:44.596Z"
+    "updatedAt": "2026-10-05T18:45:06.130Z",
+    "exitTime": 1791225906,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "APT-USDT": {
     "signal": "WAITING_FOR_ZONE",
