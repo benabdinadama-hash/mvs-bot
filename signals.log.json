@@ -1,5 +1,67 @@
 [
   {
+    "symbol": "AVAX-USDT",
+    "signal": "FIRED",
+    "direction": "SELL",
+    "entryTime": 1791339300,
+    "entryPrice": 11.502658,
+    "slPrice": 11.767291831739108,
+    "tp1Price": 11.18509740191307,
+    "tp2Price": 10.964575,
+    "risk": 0.2646338317391077,
+    "rr1": 1.2000000000000013,
+    "rr2": 2.033311449499305,
+    "confluencePivot": "VAH",
+    "fibPct": "78.6%",
+    "patterns": [
+      "POC_RECLAIM",
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1H",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 0.65,
+    "bias1d": "BULLISH",
+    "bias4h": "BULLISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 16.45724356090273,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 10.939875,
+      "poc1d": 6.4863
+    },
+    "alertDelivered": true,
+    "scanLagSec": 24,
+    "openingLivePrice": 11.118,
+    "openingPctToTp1Remaining": -21,
+    "time": "2026-10-07T02:15:24.279Z"
+  },
+  {
     "symbol": "OP-USDT",
     "signal": "FIRED",
     "direction": "SELL",
