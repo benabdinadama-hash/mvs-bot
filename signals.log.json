@@ -1,5 +1,67 @@
 [
   {
+    "symbol": "ADA-USDT",
+    "signal": "FIRED",
+    "direction": "BUY",
+    "entryTime": 1791586800,
+    "entryPrice": 0.236319,
+    "slPrice": 0.2230626386297386,
+    "tp1Price": 0.25305,
+    "tp2Price": 0.2732325,
+    "risk": 0.0132563613702614,
+    "rr1": 1.2621110373117477,
+    "rr2": 2.78458763826473,
+    "confluencePivot": "VAL",
+    "fibPct": "78.6%",
+    "patterns": [
+      "PIN_BAR",
+      "ENGULFING"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "30m",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BULLISH",
+    "bias4h": "BEARISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "BULLISH",
+    "bias15m": "BULLISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 8.612306299042755,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 0.2463225,
+      "poc1d": 0.215556
+    },
+    "alertDelivered": true,
+    "scanLagSec": 919,
+    "openingLivePrice": 0.2414,
+    "openingPctToTp1Remaining": 70,
+    "time": "2026-10-09T23:15:19.464Z"
+  },
+  {
     "symbol": "AVAX-USDT",
     "signal": "FIRED",
     "direction": "SELL",
