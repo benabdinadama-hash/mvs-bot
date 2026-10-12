@@ -31,5 +31,22 @@
     "patterns": [
       "CLOSE_REJECTION"
     ]
+  },
+  "ETH-USDT": {
+    "symbol": "ETH-USDT",
+    "direction": "SELL",
+    "entryTime": 1791814500,
+    "entryPrice": 2542.39776,
+    "slPrice": 2582.8567743625217,
+    "tp1Price": 2493.16,
+    "tp2Price": 2476.8048,
+    "origSlPrice": 2582.8567743625217,
+    "rr1": 1.22,
+    "rr2": 1.62,
+    "pivot": "VAH",
+    "patterns": [
+      "VAH_VAL_RECLAIM",
+      "ENGULFING"
+    ]
   }
 }
