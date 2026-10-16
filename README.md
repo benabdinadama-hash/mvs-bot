@@ -48,7 +48,7 @@ the summary — not just the win-rate line.
 
 ---
 
-## What changed since v10.0 (v10.3 → v10.41, current)
+## What changed since v10.0 (v10.3 → v10.42, current)
 
 Condensed record — kept short on purpose so it stays something people
 actually read, not scattered commit messages. Full technical detail for
@@ -195,6 +195,19 @@ need the exact numbers or reasoning behind a specific change.
   side. Corrected to `git fetch origin` + `git reset --hard
   origin/main`, which actually discards the local divergence instead of
   resetting to a copy of the same problem.
+- **v10.42.0** — `execution/watcher.js` / new `execution/check-api-key.js`:
+  automatic Bybit API key health check, once per day, using Bybit's own
+  `GET /v5/user/query-api` endpoint (verified against Bybit's official
+  docs). Reports days remaining until the key's 90-day no-IP-restriction
+  expiry and whether the key has gone read-only; sends one Telegram
+  warning per expiry window once ≤7 days remain, and an immediate alert
+  if the key is ever read-only (trading would silently fail). Purely
+  additive and informational — changes no trading behavior. Deliberately
+  reads only `expiredAt`/`deadlineDay`/`ips`/`readOnly` off the response
+  and never logs or transmits the `apiKey`/`secret` fields Bybit also
+  returns. Can also be run by hand any time: `node
+  execution/check-api-key.js`. See "The one recurring task this doesn't
+  remove" below for the manual renewal steps it points you to.
 
 ## ⚠️ Important: Why KuCoin for data, Bybit for execution?
 
@@ -915,7 +928,9 @@ For a full picture (balance, real Bybit positions labeled bot-vs-manual, kill sw
 
 ### The one recurring task this doesn't remove: the 90-day key expiry
 
-Because the Bybit API key has **no IP restriction** (a deliberate choice — your phone's IP isn't stable enough to whitelist), Bybit auto-expires it after 90 days. This is Bybit's own policy. **Renewal keeps the same key and secret — no code or GitHub secrets need updating:** Bybit app → API → your key → Edit (under IP Address) → select "No IP restriction" again → Submit. That resets the clock another 90 days from that moment. Set a calendar reminder a few days before the actual expiry date shown on the key's own page, not after.
+Because the Bybit API key has **no IP restriction** (a deliberate choice — your phone's IP isn't stable enough to whitelist), Bybit auto-expires it after 90 days. This is Bybit's own policy. **Renewal keeps the same key and secret — no code or GitHub secrets need updating:** Bybit app → API → your key → Edit (under IP Address) → select "No IP restriction" again → Submit. That resets the clock another 90 days from that moment.
+
+As of v10.42, you no longer have to track this by memory or calendar alone: the watcher checks the key's real remaining days once a day (via Bybit's own `/v5/user/query-api` endpoint) and sends a Telegram warning automatically once it's within 7 days of expiring, plus an immediate alert if the key is ever read-only. You can also check on demand any time with `node execution/check-api-key.js` — it prints the exact expiry date and days remaining, nothing more (it never prints the key or secret itself).
 
 ---
 
