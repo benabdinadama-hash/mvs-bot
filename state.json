@@ -238,7 +238,7 @@
     "updatedAt": "2026-10-16T14:45:51.657Z"
   },
   "APT-USDT": {
-    "signal": "WAITING_FOR_ZONE",
+    "signal": "CLOSED_EXCHANGE",
     "direction": "BUY",
     "price": 0.8708,
     "bias1d": "BULLISH",
@@ -246,7 +246,9 @@
     "bias1h": "BULLISH",
     "bias30m": "BULLISH",
     "bias15m": "NEUTRAL",
-    "updatedAt": "2026-10-16T14:45:53.854Z"
+    "updatedAt": "2026-10-16T15:00:01.521Z",
+    "exitTime": 1792162801,
+    "note": "Closed on Bybit — synced from real account data (protect.js), not simulated candle replay. Origin (bot/manual) unknown."
   },
   "ARB-USDT": {
     "signal": "WAITING_FOR_ZONE",
