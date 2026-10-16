@@ -21,6 +21,7 @@ const axios = require('axios');
 const { executeSignal } = require('./execute-signal');
 const { runProtectionCycle } = require('./protect');
 const { REMOTE_HEARTBEAT_PUSH_INTERVAL_MS } = require('./heartbeat-config');
+const { checkApiKeyHealth } = require('./check-api-key');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const SIGNALS_LOG = path.join(REPO_ROOT, 'signals.log.json');
@@ -219,6 +220,47 @@ const maybePushRemoteHeartbeat = async (pullSucceeded) => {
     // the phone directly; this only affects how fast GitHub Actions
     // finds out. Next due cycle retries.
     console.error(`[watcher] Could not push remote heartbeat (will retry next due cycle): ${err.message}`);
+  }
+};
+
+// v10.42 addition — answers "does the Bybit API key need renewing?"
+// automatically instead of relying only on a human remembering the
+// 90-day no-IP-restriction policy (see README). Runs at most once a day
+// (this is a slow-moving signal — no reason to hit Bybit's key-info
+// endpoint every 30s cycle) and sends one Telegram warning per
+// "expiring soon" window, same throttling shape as maybePushRemoteHeartbeat
+// above. Never blocks or crashes the real execution cycle: a failure here
+// (e.g. transient network error) is logged and simply retried a day later.
+const API_KEY_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let lastApiKeyCheckAt = 0;
+let apiKeyWarnedForCurrentWindow = false; // one alert per expiry window, not one per day for as long as it's within it — resets once the key is renewed (deadlineDay climbs back out of the warn range)
+
+const maybeCheckApiKeyHealth = async () => {
+  const now = Date.now();
+  if (now - lastApiKeyCheckAt < API_KEY_CHECK_INTERVAL_MS) return;
+  lastApiKeyCheckAt = now;
+  try {
+    const h = await checkApiKeyHealth();
+    console.log(`[watcher] Bybit API key check: deadlineDay=${h.deadlineDay} expiredAt=${h.expiredAt} readOnly=${h.readOnly} ipRestricted=${h.hasIpRestriction}`);
+    if (h.readOnly) {
+      await sendAlert(
+        `🚨 *MVS watcher*: the Bybit API key is currently READ-ONLY — no trade can execute. ` +
+        `Check Bybit app → API → your key's permissions and re-enable trade access.`
+      );
+    } else if (h.expiringSoon) {
+      if (!apiKeyWarnedForCurrentWindow) {
+        apiKeyWarnedForCurrentWindow = true;
+        await sendAlert(
+          `⚠️ *MVS watcher*: Bybit API key expires in ${h.deadlineDay} day(s)` +
+          (h.expiredAt ? ` (${h.expiredAt})` : '') + `. ` +
+          `Renew now — same key/secret, no GitHub changes needed: Bybit app → API → your key → Edit → re-select "No IP restriction" → Submit.`
+        );
+      }
+    } else {
+      apiKeyWarnedForCurrentWindow = false; // outside the warn window (freshly renewed) — allow a future warning again
+    }
+  } catch (err) {
+    console.error(`[watcher] Could not check Bybit API key health (non-fatal, retrying in ~24h): ${err.message}`);
   }
 };
 
@@ -511,6 +553,7 @@ const runCycle = async () => {
     await runProtectionCycle(pullSucceeded);
     await checkForNewSignals(pullSucceeded);
     await maybePushRemoteHeartbeat(pullSucceeded);
+    await maybeCheckApiKeyHealth();
     writeHeartbeat('ok');
   } catch (err) {
     // v10.24 FIX — previously an uncaught error anywhere in this chain
