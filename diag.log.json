@@ -2,6 +2,202 @@
   {
     "symbol": "SUI-USDT",
     "barTime": 1792648800,
+    "price": 0.9984,
+    "fired": false,
+    "reason": "POC_NO1H_GATED",
+    "ts": "2026-10-22T06:30:53.516Z"
+  },
+  {
+    "symbol": "OP-USDT",
+    "barTime": 1792648800,
+    "price": 0.1227,
+    "fired": false,
+    "reason": "NOT_NEAR_ZONE",
+    "ts": "2026-10-22T06:30:51.360Z"
+  },
+  {
+    "symbol": "ARB-USDT",
+    "barTime": 1792648800,
+    "price": 0.1812,
+    "fired": false,
+    "reason": "NOT_NEAR_ZONE",
+    "ts": "2026-10-22T06:30:49.219Z"
+  },
+  {
+    "symbol": "APT-USDT",
+    "bias1d": "NEUTRAL",
+    "bias4h": "BEARISH",
+    "bias1h": "NEUTRAL",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-10-22T06:30:47.046Z"
+  },
+  {
+    "symbol": "NEAR-USDT",
+    "barTime": 1792648800,
+    "price": 5.0024,
+    "fired": false,
+    "reason": "VAH_VAL_CONFLUENCE_TOO_LOOSE",
+    "ts": "2026-10-22T06:30:44.888Z"
+  },
+  {
+    "symbol": "ATOM-USDT",
+    "barTime": 1792648800,
+    "price": 1.7193,
+    "fired": false,
+    "reason": "TP2_EXTENSION_TOO_SHORT",
+    "ts": "2026-10-22T06:30:42.557Z"
+  },
+  {
+    "symbol": "ATOM-USDT",
+    "barTime": 1792648800,
+    "price": 1.7193,
+    "bias1d": "BEARISH",
+    "bias4h": "BEARISH",
+    "bias1h": "BEARISH",
+    "bias30m": "BEARISH",
+    "bias15m": "BEARISH",
+    "voteTally": "5/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "1H",
+      "30m",
+      "15m"
+    ],
+    "htf4hAligned": true,
+    "confluenceScore": 2,
+    "confluenceLevel": "78.6%",
+    "confluencePivot": "POC",
+    "patterns": [
+      "PIN_BAR",
+      "CLOSE_REJECTION"
+    ],
+    "absorptionVeto": false,
+    "fired": true,
+    "reason": "SIGNAL_FIRED",
+    "ts": "2026-10-22T06:30:42.554Z"
+  },
+  {
+    "symbol": "MNT-USDT",
+    "barTime": 1792648800,
+    "price": 0.5568,
+    "fired": false,
+    "reason": "NOT_NEAR_ZONE",
+    "ts": "2026-10-22T06:30:40.397Z"
+  },
+  {
+    "symbol": "POL-USDT",
+    "barTime": 1792648800,
+    "price": 0.0922,
+    "fired": false,
+    "reason": "POC_CONFLUENCE_TOO_LOOSE",
+    "ts": "2026-10-22T06:30:38.248Z"
+  },
+  {
+    "symbol": "TRX-USDT",
+    "barTime": 1792648800,
+    "price": 0.3308,
+    "fired": false,
+    "reason": "NOT_NEAR_ZONE",
+    "ts": "2026-10-22T06:30:36.093Z"
+  },
+  {
+    "symbol": "LTC-USDT",
+    "bias1d": "NEUTRAL",
+    "bias4h": "NEUTRAL",
+    "bias1h": "BULLISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "fired": false,
+    "reason": "NO_3OF5_AGREEMENT",
+    "ts": "2026-10-22T06:30:33.931Z"
+  },
+  {
+    "symbol": "DOT-USDT",
+    "barTime": 1792648800,
+    "price": 1.1218,
+    "fired": false,
+    "reason": "FIB_61_8_EXCLUDED",
+    "ts": "2026-10-22T06:30:31.785Z"
+  },
+  {
+    "symbol": "BNB-USDT",
+    "barTime": 1792648800,
+    "price": 738.568,
+    "fired": false,
+    "reason": "POC_NO1H_GATED",
+    "ts": "2026-10-22T06:30:29.642Z"
+  },
+  {
+    "symbol": "LINK-USDT",
+    "barTime": 1792648800,
+    "price": 12.1924,
+    "fired": false,
+    "reason": "MID_POCKET_EXCLUDED",
+    "ts": "2026-10-22T06:30:27.495Z"
+  },
+  {
+    "symbol": "AVAX-USDT",
+    "barTime": 1792648800,
+    "price": 9.367,
+    "fired": false,
+    "reason": "NOT_NEAR_ZONE",
+    "ts": "2026-10-22T06:30:25.347Z"
+  },
+  {
+    "symbol": "DOGE-USDT",
+    "barTime": 1792648800,
+    "price": 0.07968,
+    "fired": false,
+    "reason": "VAH_VAL_CONFLUENCE_TOO_LOOSE",
+    "ts": "2026-10-22T06:30:23.198Z"
+  },
+  {
+    "symbol": "ADA-USDT",
+    "barTime": 1792648800,
+    "price": 0.2177,
+    "fired": false,
+    "reason": "NOT_NEAR_ZONE",
+    "ts": "2026-10-22T06:30:21.046Z"
+  },
+  {
+    "symbol": "XRP-USDT",
+    "barTime": 1792648800,
+    "price": 1.34149,
+    "fired": false,
+    "reason": "NO_CONFLUENCE",
+    "ts": "2026-10-22T06:30:18.896Z"
+  },
+  {
+    "symbol": "BTC-USDT",
+    "barTime": 1792648800,
+    "price": 82586.5,
+    "fired": false,
+    "reason": "NO_CONFLUENCE",
+    "ts": "2026-10-22T06:30:16.742Z"
+  },
+  {
+    "symbol": "SOL-USDT",
+    "barTime": 1792648800,
+    "price": 104.63,
+    "fired": false,
+    "reason": "VAH_VAL_CONFLUENCE_TOO_LOOSE",
+    "ts": "2026-10-22T06:30:14.589Z"
+  },
+  {
+    "symbol": "ETH-USDT",
+    "barTime": 1792648800,
+    "price": 2433.41,
+    "fired": false,
+    "reason": "POC_NO1H_GATED",
+    "ts": "2026-10-22T06:30:12.233Z"
+  },
+  {
+    "symbol": "SUI-USDT",
+    "barTime": 1792648800,
     "price": 0.9994,
     "fired": false,
     "reason": "POC_NO1H_GATED",
@@ -17907,197 +18103,5 @@
     "fired": false,
     "reason": "NO_3OF5_AGREEMENT",
     "ts": "2026-10-21T05:45:40.727Z"
-  },
-  {
-    "symbol": "POL-USDT",
-    "barTime": 1792558800,
-    "price": 0.0953,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:45:38.523Z"
-  },
-  {
-    "symbol": "TRX-USDT",
-    "bias1d": "NEUTRAL",
-    "bias4h": "BEARISH",
-    "bias1h": "NEUTRAL",
-    "bias30m": "NEUTRAL",
-    "bias15m": "NEUTRAL",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-10-21T05:45:36.313Z"
-  },
-  {
-    "symbol": "LTC-USDT",
-    "barTime": 1792558800,
-    "price": 61.2,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:45:33.973Z"
-  },
-  {
-    "symbol": "DOT-USDT",
-    "bias1d": "NEUTRAL",
-    "bias4h": "BEARISH",
-    "bias1h": "BULLISH",
-    "bias30m": "BULLISH",
-    "bias15m": "BEARISH",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-10-21T05:45:31.774Z"
-  },
-  {
-    "symbol": "BNB-USDT",
-    "barTime": 1792558800,
-    "price": 743.445,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:45:29.570Z"
-  },
-  {
-    "symbol": "LINK-USDT",
-    "barTime": 1792558800,
-    "price": 12.3056,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:45:27.367Z"
-  },
-  {
-    "symbol": "AVAX-USDT",
-    "bias1d": "BULLISH",
-    "bias4h": "BEARISH",
-    "bias1h": "BEARISH",
-    "bias30m": "NEUTRAL",
-    "bias15m": "NEUTRAL",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-10-21T05:45:25.167Z"
-  },
-  {
-    "symbol": "DOGE-USDT",
-    "barTime": 1792558800,
-    "price": 0.08162,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:45:22.901Z"
-  },
-  {
-    "symbol": "ADA-USDT",
-    "bias1d": "NEUTRAL",
-    "bias4h": "NEUTRAL",
-    "bias1h": "NEUTRAL",
-    "bias30m": "NEUTRAL",
-    "bias15m": "BULLISH",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-10-21T05:45:20.618Z"
-  },
-  {
-    "symbol": "XRP-USDT",
-    "barTime": 1792558800,
-    "price": 1.33606,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:45:18.028Z"
-  },
-  {
-    "symbol": "BTC-USDT",
-    "barTime": 1792558800,
-    "price": 82741.6,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:45:15.824Z"
-  },
-  {
-    "symbol": "SOL-USDT",
-    "bias1d": "BULLISH",
-    "bias4h": "NEUTRAL",
-    "bias1h": "BULLISH",
-    "bias30m": "BEARISH",
-    "bias15m": "BEARISH",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-10-21T05:45:13.624Z"
-  },
-  {
-    "symbol": "ETH-USDT",
-    "bias1d": "NEUTRAL",
-    "bias4h": "BEARISH",
-    "bias1h": "NEUTRAL",
-    "bias30m": "BULLISH",
-    "bias15m": "BULLISH",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-10-21T05:45:11.419Z"
-  },
-  {
-    "symbol": "SUI-USDT",
-    "barTime": 1792558800,
-    "price": 1.0237,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:30:54.978Z"
-  },
-  {
-    "symbol": "OP-USDT",
-    "barTime": 1792558800,
-    "price": 0.1301,
-    "fired": false,
-    "reason": "HTF_4H_ZONE_MISMATCH",
-    "ts": "2026-10-21T05:30:52.790Z"
-  },
-  {
-    "symbol": "ARB-USDT",
-    "bias1d": "NEUTRAL",
-    "bias4h": "NEUTRAL",
-    "bias1h": "NEUTRAL",
-    "bias30m": "BEARISH",
-    "bias15m": "BEARISH",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-10-21T05:30:50.605Z"
-  },
-  {
-    "symbol": "APT-USDT",
-    "barTime": 1792558800,
-    "price": 0.8225,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:30:48.420Z"
-  },
-  {
-    "symbol": "NEAR-USDT",
-    "barTime": 1792558800,
-    "price": 5.018,
-    "fired": false,
-    "reason": "VAH_VAL_CONFLUENCE_TOO_LOOSE",
-    "ts": "2026-10-21T05:30:46.240Z"
-  },
-  {
-    "symbol": "ATOM-USDT",
-    "barTime": 1792558800,
-    "price": 1.7351,
-    "fired": false,
-    "reason": "POC_NO1H_GATED",
-    "ts": "2026-10-21T05:30:44.050Z"
-  },
-  {
-    "symbol": "MNT-USDT",
-    "bias1d": "NEUTRAL",
-    "bias4h": "BEARISH",
-    "bias1h": "BULLISH",
-    "bias30m": "BULLISH",
-    "bias15m": "NEUTRAL",
-    "fired": false,
-    "reason": "NO_3OF5_AGREEMENT",
-    "ts": "2026-10-21T05:30:41.844Z"
-  },
-  {
-    "symbol": "POL-USDT",
-    "barTime": 1792558800,
-    "price": 0.0955,
-    "fired": false,
-    "reason": "NOT_NEAR_ZONE",
-    "ts": "2026-10-21T05:30:39.662Z"
   }
 ]
