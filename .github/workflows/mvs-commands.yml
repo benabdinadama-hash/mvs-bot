@@ -72,11 +72,40 @@ jobs:
           git config user.email "mvs-bot@users.noreply.github.com"
           git add -f tg-offset.json 2>/dev/null || true
           git update-index --add tg-offset.json 2>/dev/null || true
+
+          # v10.43 CRITICAL FIX: /pause and /resume (commands.js) call
+          # execution/kill-switch.js's setPaused(), which writes
+          # execution/kill-switch.json — but this step only ever committed
+          # tg-offset.json. This workflow runs on a GitHub Actions runner,
+          # a completely different host from the phone (Termux), which is
+          # the ONLY place a real order ever gets placed (strategy.js
+          # skips executeSignal() entirely when GITHUB_ACTIONS is set —
+          # see its v10.25 note — so watcher.js on the phone is the one
+          # code path that calls executeSignal(), and it checks its OWN
+          # local execution/kill-switch.json, synced only via `git pull`).
+          # Since this step never committed the runner's kill-switch.json
+          # change, /pause always replied "⏸️ Execution PAUSED" — a real,
+          # confirmed Telegram message — while the phone's copy of the
+          # file, and therefore real order execution, was never actually
+          # touched: the kill switch silently did nothing the entire time
+          # it's existed. Fixed by committing/pushing it exactly like
+          # tg-offset.json, so the phone's next `git pull` (every 30s,
+          # see watcher.js) picks up the real pause/resume state within
+          # seconds. Only touched when a /pause or /resume command was
+          # actually in this run's batch (setPaused() is the only thing
+          # that ever writes this file from commands.js) — a run with no
+          # pause/resume command leaves it untouched, so this can never
+          # clobber protect.js's own independent auto-pause (the
+          # MAX_CONSECUTIVE_LOSSES circuit breaker, which runs entirely on
+          # the phone and never needs this sync path).
+          git add -f execution/kill-switch.json 2>/dev/null || true
+          git update-index --add execution/kill-switch.json 2>/dev/null || true
+
           if git diff --cached --quiet && git diff --staged --quiet; then
-            echo "No offset change."
+            echo "No offset/kill-switch change."
             exit 0
           fi
-          git commit -m "MVS offset $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          git commit -m "MVS offset/kill-switch $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
           # v10.15.5 FIX: was `git pull --rebase --autostash origin main`.
           # Same root cause as mvs-scan.yml's identical fix (see that
