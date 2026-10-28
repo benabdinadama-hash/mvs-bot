@@ -135,6 +135,11 @@ const saveJSON = (file, data) => {
 };
 
 // ── /help ──────────────────────────────────────────────────────────────────
+// v10.43 FIX: /pause and /resume (the real-money execution kill switch,
+// added v10.16) were handled correctly by the COMMANDS table below this
+// whole time, but were never listed here — so the one menu a user would
+// actually read to discover what the bot can do never mentioned the kill
+// switch exists. Added both below.
 const cmdHelp = async () => {
   await send(
 `🤖 *MVS Command Menu*
@@ -147,6 +152,8 @@ const cmdHelp = async () => {
 /about — strategy overview
 /signal — how to read a signal
 /source — GitHub link
+/pause — stop new live orders (kill switch)
+/resume — resume live order execution
 /help — this menu`
   );
 };

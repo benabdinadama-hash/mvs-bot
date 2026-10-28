@@ -11,6 +11,10 @@
 
 const axios  = require('axios');
 const config = require('./config');
+// v10.43: version string now comes from package.json, not a hand-typed
+// literal — same fix strategy.js/backtest.js/commands.js already apply,
+// for the exact same recurring "stale version string" bug class.
+const MVS_VERSION = require('./package.json').version;
 
 const TG = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
 
@@ -44,8 +48,16 @@ const call = async (method, params = {}) => {
   // limit is 120. The API call has likely been silently failing (check
   // the Action log for this step: a non-ok response logs "❌ setMyShort-
   // Description — {...}"). Trimmed with real margin this time.
+  //
+  // v10.43 FIX: the pair count here was a hardcoded "14" — stale since
+  // v10.18/v10.19 added MNT/ATOM/NEAR/APT/ARB/OP/SUI, bringing the real
+  // count to 20 (config.SYMBOLS.length). This is the exact staleness bug
+  // commands.js's /about and /pairs were rewritten to stop having (see
+  // that file's v10.0 header note) — it just hadn't been applied here
+  // yet, in the public bot-profile text any visitor sees immediately.
+  // Built from config.SYMBOLS.length now so it can never go stale again.
   await call('setMyShortDescription', {
-    short_description: '🎯 Crypto signals, 14 KuCoin pairs. POC/VAH/VAL + Fib, 1D/4H/1H/30m/15m 3-of-5 vote. Built for Ghana.'
+    short_description: `🎯 Crypto signals, ${config.SYMBOLS.length} KuCoin pairs. POC/VAH/VAL + Fib, 1D/4H/1H/30m/15m 3-of-5 vote. Built for Ghana.`
   });
 
   // 4. Set full description (shown when user first opens bot)
@@ -79,31 +91,54 @@ const call = async (method, params = {}) => {
   // replacing the stale v10.6 placeholder. Same standing rule applies:
   // update this snapshot again the next time config.js changes
   // meaningfully — see README.md's "Reference snapshot" section.
+  //
+  // v10.43 FIX: that "same standing rule" was never actually followed —
+  // this was STILL showing the v10.13 (2026-07-07) snapshot on a bot now
+  // at v10.43, over 20 more versions and several real config/gate changes
+  // later (POC_PROMINENCE_REQUIRE_DECISIVE, EXCLUDE_FIB_61_8, MID_POCKET_
+  // EXCLUDE going live, the leverage/liquidation-safety fix, etc.) — the
+  // exact hardcoded-number staleness this codebase's commands.js was
+  // rewritten specifically to stop doing (see its v10.0 header). A
+  // first-time visitor to this bot was being shown a specific win-rate/
+  // profit-factor claim that hadn't described the bot's actual behavior
+  // in dozens of versions. Fixed the same way commands.js's /about and
+  // /pairs already were: no hardcoded figure here at all — point to
+  // running backtest.js for current numbers instead of a number that can
+  // only ever go stale again. Pair count now comes from config.SYMBOLS.length.
   await call('setMyDescription', {
     description:
-`Monthly Value Sniper (MVS) by Abdin — KuCoin, Ghana
+`Monthly Value Sniper (MVS) by Abdin — KuCoin, Ghana (v${MVS_VERSION})
 
 Volume Profile (POC/VAH/VAL) + Fibonacci, 1D/4H/1H/30m/15m, 3-of-5 vote to fire.
 
-v10.13 backtest, 360d (2026-07-07):
-82.6% WR, PF 48.97, +87% return, 0.9% max DD, ~0.89 signals/wk.
-Not a live guarantee — run backtest.js yourself for current numbers.
+No hardcoded win-rate claim here — it would only go stale again the next
+time the strategy changes. Run \`node backtest.js\` in the repo for
+current, honest numbers. Not a live-performance guarantee.
 
-14 KuCoin pairs. Auto-alerts here.
+${config.SYMBOLS.length} KuCoin pairs. Auto-alerts here.
 github.com/benabdinadama-hash/mvs-bot`
   });
 
   // 5. Set command menu (shown when user taps the / button)
+  // v10.43 FIX: /scan, /pause, /resume existed in commands.js's COMMANDS
+  // table (added v10.16, for the real-money kill switch) but were never
+  // added here — so they worked if typed, but never appeared in Telegram's
+  // own "/" menu, meaning the owner could easily forget the kill switch
+  // even exists. Added below so the native menu matches what commands.js
+  // actually handles.
   await call('setMyCommands', {
     commands: [
       { command: 'start',     description: '🤖 Welcome — what is MVS?' },
       { command: 'about',     description: '📊 Strategy overview + backtest results' },
       { command: 'pairs',     description: '💱 Which pairs are tracked and why' },
       { command: 'signal',    description: '📡 How to read a signal when it fires' },
-      { command: 'positions', description: '📌 Last active signal per symbol' },
+      { command: 'positions', description: '📌 Open positions, tracked until close' },
+      { command: 'scan',      description: '🔍 Run a fresh scan right now' },
       { command: 'source',    description: '🔗 GitHub repo link' },
       { command: 'health',    description: '🩺 KuCoin API status + last scan time' },
       { command: 'status',    description: '📈 Last saved scan result' },
+      { command: 'pause',     description: '⏸️ Stop new live orders (kill switch)' },
+      { command: 'resume',    description: '▶️ Resume live order execution' },
     ]
   });
 
@@ -115,9 +150,9 @@ github.com/benabdinadama-hash/mvs-bot`
 
 Bot profile, description and command menu have been configured.
 
-Tap the */* button in this chat to see the command menu. Any visitor who opens this bot will now see the full MVS description and performance stats instantly — no polling required.
+Tap the */* button in this chat to see the command menu. Any visitor who opens this bot will now see the full MVS description instantly — no polling required.
 
-Signal alerts will continue firing automatically whenever any of the 14 tracked pairs hits a valid confluence zone.`,
+Signal alerts will continue firing automatically whenever any of the ${config.SYMBOLS.length} tracked pairs hits a valid confluence zone.`,
     parse_mode: 'Markdown'
   });
 
