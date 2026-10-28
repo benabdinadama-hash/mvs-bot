@@ -352,7 +352,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const pullLatest = async () => {
   clearStaleLock();
   try {
-    gitExec('git pull --quiet');
+    gitExec('git pull --no-rebase --quiet');
     return true;
   } catch (err) {
     const msg = err.message || '';
@@ -387,7 +387,7 @@ const pullLatest = async () => {
       console.error('[watcher] git pull hit a ref-lock race (another git process updated the same ref at the same instant) — waiting 3s and retrying once.');
       await sleep(3000);
       try {
-        gitExec('git pull --quiet');
+        gitExec('git pull --no-rebase --quiet');
         console.log('[watcher] Pull recovered after the ref-lock race cleared.');
         return true;
       } catch (err2) {
@@ -410,7 +410,7 @@ const pullLatest = async () => {
           const fp = path.join(REPO_ROOT, f);
           if (fs.existsSync(fp)) fs.unlinkSync(fp);
         }
-        gitExec('git pull --quiet');
+        gitExec('git pull --no-rebase --quiet');
         // A file we deleted above might not have been part of THIS
         // pull's incoming diff (e.g. only open-positions.json changed
         // remotely, not state.json) — git's merge only recreates files
@@ -440,9 +440,30 @@ const pullLatest = async () => {
         // recovery that actually clears it is discarding local's commit
         // history entirely in favor of origin's — safe here because
         // neither file is ever treated as an original.
+        // v10.43: kill-switch.json is now tracked and is NOT re-derivable
+        // (unlike the two files above) — a local auto-pause whose push
+        // never landed would be silently reverted to "not paused" by this
+        // reset, i.e. real orders resuming after a circuit-breaker trip.
+        // Remember a local pause and re-apply it (committed locally, so it
+        // can't block the next pull) if the reset would have undone it.
+        const ksPath = path.join(__dirname, 'kill-switch.json');
+        let wasPaused = false;
+        try { wasPaused = JSON.parse(fs.readFileSync(ksPath, 'utf8')).paused === true; } catch { /* absent/unreadable: nothing to preserve */ }
         try { gitExec('git merge --abort'); } catch { /* fine if none was in progress */ }
         gitExec('git fetch origin --quiet');
         gitExec('git reset --hard origin/main');
+        if (wasPaused) {
+          let nowPaused = false;
+          try { nowPaused = JSON.parse(fs.readFileSync(ksPath, 'utf8')).paused === true; } catch { /* treat as not paused */ }
+          if (!nowPaused) {
+            require('./kill-switch').setPaused(true);
+            try {
+              gitExec('git add -f execution/kill-switch.json');
+              gitExec('git commit -m "[watcher] preserve local kill-switch pause across reset"');
+            } catch { /* file is still paused on disk — enforcement intact */ }
+            console.error('[watcher] Local kill-switch pause preserved across reset-to-origin.');
+          }
+        }
         console.log('[watcher] Pull recovered — local reset to match origin/main exactly.');
         return true;
       } catch (err2) {
@@ -462,7 +483,7 @@ const pullLatest = async () => {
       console.error(`[watcher] git pull failed: ${msg} — retrying once in 5s before giving up for this cycle.`);
       await sleep(5000);
       try {
-        gitExec('git pull --quiet');
+        gitExec('git pull --no-rebase --quiet');
         console.log('[watcher] Pull recovered on quick retry.');
         return true;
       } catch (err2) {

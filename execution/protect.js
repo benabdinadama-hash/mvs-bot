@@ -215,7 +215,7 @@ const pushSignalSideChanges = async (summary) => {
         // why safety-critical paths here don't depend on code the
         // signal-generation pipeline could break.
         try {
-          gitExec('git pull --quiet');
+          gitExec('git pull --no-rebase --quiet');
         } catch (pullErr) {
           const pullMsg = pullErr.message || '';
           if (pullMsg.includes('you have unmerged files') || pullMsg.includes('unresolved conflict')) {
@@ -365,6 +365,82 @@ const syncOrphanedSignals = async (pullSucceeded = true) => {
   }
 };
 
+// v10.43 addition — commits+pushes execution/kill-switch.json right after
+// a local write, same reasoning pushSignalSideChanges above already
+// applies to open-positions.json/state.json: a file that's tracked by
+// git and can ALSO be written by a different host (as of the v10.43 fix
+// to mvs-commands.yml, GitHub Actions now commits kill-switch.json too,
+// for /pause and /resume) must never sit locally modified-but-uncommitted
+// for long, or the next `git pull` here can hit the exact "local changes
+// would be overwritten by merge" failure mode this file's header already
+// describes fighting for open-positions.json/state.json — except THIS
+// file isn't safely re-derivable the way those two are (it's a real
+// safety decision, not regenerable from Bybit truth), so it must never
+// be in watcher.js's discard-and-recreate recovery list. Committing
+// immediately avoids ever needing it to be: a committed-but-unpushed
+// change causes an ordinary merge/rebase on the next pull, not the
+// uncommitted-local-diff failure that recovery path exists for.
+const pushKillSwitchChange = async (paused, summary) => {
+  try {
+    gitExec('git add -f execution/kill-switch.json');
+    try {
+      gitExec('git diff --cached --quiet');
+      return; // nothing staged — e.g. already matches what's committed
+    } catch { /* exit code 1 = there IS a staged diff — continue below */ }
+
+    gitExec(`git commit -m "[protect] ${summary}"`);
+
+    for (let i = 0; i < 3; i++) {
+      try {
+        gitExec('git push --quiet');
+        console.log(`[protect] ✅ Pushed kill-switch state to GitHub: ${summary}`);
+        return;
+      } catch (err) {
+        if (i === 2) {
+          // Push never landed after 3 tries — not fatal. The LOCAL file is
+          // already correct and already enforced (execute-signal.js on
+          // this same phone reads it directly, with no git involved), so
+          // real order execution is already safe regardless of push
+          // outcome. This only affects how soon other hosts (a future
+          // /status check on GitHub Actions, say) would see the change.
+          console.error(`[protect] Could not push kill-switch state after 3 tries (local enforcement is unaffected): ${err.message}`);
+          return;
+        }
+        try {
+          gitExec('git pull --no-rebase --quiet');
+        } catch {
+          // Any failed pull is recovered the same way: a real text conflict
+          // reports "CONFLICT"/"Automatic merge failed" on stdout, which is
+          // NOT in err.message, so matching message strings misses it
+          // (confirmed in a v10.43 two-host test). Safe because the
+          // recovery re-applies this process's own decision on top of
+          // origin's state.
+          //
+          // Deliberately NOT resetting kill-switch.json to origin: unlike
+          // open-positions.json/state.json, its local value is a real
+          // safety decision, not a re-derivable cache.
+          console.error('[protect] Pull failed while pushing kill-switch state — resetting to origin, then re-applying this pause/resume decision on top.');
+          try { gitExec('git merge --abort'); } catch { /* fine if none was in progress */ }
+          gitExec('git fetch origin --quiet');
+          gitExec('git reset --hard origin/main');
+          // reset --hard discards BOTH the file content and the commit made
+          // above, so re-apply and re-commit (setPaused alone would leave
+          // nothing new for the next push).
+          killSwitch.setPaused(paused);
+          gitExec('git add -f execution/kill-switch.json');
+          try {
+            gitExec('git diff --cached --quiet');
+            return; // origin already matches what we wanted
+          } catch { /* exit code 1 = staged diff exists — continue */ }
+          gitExec(`git commit -m "[protect] ${summary} (re-applied after conflict)"`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[protect] Could not push kill-switch state (local enforcement is unaffected): ${err.message}`);
+  }
+};
+
 const checkCircuitBreaker = async () => {
   if (killSwitch.isPaused()) return; // already paused, nothing to check
 
@@ -382,6 +458,12 @@ const checkCircuitBreaker = async () => {
     `Send /resume when you've reviewed this and want to re-enable execution.`
   );
   console.log(`[protect] 🛑 Circuit breaker triggered — ${MAX_CONSECUTIVE_LOSSES} consecutive losses. Kill switch engaged.`);
+  // v10.43 — see pushKillSwitchChange() above: commits/pushes this
+  // decision immediately so it can never sit as an uncommitted local
+  // diff, and so it's visible to other hosts (not required for the
+  // pause to actually take effect here — that part already worked,
+  // since this and execute-signal.js run on the same phone).
+  await pushKillSwitchChange(true, `auto-pause — ${MAX_CONSECUTIVE_LOSSES} consecutive losses`);
 };
 
 // Single entry point called from watcher.js each cycle.
@@ -391,4 +473,4 @@ const runProtectionCycle = async (pullSucceeded = true) => {
   await checkCircuitBreaker();
 };
 
-module.exports = { runProtectionCycle, reconcileLedger, syncOrphanedSignals, checkCircuitBreaker, pushSignalSideChanges, MAX_CONSECUTIVE_LOSSES };
+module.exports = { runProtectionCycle, reconcileLedger, syncOrphanedSignals, checkCircuitBreaker, pushSignalSideChanges, pushKillSwitchChange, MAX_CONSECUTIVE_LOSSES };
