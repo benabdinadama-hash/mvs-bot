@@ -48,7 +48,7 @@ the summary — not just the win-rate line.
 
 ---
 
-## What changed since v10.0 (v10.3 → v10.42, current)
+## What changed since v10.0 (v10.3 → v10.43, current)
 
 Condensed record — kept short on purpose so it stays something people
 actually read, not scattered commit messages. Full technical detail for
@@ -195,6 +195,24 @@ need the exact numbers or reasoning behind a specific change.
   side. Corrected to `git fetch origin` + `git reset --hard
   origin/main`, which actually discards the local divergence instead of
   resetting to a copy of the same problem.
+- **v10.43.0** — kill-switch sync, live/backtest drift, bot profile:
+  - **CRITICAL:** `/pause` and `/resume` ran on the GitHub Actions runner but
+    only `tg-offset.json` was ever committed, so the phone (the only place
+    real orders are placed) never saw the pause. `mvs-commands.yml` now also
+    commits `execution/kill-switch.json`; `protect.js` pushes its own
+    auto-pause (new `pushKillSwitchChange`) with conflict recovery that
+    re-applies the pause on top of origin.
+  - `kill-switch.js` now fails CLOSED (paused) if the file exists but is
+    unreadable, and writes atomically.
+  - `watcher.js` preserves a local pause across its reset-to-origin recovery.
+  - All `git pull` calls use `--no-rebase` (git ≥ 2.27 refuses a bare pull on
+    divergent branches).
+  - `config.variant-nomidpocket.js` / `config.variant-struct2h.js` were stale
+    copies of old config; they now spread the live `config.js` so backtest
+    variants can no longer drift.
+  - `setup-bot.js`: bot profile no longer hardcodes stale stats/pair count;
+    `/scan`, `/pause`, `/resume` registered; `/help` lists pause/resume.
+    Takes effect after re-running the "MVS Bot Setup" workflow.
 - **v10.42.0** — `execution/watcher.js` / new `execution/check-api-key.js`:
   automatic Bybit API key health check, once per day, using Bybit's own
   `GET /v5/user/query-api` endpoint (verified against Bybit's official
