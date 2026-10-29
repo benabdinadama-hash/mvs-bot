@@ -1,5 +1,66 @@
 [
   {
+    "symbol": "ETH-USDT",
+    "signal": "FIRED",
+    "direction": "SELL",
+    "entryTime": 1793236500,
+    "entryPrice": 2370.18232,
+    "slPrice": 2394.986570916119,
+    "tp1Price": 2340.4172189006567,
+    "tp2Price": 2324.949,
+    "risk": 24.804250916119145,
+    "rr1": 1.2000000000000073,
+    "rr2": 1.823611612096891,
+    "confluencePivot": "VAH",
+    "fibPct": "78.6%",
+    "patterns": [
+      "CLOSE_REJECTION"
+    ],
+    "voteTally": "3/5",
+    "agreeing": [
+      "1D",
+      "4H",
+      "15m"
+    ],
+    "riskMult": 1,
+    "bias1d": "BEARISH",
+    "bias4h": "BEARISH",
+    "bias1h": "BULLISH",
+    "bias30m": "NEUTRAL",
+    "bias15m": "BEARISH",
+    "td9Confirms": false,
+    "slAtrMult": 0.25,
+    "prominence": {
+      "prominenceRatio": 4.531238816006304,
+      "computed": true
+    },
+    "migration": {
+      "migrating": false,
+      "direction": null,
+      "distance": 0,
+      "currentPOC": null,
+      "pastPOC": null
+    },
+    "nakedPOC": {
+      "naked": false,
+      "priorPOC": null,
+      "tested": null,
+      "aligned": false
+    },
+    "multiTFPOC": {
+      "aligned4h": false,
+      "aligned1d": false,
+      "anyAligned": false,
+      "poc4h": 2510.3368,
+      "poc1d": 2476.9355
+    },
+    "alertDelivered": true,
+    "scanLagSec": 17,
+    "openingLivePrice": 2346.31,
+    "openingPctToTp1Remaining": 20,
+    "time": "2026-10-29T01:15:17.818Z"
+  },
+  {
     "symbol": "BNB-USDT",
     "signal": "FIRED",
     "direction": "SELL",
