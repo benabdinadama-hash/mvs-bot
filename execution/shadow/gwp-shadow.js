@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * gwp-shadow.js — GWP shadow-mode logger (v1.0)
+ * gwp-shadow.js — GWP shadow-mode logger (v1.2)
  *
  * READ-ONLY. Places NO orders. Uses NO API keys. Touches NO MVS file.
  * It reads GWP's published signals.log.json (public GitHub raw URL),
@@ -41,24 +41,35 @@ const DEFAULT_CFG = {
   timeoutHours: 72,
 };
 
+const failCount = {};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const readJSON = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
 const writeJSON = (f, v) => { const t = f + '.tmp'; fs.writeFileSync(t, JSON.stringify(v, null, 1)); fs.renameSync(t, f); };
 const journal = (o) => fs.appendFileSync(JOURNAL, JSON.stringify({ at: new Date().toISOString(), ...o }) + '\n');
 
-function getJSON(url) {
+function getJSONOnce(url) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'gwp-shadow/1.0' }, timeout: 20000 }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'gwp-shadow/1.2' }, timeout: 20000 }, (res) => {
       let b = '';
       res.on('data', (c) => (b += c));
       res.on('end', () => {
         if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode} ${url}`));
         try { resolve(JSON.parse(b)); } catch (e) { reject(e); }
       });
+      res.on('error', reject);
     });
-    req.on('timeout', () => req.destroy(new Error('timeout ' + url)));
+    req.on('timeout', () => req.destroy(new Error('timeout')));
     req.on('error', reject);
   });
+}
+/** Phone networks drop connections (ECONNRESET / ENOTFOUND / timeout). Retry transient errors 3x with backoff. HTTP 4xx is not retried. */
+async function getJSON(url, tries = 3) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try { return await getJSONOnce(url); }
+    catch (e) { last = e; if (/HTTP 4\d\d/.test(e.message)) break; await sleep(2000 * (i + 1)); }
+  }
+  throw last;
 }
 
 // ---------- pure helpers (unit-tested) ----------
@@ -118,6 +129,24 @@ async function bybitPrice(sym) {
   const it = j && j.result && j.result.list && j.result.list[0];
   return it ? +it.lastPrice : null;
 }
+async function bybitInstrument(sym) {
+  const j = await getJSON(`${BYBIT}/v5/market/instruments-info?category=linear&symbol=${sym}`);
+  const it = j && j.result && j.result.list && j.result.list[0];
+  if (!it) return null;
+  const lot = it.lotSizeFilter || {}, lev = it.leverageFilter || {};
+  return { status: it.status, minQty: +lot.minOrderQty, qtyStep: +lot.qtyStep, minNotional: +(lot.minNotionalValue || 0), maxLev: +lev.maxLeverage, tickSize: +((it.priceFilter || {}).tickSize) };
+}
+/** Can the hypothetical $margin x leverage position be placed at all? */
+function checkOrderable(plan, inst) {
+  if (!inst) return { orderable: false, why: 'NO_INSTRUMENT_INFO' };
+  if (inst.status && inst.status !== 'Trading') return { orderable: false, why: 'STATUS_' + inst.status };
+  const lev = Math.min(plan.lev, inst.maxLev || plan.lev);
+  const notional = plan.notional * (lev / plan.lev);
+  const qty = notional / plan.entry;
+  if (inst.minQty && qty < inst.minQty) return { orderable: false, why: 'BELOW_MIN_QTY', qty, minQty: inst.minQty, needNotional: inst.minQty * plan.entry };
+  if (inst.minNotional && notional < inst.minNotional) return { orderable: false, why: 'BELOW_MIN_NOTIONAL', notional, minNotional: inst.minNotional };
+  return { orderable: true, qty, lev };
+}
 async function bybitCandles(sym, startMs) {
   const j = await getJSON(`${BYBIT}/v5/market/kline?category=linear&symbol=${sym}&interval=5&start=${startMs}&limit=1000`);
   const l = (j && j.result && j.result.list) || [];
@@ -137,7 +166,8 @@ async function pass(cfg) {
   for (const bot of cfg.bots) {
     let sigs;
     try { sigs = await getJSON(`https://raw.githubusercontent.com/${cfg.gwpRepo}/${cfg.branch}/bots/${bot}/signals.log.json`); }
-    catch (e) { console.log(`[shadow] ${bot}: fetch failed: ${e.message}`); continue; }
+    catch (e) { failCount[bot] = (failCount[bot] || 0) + 1; if (failCount[bot] === 1 || failCount[bot] % 30 === 0) console.log(`[shadow] ${bot}: fetch failed (${failCount[bot]}x in a row, will keep retrying): ${e.message}`); continue; }
+    if (failCount[bot]) { console.log(`[shadow] ${bot}: connection back after ${failCount[bot]} failures`); failCount[bot] = 0; }
     if (!Array.isArray(sigs)) continue;
     const firstForBot = !st.baselined[bot];                      // per-bot baseline: a bot added later never replays history
     for (const s of sigs) {
@@ -154,7 +184,9 @@ async function pass(cfg) {
       if (!px) { journal({ bot, key, grade: g.grade, decision: 'SKIP', reason: 'NOT_LISTED_ON_BYBIT', sym }); continue; }
       const p = planTrade(s, px, cfg);
       if (!p.ok) { journal({ bot, key, grade: g.grade, decision: 'SKIP', reason: p.reason, netRR: p.netRR, basisPct: p.basisPct, sym }); continue; }
-      journal({ bot, key, grade: g.grade, votes: `${g.votes}/${g.of}`, h2: g.h2, decision: 'WOULD_TRADE', sym, ...p });
+      let inst = null; try { inst = await bybitInstrument(sym); } catch {}
+      const ord = checkOrderable(p, inst);
+      journal({ bot, key, grade: g.grade, votes: `${g.votes}/${g.of}`, h2: g.h2, decision: 'WOULD_TRADE', sym, ...p, instrument: inst, orderable: ord.orderable, orderableWhy: ord.why, needNotional: ord.needNotional });
       st.open.push({ bot, key, grade: g.grade, sym, plan: p, startMs: Date.now() });
       console.log(`[shadow] WOULD TRADE (grade ${g.grade}) ${s.direction} ${sym} lev~${p.lev}x netRR ${p.netRR.toFixed(2)}`);
     }
@@ -176,6 +208,9 @@ function report() {
   const res = rows.filter((r) => r.decision === 'RESOLVED');
   const would = rows.filter((r) => r.decision === 'WOULD_TRADE').length;
   const skips = {}; rows.filter((r) => r.decision === 'SKIP').forEach((r) => (skips[r.reason] = (skips[r.reason] || 0) + 1));
+  const wt = rows.filter((r) => r.decision === 'WOULD_TRADE'), nOrd = wt.filter((r) => r.orderable).length;
+  const why = {}; wt.filter((r) => !r.orderable).forEach((r) => (why[r.orderableWhy] = (why[r.orderableWhy] || 0) + 1));
+  console.log(`Orderable with your margin: ${nOrd}/${wt.length}`, why);
   console.log(`Would-trade: ${would} | resolved: ${res.length} | skipped:`, skips);
   for (const b of [...new Set(rows.map((r) => r.bot).filter(Boolean))]) {
     const x = res.filter((r) => r.bot === b), w = x.filter((r) => r.pnl > 0).length;
@@ -196,4 +231,4 @@ async function main() {
   for (;;) { try { await pass(cfg); } catch (e) { console.log('[shadow] pass error:', e.message); } await sleep(cfg.pollSeconds * 1000); }
 }
 if (require.main === module) main();
-module.exports = { toBybitSymbol, parseVotes, gradeSignal, planTrade, resolveOutcome, DEFAULT_CFG };
+module.exports = { checkOrderable, toBybitSymbol, parseVotes, gradeSignal, planTrade, resolveOutcome, DEFAULT_CFG };

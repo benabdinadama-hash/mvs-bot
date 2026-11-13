@@ -9,6 +9,10 @@ assert.strictEqual(m.planTrade({ direction: 'BUY', entryPrice: 1.1, slPrice: 1.0
 const now = Date.now();
 assert.strictEqual(m.resolveOutcome(p, [{ t: now, h: 1.106, l: 1.099, c: 1.1 }], now, 72).result, 'TP1');
 assert.strictEqual(m.resolveOutcome(p, [{ t: now, h: 1.106, l: 1.097, c: 1.1 }], now, 72).result, 'SL'); // same candle: SL first
+const pl = m.planTrade({ direction: 'BUY', entryPrice: 1.1, slPrice: 1.098, tp1Price: 1.105 }, 1.1, c);
+assert.strictEqual(m.checkOrderable(pl, { status: 'Trading', minQty: 1e9, maxLev: 100 }).why, 'BELOW_MIN_QTY');
+assert.strictEqual(m.checkOrderable(pl, { status: 'Trading', minQty: 1, minNotional: 5, maxLev: 100 }).orderable, pl.notional >= 5 && pl.notional / pl.entry >= 1);
+assert.strictEqual(m.checkOrderable(pl, null).orderable, false);
 const src = fs.readFileSync(path.join(__dirname, 'gwp-shadow.js'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('*') && !l.trim().startsWith('//')).join('\n');
 for (const bad of ['apiKey', 'secret', 'BYBIT_API', '/v5/order', '/v5/position', '/v5/account', 'bybit-client', 'execute-signal', 'require(\'../'])
   assert(!src.includes(bad), 'forbidden term: ' + bad);

@@ -1,4 +1,4 @@
-# GWP shadow logger (read-only)
+# GWP shadow logger v1.2 (read-only)
 
 Places NO orders, uses NO API keys, touches NO MVS file. Journal and state live in `~/gwp-shadow/`.
 
@@ -24,3 +24,10 @@ After a few days `--report` shows skip reasons. If most are `NOT_LISTED_ON_BYBIT
 
 ## Remove
 Stop it, delete `~/gwp-shadow` and `execution/shadow`.
+
+## v1.2 changes
+* Network errors (ECONNRESET / ENOTFOUND / timeout, common on a phone) are retried 3x with backoff, and repeated
+  failures are logged once (then every 30th) instead of every minute. It recovers by itself.
+* Each "would trade" is checked against Bybit's minimum order size for that contract (`orderable: true/false`).
+  `--report` prints "Orderable with your margin: N/M". If this is low, a $1.5 margin cannot trade those contracts and
+  the order module needs a higher margin for them - that is learned BEFORE any order code is written.
