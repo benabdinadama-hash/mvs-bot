@@ -19,3 +19,9 @@ Remove: stop it, delete ~/mvs-skips and the three mvs-skips files.
 
 Reading it: a reason with clearly positive net R over many resolved skips means that filter may be too strict.
 Samples are small (tens, not hundreds) - treat as a hint, not proof, and never change a filter from this alone.
+
+## Start the journals after a phone reboot (optional, separate from the watcher)
+    mkdir -p ~/.termux/boot
+    cp ~/mvs-bot/execution/shadow/termux-boot-journals.sh ~/.termux/boot/start-journals.sh
+    chmod +x ~/.termux/boot/start-journals.sh
+Needs the Termux:Boot app (the same one your watcher boot script uses). Undo: `rm ~/.termux/boot/start-journals.sh`.
